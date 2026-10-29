@@ -11,26 +11,15 @@ namespace ZenForge.Services
     /// <summary>
     /// 进程绑核后台监听。
     ///
-    /// 工作机制（0.7.0 起改为事件驱动）：
-    ///   · 主路径：订阅 WMI 的 __InstanceCreationEvent，内核一报「有新进程」就立即处理
-    ///     该 PID —— 查名字、对规则、下发 CPU Set。空闲时进程完全不醒来做事。
-    ///   · 兜底路径：WMI 不可用（精简系统删了 Winmgmt）时，降级为定时全表快照轮询，
-    ///     并弹窗告知用户，而不是静默不工作。
-    ///   · 规则按「进程名」匹配（不区分大小写，如 msedge.exe）。
-    ///   · 结果（成功 / 失败）一律写入 LogService。
+    /// 主路径订阅 WMI 的 __InstanceCreationEvent，内核报「有新进程」才处理该 PID；
+    /// WMI 不可用（精简系统删了 Winmgmt）时降级为 3 秒轮询，并弹窗告知而不是静默不工作。
+    /// 规则按进程名匹配，结果一律进日志。
     ///
-    /// 为什么不再轮询：
-    ///   旧实现每 1 秒枚举一次全系统进程表（Toolhelp32 + 每进程 OpenProcess）。
-    ///   在 300 进程规模下这是 1~3% 单核的常驻开销，而它做的事 99% 的时间只是
-    ///   「确认没有新进程」。WMI 事件让内核在真有新进程时才叫醒我们，
-    ///   空闲开销归零，且发现延迟反而更低（事件通常亚秒级到达）。
+    /// 为什么不再定时轮询：旧实现每秒枚举全系统进程表（Toolhelp32 + 每进程 OpenProcess），
+    /// 300 进程下是 1~3% 单核常驻开销，而它 99% 的时间只是在确认「没有新进程」。
     ///
-    /// 关键设计：
-    ///   1. 用 PidSet 记录「已处理过的 PID」，避免同一进程被重复绑定。
-    ///   2. 两种模式都清理已退出进程的 PID，防止 PID 复用导致新进程被漏绑。
-    ///   3. WMI 事件回调在 WMI 自己的线程上，不在 UI 线程；绑核动作全程无 UI 依赖。
-    ///   4. 任何异常都吞掉并记日志，绝不让监听线程挂掉。
-    ///   5. 只读进程名 / 只写 CPU Set，不碰任何电源或 SMU 逻辑。
+    /// 关键设计：用 PidSet 记录已处理 PID 避免重复绑定；两种模式都清理已退出 PID
+    /// 防止 PID 复用漏绑；WMI 回调不在 UI 线程；异常一律吞掉记日志；不碰电源与 SMU。
     /// </summary>
     public static class ProcessWatcher
     {
@@ -529,21 +518,14 @@ namespace ZenForge.Services
         {
             RefreshRulesIfStale();
 
-            string normalized = name.Trim();
-            foreach (BindingRule rule in BindingStore.Profile.Rules)
-            {
-                if (rule.Target == BindingTarget.None || !rule.Enabled)
-                    continue;
-
-                if (string.IsNullOrWhiteSpace(rule.Name))
-                    continue;
-
-                if (string.Equals(rule.Name.Trim(), normalized, StringComparison.OrdinalIgnoreCase))
-                    return rule;
-            }
-
-            return null;
+            return BindingStore.Profile.Rules.FirstOrDefault(rule => Matches(rule, name));
         }
+
+        private static bool Matches(BindingRule rule, string name) =>
+            rule.Enabled &&
+            rule.Target != BindingTarget.None &&
+            !string.IsNullOrWhiteSpace(rule.Name) &&
+            string.Equals(rule.Name.Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase);
 
         /// <summary>规则去抖窗口。超过这个时长才重新读盘。</summary>
         private const int RuleReloadWindowMs = 1000;

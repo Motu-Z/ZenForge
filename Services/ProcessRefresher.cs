@@ -33,7 +33,10 @@ namespace ZenForge.Services
 
         private const uint TH32CS_SNAPPROCESS = 0x00000002;
         private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
-        private const uint INVALID_HANDLE_VALUE = unchecked((uint)-1);
+
+        // 必须是 64 位全 1：new IntPtr(uint) 会零扩展成 0x00000000FFFFFFFF，
+        // 与 64 位进程里真实的 INVALID_HANDLE_VALUE（0xFFFFFFFFFFFFFFFF）比不上。
+        private const long INVALID_HANDLE_VALUE = -1;
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         private struct PROCESSENTRY32
@@ -226,83 +229,93 @@ namespace ZenForge.Services
             if (Interlocked.Exchange(ref _loopRunning, 1) == 1)
                 return;
 
-            _cts = new CancellationTokenSource();
-            CancellationToken token = _cts.Token;
+            CancellationTokenSource cts = new();
+            _cts = cts;
 
-            Task.Run(async () =>
+            Task.Run(() => RunLoopAsync(cts.Token), cts.Token);
+        }
+
+        private static async Task RunLoopAsync(CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
             {
-                while (!token.IsCancellationRequested)
+                if (!IsWatched)
                 {
-                    // 没人看就挂起：不采样、不计算、不占 CPU，直到有人 AcquireWatch。
-                    // 这里用 TryWait(0) + 等待信号量，而不是「睡一个很长的时间」——
-                    // 后者在用户切回页面的瞬间无法立刻响应，还得等睡完。
+                    if (!await WaitForWatchersAsync(token).ConfigureAwait(false))
+                        break;
+
+                    // 唤醒后可能又是「没人看」（Stop 引起的取消），这一轮就不采了
                     if (!IsWatched)
-                    {
-                        try
-                        {
-                            await _wakeSignal.WaitAsync(token).ConfigureAwait(false);
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            break;
-                        }
-
-                        // 被唤醒后再确认一次：可能是 Stop() 引起的取消
-                        if (token.IsCancellationRequested)
-                            break;
-
-                        // 唤醒后立刻采一次，让用户切回页面时第一眼就是新数据
-                        if (!IsWatched)
-                            continue;
-                    }
-
-                    try
-                    {
-                        Sample();
-                    }
-                    catch (Exception ex)
-                    {
-                        // 循环体本身不能因为一次异常就停摆
-                        LogService.Error($"进程快照失败: {ex.Message}");
-                    }
-
-                    int seconds = Math.Max(1, IntervalSeconds);
-
-                    // 进入睡眠前先把信号量清零：上一轮可能因为「提前唤醒」
-                    // 残留了若干个未消费的信号，不清掉会让后续每一轮都立即返回，
-                    // 从 3 秒一次退化成紧密循环。
-                    while (_wakeSignal.Wait(0))
-                    {
-                        // 消费完毕
-                    }
-
-                    // 睡眠期间也监听唤醒信号：用户切回列表时不必等满一个周期，
-                    // 立刻进入下一轮采样，做到「切回来就有新数据」。
-                    using CancellationTokenSource roundCts =
-                        CancellationTokenSource.CreateLinkedTokenSource(token);
-
-                    Task delay = Task.Delay(TimeSpan.FromSeconds(seconds), roundCts.Token);
-                    Task signal = _wakeSignal.WaitAsync(roundCts.Token);
-
-                    try
-                    {
-                        await Task.WhenAny(delay, signal).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
-                    finally
-                    {
-                        // 撤销本轮未完成的等待，避免残留的 WaitAsync 在
-                        // 下一轮被误当成「新的唤醒」（也避免任务越积越多）
-                        roundCts.Cancel();
-                    }
-
-                    if (token.IsCancellationRequested)
-                        break;
+                        continue;
                 }
-            }, token);
+
+                try
+                {
+                    Sample();
+                }
+                catch (Exception ex)
+                {
+                    // 循环体本身不能因为一次异常就停摆
+                    LogService.Error($"进程快照失败: {ex.Message}");
+                }
+
+                if (!await WaitForNextRoundAsync(token).ConfigureAwait(false))
+                    break;
+            }
+        }
+
+        /// <summary>没人看时挂在信号量上等待，返回 false 表示循环该退出。</summary>
+        private static async Task<bool> WaitForWatchersAsync(CancellationToken token)
+        {
+            // 用等待信号量而不是「睡一个很长的时间」：
+            // 后者在用户切回页面的瞬间无法立刻响应，还得等睡完。
+            try
+            {
+                await _wakeSignal.WaitAsync(token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+
+            return !token.IsCancellationRequested;
+        }
+
+        /// <summary>等满一个周期，或被「有人切回列表」提前唤醒。返回 false 表示循环该退出。</summary>
+        private static async Task<bool> WaitForNextRoundAsync(CancellationToken token)
+        {
+            int seconds = Math.Max(1, IntervalSeconds);
+
+            // 进入睡眠前先把信号量清零：上一轮可能因为「提前唤醒」
+            // 残留了若干个未消费的信号，不清掉会让后续每一轮都立即返回，
+            // 从 3 秒一次退化成紧密循环。
+            while (_wakeSignal.Wait(0))
+            {
+                // 消费完毕
+            }
+
+            using CancellationTokenSource roundCts =
+                CancellationTokenSource.CreateLinkedTokenSource(token);
+
+            Task delay = Task.Delay(TimeSpan.FromSeconds(seconds), roundCts.Token);
+            Task signal = _wakeSignal.WaitAsync(roundCts.Token);
+
+            try
+            {
+                await Task.WhenAny(delay, signal).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+            finally
+            {
+                // 撤销本轮未完成的等待，避免残留的 WaitAsync 在
+                // 下一轮被误当成「新的唤醒」（也避免任务越积越多）
+                roundCts.Cancel();
+            }
+
+            return !token.IsCancellationRequested;
         }
 
         /// <summary>停止后台采样。</summary>
@@ -376,7 +389,7 @@ namespace ZenForge.Services
             long now = Stopwatch.GetTimestamp();
 
             IntPtr snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-            if (snapshot == new IntPtr(INVALID_HANDLE_VALUE) || snapshot == IntPtr.Zero)
+            if (snapshot == IntPtr.Zero || snapshot == new IntPtr(INVALID_HANDLE_VALUE))
                 return result;
 
             try
@@ -523,7 +536,7 @@ namespace ZenForge.Services
                 // 永远到不了 4096，等于这段清理从不执行 —— 开机一天后 _samples 里
                 // 会积压成千上万个已退出进程的空壳。改成「样本数明显多于本轮存活数」
                 // 就扫一次，代价是每轮一次 HashSet 构建（几百个 int，微秒级）。
-                if (_samples.Count <= 0 || _samples.Count <= result.Count)
+                if (_samples.Count <= result.Count)
                     return;
 
                 HashSet<int> alive = new(result.Select(e => e.Pid));
@@ -575,12 +588,10 @@ namespace ZenForge.Services
 
             try
             {
-                int capacity = 1024;
-                StringBuilder sb = new(capacity);
-                uint size = (uint)capacity;
-                if (QueryFullProcessImageNameW(handle, 0, sb, ref size))
-                    return sb.ToString();
-                return string.Empty;
+                StringBuilder sb = new(1024);
+                uint size = (uint)sb.Capacity;
+
+                return QueryFullProcessImageNameW(handle, 0, sb, ref size) ? sb.ToString() : string.Empty;
             }
             catch
             {

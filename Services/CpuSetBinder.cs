@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace ZenForge.Services
@@ -150,11 +151,16 @@ namespace ZenForge.Services
         {
             lock (_topologyLock)
             {
-                _ccdCpuSetIds = null;
-                _lpToCpuSetId = null;
-                _ccdCount = 0;
+                ClearCache();
                 LastTopologyError = null;
             }
+        }
+
+        private static void ClearCache()
+        {
+            _ccdCpuSetIds = null;
+            _lpToCpuSetId = null;
+            _ccdCount = 0;
         }
 
         /// <summary>
@@ -209,6 +215,20 @@ namespace ZenForge.Services
 
         // ---------------- 对外接口 ----------------
 
+        private static CpuSetBindResult Fail(string error, int ccdIndex) => new()
+        {
+            Success = false,
+            CcdIndex = ccdIndex,
+            Error = error
+        };
+
+        private static CpuSetBindResult Ok(uint[] ids, int ccdIndex) => new()
+        {
+            Success = true,
+            CcdIndex = ccdIndex,
+            AppliedCount = ids.Length
+        };
+
         /// <summary>
         /// 按逻辑核掩码把进程的默认 CPU 集合限制到指定核集合。
         ///
@@ -222,25 +242,11 @@ namespace ZenForge.Services
         {
             EnsureTopology();
 
-            if (_lpToCpuSetId == null || _lpToCpuSetId.Length == 0)
-            {
-                return new CpuSetBindResult
-                {
-                    Success = false,
-                    CcdIndex = -1,
-                    Error = "无法读取系统 CPU Set 拓扑"
-                };
-            }
+            if (_lpToCpuSetId is not { Length: > 0 })
+                return Fail("无法读取系统 CPU Set 拓扑", -1);
 
             if (mask == 0)
-            {
-                return new CpuSetBindResult
-                {
-                    Success = false,
-                    CcdIndex = -1,
-                    Error = "掩码为 0，没有可绑定的逻辑核"
-                };
-            }
+                return Fail("掩码为 0，没有可绑定的逻辑核", -1);
 
             List<uint> ids = new();
             int available = _lpToCpuSetId.Length;
@@ -252,14 +258,7 @@ namespace ZenForge.Services
             }
 
             if (ids.Count == 0)
-            {
-                return new CpuSetBindResult
-                {
-                    Success = false,
-                    CcdIndex = -1,
-                    Error = $"掩码 0x{mask:X} 未命中任何逻辑核（本机仅 {available} 个）"
-                };
-            }
+                return Fail($"掩码 0x{mask:X} 未命中任何逻辑核（本机仅 {available} 个）", -1);
 
             return ApplyCpuSets(processId, ids.ToArray(), -1);
         }
@@ -274,35 +273,14 @@ namespace ZenForge.Services
             EnsureTopology();
 
             if (_ccdCpuSetIds == null || _ccdCount == 0)
-            {
-                return new CpuSetBindResult
-                {
-                    Success = false,
-                    CcdIndex = ccdIndex,
-                    Error = "无法读取系统 CPU Set 拓扑"
-                };
-            }
+                return Fail("无法读取系统 CPU Set 拓扑", ccdIndex);
 
             if (ccdIndex < 0 || ccdIndex >= _ccdCount)
-            {
-                return new CpuSetBindResult
-                {
-                    Success = false,
-                    CcdIndex = ccdIndex,
-                    Error = $"CCD{ccdIndex} 不存在（本机仅 {_ccdCount} 个 CCD）"
-                };
-            }
+                return Fail($"CCD{ccdIndex} 不存在（本机仅 {_ccdCount} 个 CCD）", ccdIndex);
 
             uint[] ids = _ccdCpuSetIds[ccdIndex].ToArray();
             if (ids.Length == 0)
-            {
-                return new CpuSetBindResult
-                {
-                    Success = false,
-                    CcdIndex = ccdIndex,
-                    Error = $"CCD{ccdIndex} 未解析到任何 CPU Set"
-                };
-            }
+                return Fail($"CCD{ccdIndex} 未解析到任何 CPU Set", ccdIndex);
 
             return ApplyCpuSets(processId, ids, ccdIndex);
         }
@@ -316,6 +294,7 @@ namespace ZenForge.Services
             // 老系统不认这个位时回退到 SET_INFORMATION。
             IntPtr handle = OpenProcess(
                 PROCESS_SET_LIMITED_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+
             if (handle == IntPtr.Zero)
             {
                 handle = OpenProcess(
@@ -325,43 +304,22 @@ namespace ZenForge.Services
             if (handle == IntPtr.Zero)
             {
                 int err = Marshal.GetLastWin32Error();
-                return new CpuSetBindResult
-                {
-                    Success = false,
-                    CcdIndex = ccdIndex,
-                    Error = $"OpenProcess 失败（错误 {err}，通常是权限不足或进程已退出）"
-                };
+                return Fail($"OpenProcess 失败（错误 {err}，通常是权限不足或进程已退出）", ccdIndex);
             }
 
             try
             {
-                bool ok = SetProcessDefaultCpuSets(handle, ids, (uint)ids.Length);
-                if (!ok)
+                if (!SetProcessDefaultCpuSets(handle, ids, (uint)ids.Length))
                 {
                     int err = Marshal.GetLastWin32Error();
-                    return new CpuSetBindResult
-                    {
-                        Success = false,
-                        CcdIndex = ccdIndex,
-                        Error = $"SetProcessDefaultCpuSets 失败（错误 {err}）"
-                    };
+                    return Fail($"SetProcessDefaultCpuSets 失败（错误 {err}）", ccdIndex);
                 }
 
-                return new CpuSetBindResult
-                {
-                    Success = true,
-                    CcdIndex = ccdIndex,
-                    AppliedCount = ids.Length
-                };
+                return Ok(ids, ccdIndex);
             }
             catch (Exception ex)
             {
-                return new CpuSetBindResult
-                {
-                    Success = false,
-                    CcdIndex = ccdIndex,
-                    Error = ex.Message
-                };
+                return Fail(ex.Message, ccdIndex);
             }
             finally
             {
@@ -404,73 +362,66 @@ namespace ZenForge.Services
                     List<(uint Id, byte LpIndex, ushort Group, byte LlcIndex)> processors = QueryProcessorCpuSets();
                     if (processors.Count == 0)
                     {
-                        _ccdCount = 0;
-                        _ccdCpuSetIds = null;
-                        _lpToCpuSetId = null;
                         LastTopologyError ??= "CPU Sets 枚举返回 0 条（未解析到任何逻辑处理器）";
+                        ClearCache();
                         LogService.Error($"CPU Sets 拓扑不可用：{LastTopologyError}");
                         return;
                     }
 
-                    int ccds = DetectCcdCount(processors.Count);
-                    _ccdCount = ccds;
-
-                    // 按 (Group, LogicalProcessorIndex) 排序，保证顺序稳定
-                    processors.Sort((a, b) =>
-                    {
-                        int g = a.Group.CompareTo(b.Group);
-                        return g != 0 ? g : a.LpIndex.CompareTo(b.LpIndex);
-                    });
-
-                    int perCcd = (processors.Count + ccds - 1) / ccds;
-
-                    // 优先用 L3 缓存索引分组：AMD Zen 每个 CCD 独享一块 L3，
-                    // 同一 CCD 内的所有逻辑核 LastLevelCacheIndex 相同，是天然且准确的 CCD 边界。
-                    List<uint>[]? byCache = GroupByLastLevelCache(processors, ccds);
-                    List<uint>[] groups;
-                    string groupBasis;
-
-                    if (byCache != null)
-                    {
-                        groups = byCache;
-                        groupBasis = "L3 缓存索引（真实 CCD 边界）";
-                    }
-                    else
-                    {
-                        // 回退：均分。第 i 个处理器落入第 i / ceil(n / ccds) 组
-                        groups = new List<uint>[ccds];
-                        for (int i = 0; i < ccds; i++)
-                            groups[i] = new List<uint>();
-
-                        for (int i = 0; i < processors.Count; i++)
-                        {
-                            int group = Math.Min(i / perCcd, ccds - 1);
-                            groups[group].Add(processors[i].Id);
-                        }
-                        groupBasis = $"逻辑序号均分（每组 {perCcd} 个）";
-                    }
-
-                    _ccdCpuSetIds = groups;
-
-                    // 扁平数组：索引 = 排序后的逻辑处理器序号（0 起），值 = CpuSetId
-                    uint[] flat = new uint[processors.Count];
-                    for (int i = 0; i < processors.Count; i++)
-                        flat[i] = processors[i].Id;
-                    _lpToCpuSetId = flat;
-                    LastTopologyError = null;
-
-                    LogService.Info(
-                        $"CPU Sets 拓扑：{processors.Count} 个逻辑处理器，划分为 {ccds} 个 CCD，分组依据 = {groupBasis}");
+                    _ccdCount = DetectCcdCount(processors.Count);
+                    GroupProcessors(processors, _ccdCount);
                 }
                 catch (Exception ex)
                 {
-                    _ccdCount = 0;
-                    _ccdCpuSetIds = null;
-                    _lpToCpuSetId = null;
                     LastTopologyError = $"CPU Sets 拓扑解析异常：{ex.Message}";
+                    ClearCache();
                     LogService.Error(LastTopologyError);
                 }
             }
+        }
+
+        /// <summary>把已排序前未分组的处理器列表切分成 CCD，并落成扁平索引表。</summary>
+        private static void GroupProcessors(
+            List<(uint Id, byte LpIndex, ushort Group, byte LlcIndex)> processors, int ccds)
+        {
+            // 按 (Group, LogicalProcessorIndex) 排序，保证顺序稳定
+            processors.Sort((a, b) =>
+            {
+                int g = a.Group.CompareTo(b.Group);
+                return g != 0 ? g : a.LpIndex.CompareTo(b.LpIndex);
+            });
+
+            // 优先用 L3 缓存索引分组：AMD Zen 每个 CCD 独享一块 L3，
+            // 同一 CCD 内的所有逻辑核 LastLevelCacheIndex 相同，是天然且准确的 CCD 边界。
+            List<uint>[]? byCache = GroupByLastLevelCache(processors, ccds);
+            int perCcd = (processors.Count + ccds - 1) / ccds;
+
+            _ccdCpuSetIds = byCache ?? SplitEvenly(processors, ccds, perCcd);
+
+            // 扁平数组：索引 = 排序后的逻辑处理器序号（0 起），值 = CpuSetId
+            _lpToCpuSetId = processors.Select(p => p.Id).ToArray();
+            LastTopologyError = null;
+
+            string groupBasis = byCache != null
+                ? "L3 缓存索引（真实 CCD 边界）"
+                : $"逻辑序号均分（每组 {perCcd} 个）";
+
+            LogService.Info(
+                $"CPU Sets 拓扑：{processors.Count} 个逻辑处理器，划分为 {ccds} 个 CCD，分组依据 = {groupBasis}");
+        }
+
+        /// <summary>回退分组：第 i 个处理器落入第 i / ceil(n / ccds) 组。</summary>
+        private static List<uint>[] SplitEvenly(
+            List<(uint Id, byte LpIndex, ushort Group, byte LlcIndex)> processors, int ccds, int perCcd)
+        {
+            List<uint>[] groups = new List<uint>[ccds];
+            for (int i = 0; i < ccds; i++)
+                groups[i] = new List<uint>();
+
+            for (int i = 0; i < processors.Count; i++)
+                groups[Math.Min(i / perCcd, ccds - 1)].Add(processors[i].Id);
+
+            return groups;
         }
 
         /// <summary>
@@ -556,90 +507,88 @@ namespace ZenForge.Services
         /// <summary>调用 GetSystemCpuSetInformation 枚举全部 CPU Set 条目。</summary>
         private static List<(uint Id, byte LpIndex, ushort Group, byte LlcIndex)> QueryProcessorCpuSets()
         {
-            List<(uint, byte, ushort, byte)> result = new();
-
-            // ---------- 第一步：传 IntPtr.Zero 探测所需缓冲区大小 ----------
-            // 按官方用法，此时函数返回 FALSE 且 lastError = ERROR_INSUFFICIENT_BUFFER(122)，
-            // ReturnedLength 回填真实所需字节数。这一句是「能不能读到拓扑」的关键。
-            uint required = 0;
-            GetSystemCpuSetInformation(IntPtr.Zero, 0, out required, IntPtr.Zero, 0);
-
-            const int MaxBufferSize = 4 * 1024 * 1024;
-            int bufferSize = required > 0 ? (int)required + 1024 : 8192;
+            // 先传 IntPtr.Zero 探测所需缓冲区大小：按官方用法此时返回 FALSE 且
+            // lastError = ERROR_INSUFFICIENT_BUFFER(122)，ReturnedLength 回填真实字节数。
+            GetSystemCpuSetInformation(IntPtr.Zero, 0, out uint required, IntPtr.Zero, 0);
 
             IntPtr buffer = IntPtr.Zero;
-            uint returned = 0;
-            bool ok = false;
 
             try
             {
-                // ---------- 第二步：按实际大小分配并真正读取 ----------
-                for (int attempt = 0; attempt < 8 && bufferSize <= MaxBufferSize; attempt++)
-                {
-                    if (buffer != IntPtr.Zero)
-                        Marshal.FreeHGlobal(buffer);
-
-                    buffer = Marshal.AllocHGlobal(bufferSize);
-
-                    ok = GetSystemCpuSetInformation(
-                        buffer, (uint)bufferSize, out returned, IntPtr.Zero, 0);
-
-                    if (ok)
-                        break;
-
-                    int err = Marshal.GetLastWin32Error();
-
-                    // 缓冲区不够（122 / 111）→ 按回填值扩容重试
-                    if (err == 122 || err == 111)
-                    {
-                        int need = returned > 0 ? (int)returned + 1024 : bufferSize * 2;
-                        bufferSize = Math.Max(need, bufferSize * 2);
-                        continue;
-                    }
-
-                    LastTopologyError = $"GetSystemCpuSetInformation 失败（错误 {err}）";
-                    LogService.Error(LastTopologyError);
-                    return result;
-                }
-
-                if (!ok)
-                {
-                    LastTopologyError = $"GetSystemCpuSetInformation 在 {bufferSize} 字节下仍失败";
-                    LogService.Error(LastTopologyError);
-                    return result;
-                }
-
-                // ---------- 第三步：逐条解析 ----------
-                int offset = 0;
-                int total = (int)returned;
-
-                while (offset + 8 <= total)
-                {
-                    IntPtr entryPtr = buffer + offset;
-
-                    // Size 是 DWORD(@0)，Type 是 WORD(@4)，必须按 2 字节读
-                    uint size = (uint)Marshal.ReadInt32(entryPtr, 0);
-                    ushort type = (ushort)Marshal.ReadInt16(entryPtr, 4);
-
-                    if (size < 8)
-                        break;
-
-                    // CPU_SET_INFORMATION_TYPE 恒为 0（CpuSetInformation）。
-                    // 之前误按 Processor = 1 匹配，导致条目全被丢弃——这是本次的根因。
-                    if (type == CpuSetInformationType && size >= 24)
-                    {
-                        SYSTEM_CPU_SET_INFORMATION info =
-                            Marshal.PtrToStructure<SYSTEM_CPU_SET_INFORMATION>(entryPtr);
-                        result.Add((info.Id, info.LogicalProcessorIndex, info.Group, info.LastLevelCacheIndex));
-                    }
-
-                    offset += (int)size;
-                }
+                return TryReadCpuSets(ref buffer, required, out uint returned)
+                    ? ParseEntries(buffer, (int)returned)
+                    : new List<(uint Id, byte LpIndex, ushort Group, byte LlcIndex)>();
             }
             finally
             {
                 if (buffer != IntPtr.Zero)
                     Marshal.FreeHGlobal(buffer);
+            }
+        }
+
+        /// <summary>按探测到的大小分配缓冲并读取，缓冲区不够时按回填值扩容重试。</summary>
+        private static bool TryReadCpuSets(ref IntPtr buffer, uint required, out uint returned)
+        {
+            const int MaxBufferSize = 4 * 1024 * 1024;
+            int bufferSize = required > 0 ? (int)required + 1024 : 8192;
+            returned = 0;
+
+            for (int attempt = 0; attempt < 8 && bufferSize <= MaxBufferSize; attempt++)
+            {
+                if (buffer != IntPtr.Zero)
+                    Marshal.FreeHGlobal(buffer);
+
+                buffer = Marshal.AllocHGlobal(bufferSize);
+
+                if (GetSystemCpuSetInformation(buffer, (uint)bufferSize, out returned, IntPtr.Zero, 0))
+                    return true;
+
+                int err = Marshal.GetLastWin32Error();
+
+                // 122 = ERROR_INSUFFICIENT_BUFFER，111 = ERROR_BUFFER_OVERFLOW
+                if (err != 122 && err != 111)
+                {
+                    LastTopologyError = $"GetSystemCpuSetInformation 失败（错误 {err}）";
+                    LogService.Error(LastTopologyError);
+                    return false;
+                }
+
+                int need = returned > 0 ? (int)returned + 1024 : bufferSize * 2;
+                bufferSize = Math.Max(need, bufferSize * 2);
+            }
+
+            LastTopologyError = $"GetSystemCpuSetInformation 在 {bufferSize} 字节下仍失败";
+            LogService.Error(LastTopologyError);
+            return false;
+        }
+
+        /// <summary>逐条解析回填的记录，推进步长一律用 Windows 回填的 Size（真实长度）。</summary>
+        private static List<(uint Id, byte LpIndex, ushort Group, byte LlcIndex)> ParseEntries(
+            IntPtr buffer, int total)
+        {
+            List<(uint Id, byte LpIndex, ushort Group, byte LlcIndex)> result = new();
+
+            for (int offset = 0; offset + 8 <= total;)
+            {
+                IntPtr entryPtr = buffer + offset;
+
+                // Size 是 DWORD(@0)，Type 是 WORD(@4)，必须按 2 字节读
+                uint size = (uint)Marshal.ReadInt32(entryPtr, 0);
+                ushort type = (ushort)Marshal.ReadInt16(entryPtr, 4);
+
+                if (size < 8)
+                    break;
+
+                // CPU_SET_INFORMATION_TYPE 恒为 0。曾误按 Processor = 1 匹配，
+                // 导致条目全被丢弃、拓扑恒空，这是当时的根因。
+                if (type == CpuSetInformationType && size >= 24)
+                {
+                    SYSTEM_CPU_SET_INFORMATION info =
+                        Marshal.PtrToStructure<SYSTEM_CPU_SET_INFORMATION>(entryPtr);
+                    result.Add((info.Id, info.LogicalProcessorIndex, info.Group, info.LastLevelCacheIndex));
+                }
+
+                offset += (int)size;
             }
 
             return result;

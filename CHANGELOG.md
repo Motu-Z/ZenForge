@@ -29,6 +29,16 @@ ZenForge 各版本改动记录。安装包与 Release 正文均以本文件为�
 
 程序内部（日志、关于信息）显示的版本取自 `AssemblyInformationalVersion`，带后缀；资源管理器「属性 → 详细信息」里的文件版本是四段数字。两者一对照就能确定这个包是第几次发版。
 
+### 0.9.0-can2
+
+第二轮复核，仍是纯整理，不改动任何业务逻辑与执行流程。
+
+`Helpers`：`UiSettingsStore` 的读盘分支合并为一条路径（旧配置兼容判定不变），`Directory` 字段改名，不再需要用全名绕开 `System.IO.Directory`；`MaskFormatter` 把三层嵌套的解析拆成「判十六进制 / 解析十六进制 / 解析区间与枚举」三个方法，删掉两个没有调用方的输出方法，42 组输入的新旧解析结果逐条比对一致；`MaskNamePolicy` 删掉没有调用方的计数文本方法。
+
+`Services`：`CpuSetBinder` 把六处重复的结果构造收敛成两个工厂，拓扑加载的主体拆成独立方法，缓冲区读取与条目解析各自独立；`ProcessRefresher` 的采样循环拆成三个方法，顺带修正 64 位下无效句柄的判定（原先按 32 位常量比较，永远比不中真实的 `INVALID_HANDLE_VALUE`）；`LogService` 抽出带重试的删除与日志文件名日期解析；`SmuReader` 去掉一处重复的版本号格式化；`ProcessWatcher` 的规则匹配改为单一谓词。
+
+死代码处置说明：`WakeWindow` / `NativeTrayIcon` / `CpuSetBinder` 里那几个「有 API 语义但当前无调用方」的成员（如 `IsCreated`、`ExitRequested`、`ResetTopology`）保留未删 —— 它们属于进程控制与系统拓扑的对外接口面，删了在后续改造里反而要补回来。
+
 ### 0.9.0-can1
 
 第一轮代码整理，不改动任何业务逻辑与执行流程。

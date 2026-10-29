@@ -32,9 +32,6 @@ namespace ZenForge.Services
             LogLevel.Error => "ERROR",
             _ => "INFO"
         };
-
-        /// <summary>Debug 条目在界面日志里默认隐藏，避免刷屏。</summary>
-        public bool IsDebug => Level == LogLevel.Debug;
     }
 
     /// <summary>
@@ -74,6 +71,8 @@ namespace ZenForge.Services
 
         /// <summary>日志文件最长留存天数，超过的启动即删。</summary>
         private const int MaxRetentionDays = 14;
+
+        private const string LogPrefix = "zenforge-";
 
         // ==================== 落盘：后台批量写 ====================
         //
@@ -224,31 +223,35 @@ namespace ZenForge.Services
                         return;
 
                     foreach (string file in Directory.EnumerateFiles(LogDirectory, "zenforge-*.log"))
-                    {
-                        for (int attempt = 0; attempt < 3; attempt++)
-                        {
-                            try
-                            {
-                                File.Delete(file);
-                                break;
-                            }
-                            catch (IOException)
-                            {
-                                // 句柄还开着，给写盘线程一点时间收尾
-                                Thread.Sleep(30);
-                            }
-                            catch
-                            {
-                                break;
-                            }
-                        }
-                    }
+                        DeleteWithRetry(file);
                 }
                 catch
                 {
                     // 清盘失败不应影响清屏
                 }
             });
+        }
+
+        /// <summary>删不掉通常是写盘线程正持有句柄（Windows 的共享模式），短暂重试几次。</summary>
+        private static void DeleteWithRetry(string file)
+        {
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                try
+                {
+                    File.Delete(file);
+                    return;
+                }
+                catch (IOException)
+                {
+                    // 句柄还开着，给写盘线程一点时间收尾
+                    Thread.Sleep(30);
+                }
+                catch
+                {
+                    return;
+                }
+            }
         }
 
         /// <summary>启动时删除超过 <paramref name="maxDays"/> 天的日志文件。</summary>
@@ -260,22 +263,11 @@ namespace ZenForge.Services
                     return;
 
                 DateTime cutoff = DateTime.Today.AddDays(-maxDays);
-                const string Prefix = "zenforge-";
 
-                foreach (string file in Directory.EnumerateFiles(LogDirectory, Prefix + "*.log"))
+                foreach (string file in Directory.EnumerateFiles(LogDirectory, LogPrefix + "*.log"))
                 {
-                    string name = Path.GetFileNameWithoutExtension(file);
-                    if (name.Length <= Prefix.Length)
-                        continue;
-
                     // 文件名含日期：zenforge-YYYYMMDD.log
-                    if (DateTime.TryParseExact(
-                            name.Substring(Prefix.Length),
-                            "yyyyMMdd",
-                            CultureInfo.InvariantCulture,
-                            DateTimeStyles.None,
-                            out DateTime date)
-                        && date < cutoff)
+                    if (TryParseLogDate(file, out DateTime date) && date < cutoff)
                     {
                         try { File.Delete(file); }
                         catch { /* 忽略单个文件 */ }
@@ -286,6 +278,19 @@ namespace ZenForge.Services
             {
                 // 留存清理失败不影响启动
             }
+        }
+
+        private static bool TryParseLogDate(string file, out DateTime date)
+        {
+            string name = Path.GetFileNameWithoutExtension(file);
+            if (name.Length <= LogPrefix.Length)
+            {
+                date = default;
+                return false;
+            }
+
+            return DateTime.TryParseExact(name.Substring(LogPrefix.Length), "yyyyMMdd",
+                                          CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
         }
 
         private static void Write(LogLevel level, string message)

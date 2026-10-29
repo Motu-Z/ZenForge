@@ -96,10 +96,10 @@ namespace ZenForge.Helpers
 
     public static class UiSettingsStore
     {
-        private static readonly string Directory =
-            System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZenForge");
+        private static readonly string ConfigDirectory =
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZenForge");
 
-        private static readonly string FilePath = System.IO.Path.Combine(Directory, "ui.json");
+        private static readonly string FilePath = Path.Combine(ConfigDirectory, "ui.json");
 
         public static UiSettings Settings { get; private set; } = new();
 
@@ -107,36 +107,7 @@ namespace ZenForge.Helpers
         {
             try
             {
-                if (!File.Exists(FilePath))
-                {
-                    // 首次运行：默认「跟随系统」强调色 + 跟随系统主题。
-                    // 这里给的是出厂默认值，不是"猜"出来的。
-                    Settings = new UiSettings();
-                }
-                else
-                {
-                    string json = File.ReadAllText(FilePath);
-                    Settings = JsonSerializer.Deserialize<UiSettings>(json) ?? new UiSettings();
-
-                    // ---------- 兼容旧版 ui.json ----------
-                    // 旧版字段只有 themeMode / followSystemAccent / customAccentHex，
-                    // 且 followSystemAccent 的默认值曾经是 false（还配过一个写死的青色），
-                    // 于是所有人打开程序看到的都是硬编码青，而不是"跟随系统"。
-                    //
-                    // 判定规则：文件里**根本没有** followSystemAccent 这个键 → 视为从未设置过，
-                    // 强制回到「跟随系统」；只要用户明确写过这个键（无论 true/false），就尊重他。
-                    using JsonDocument doc = JsonDocument.Parse(json);
-                    if (doc.RootElement.ValueKind == JsonValueKind.Object &&
-                        doc.RootElement.TryGetProperty(nameof(UiSettings.FollowSystemAccent), out _))
-                    {
-                        Settings.FollowSystemAccentExplicit = true;
-                    }
-                    else
-                    {
-                        Settings.FollowSystemAccentExplicit = false;
-                        Settings.FollowSystemAccent = true;
-                    }
-                }
+                Settings = File.Exists(FilePath) ? ReadFromDisk() : new UiSettings();
             }
             catch
             {
@@ -146,27 +117,42 @@ namespace ZenForge.Helpers
             Normalize();
         }
 
+        private static UiSettings ReadFromDisk()
+        {
+            string json = File.ReadAllText(FilePath);
+            UiSettings settings = JsonSerializer.Deserialize<UiSettings>(json) ?? new UiSettings();
+
+            // 旧版 ui.json 的 followSystemAccent 默认 false 且配过写死的青色，
+            // 于是老用户打开程序看到的都是硬编码青。文件里没写过这个键 = 从未设置过，
+            // 强制回到「跟随系统」；明确写过（无论 true/false）就尊重用户。
+            using JsonDocument doc = JsonDocument.Parse(json);
+            settings.FollowSystemAccentExplicit =
+                doc.RootElement.ValueKind == JsonValueKind.Object &&
+                doc.RootElement.TryGetProperty(nameof(UiSettings.FollowSystemAccent), out _);
+
+            if (!settings.FollowSystemAccentExplicit)
+                settings.FollowSystemAccent = true;
+
+            return settings;
+        }
+
         /// <summary>
         /// 把数值类字段拉回合法区间。
-        ///
-        /// 配置文件是纯文本，人手改坏、或从旧版本继承一个 0 / 负数都是常事。
-        /// 在这里统一收口，读出来的 Settings 就一定是能直接用、不用每处再判一遍的值。
+        /// 配置文件是纯文本，人手改坏、或从旧版本继承一个 0 / 负数都是常事，
+        /// 在这里统一收口，读出来的 Settings 就一定是能直接用的值。
         /// </summary>
         private static void Normalize()
         {
-            UiSettings s = Settings;
-
-            // 延迟目前不在界面上暴露，一律回到默认 3 秒。
-            // 旧配置里可能是 1（更早的最小值）或 30（更早的默认值），都不是现在想要的。
-            // 等把输入框加回来，这里再改成只做区间收敛。
-            s.LightModeDelaySeconds = 3;
+            // 延迟目前不在界面暴露，一律回到默认 3 秒（旧配置里可能是 1 或 30）。
+            // 等输入框加回来，这里再改成只做区间收敛。
+            Settings.LightModeDelaySeconds = 3;
         }
 
         public static void Save()
         {
             try
             {
-                System.IO.Directory.CreateDirectory(Directory);
+                Directory.CreateDirectory(ConfigDirectory);
                 string temp = FilePath + ".tmp";
                 File.WriteAllText(temp, JsonSerializer.Serialize(Settings, new JsonSerializerOptions { WriteIndented = true }));
                 File.Move(temp, FilePath, true);

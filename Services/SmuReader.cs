@@ -350,10 +350,7 @@ namespace ZenForge.Services
                 snapshot.PhysicalCores = cpu.info.topology.physicalCores;
                 snapshot.ThreadsPerCore = cpu.info.topology.threadsPerCore;
 
-                uint smuVersion = cpu.smu.Version;
-                if (smuVersion == 0)
-                    smuVersion = cpu.GetSmuVersion();
-                snapshot.SmuVersion = smuVersion == 0 ? "未知" : $"0x{smuVersion:X}";
+                snapshot.SmuVersion = SmuVersionString(cpu);
 
                 LogService.Info(
                     $"CPU: {snapshot.CpuName} | {snapshot.CodeName} | {snapshot.Family} | " +

@@ -30,6 +30,25 @@ namespace ZenForge.Services
             Line("================================================================");
             Line();
 
+            AppendEnvironment(sb);
+            AppendTopology(sb);
+            SmuSnapshot snapshot = AppendSnapshot(sb);
+            AppendMaskDeduction(sb, snapshot);
+            AppendWriteTest(sb, snapshot);
+            AppendFMaxChannel(sb);
+            AppendWatcherState(sb);
+
+            Line("================================================================");
+            Line("  报告结束");
+            Line("================================================================");
+
+            return Write(sb.ToString());
+        }
+
+        private static void AppendEnvironment(StringBuilder sb)
+        {
+            void Line(string text = "") => sb.AppendLine(text);
+
             // ---------- 1. 环境 ----------
             Line("[1] 运行环境");
             try
@@ -49,6 +68,11 @@ namespace ZenForge.Services
                 Line($"    !! 采集环境信息失败：{ex.Message}");
             }
             Line();
+        }
+
+        private static void AppendTopology(StringBuilder sb)
+        {
+            void Line(string text = "") => sb.AppendLine(text);
 
             // ---------- 2. ZenForge 看到的核心拓扑 ----------
             Line("[2] ZenForge 侧拓扑（决定 CO 掩码怎么拆）");
@@ -73,6 +97,11 @@ namespace ZenForge.Services
                 Line($"    !! 采集拓扑失败：{ex.Message}");
             }
             Line();
+        }
+
+        private static SmuSnapshot AppendSnapshot(StringBuilder sb)
+        {
+            void Line(string text = "") => sb.AppendLine(text);
 
             // ---------- 3. SMU 只读快照 ----------
             Line("[3] SMU 只读快照");
@@ -130,6 +159,13 @@ namespace ZenForge.Services
             }
             Line();
 
+            return snapshot;
+        }
+
+        private static void AppendMaskDeduction(StringBuilder sb, SmuSnapshot snapshot)
+        {
+            void Line(string text = "") => sb.AppendLine(text);
+
             // ---------- 4. CO 掩码推演 ----------
             Line("[4] CO 掩码推演（不做任何写入）");
             try
@@ -157,6 +193,11 @@ namespace ZenForge.Services
                 Line($"    !! 推演失败：{ex.Message}");
             }
             Line();
+        }
+
+        private static void AppendWriteTest(StringBuilder sb, SmuSnapshot snapshot)
+        {
+            void Line(string text = "") => sb.AppendLine(text);
 
             // ---------- 5. 写入回滚测试 ----------
             Line("[5] 写入测试（只写当前值，等价于不改动）");
@@ -222,6 +263,11 @@ namespace ZenForge.Services
                 Line($"    !! 写入测试失败：{ex}");
             }
             Line();
+        }
+
+        private static void AppendFMaxChannel(StringBuilder sb)
+        {
+            void Line(string text = "") => sb.AppendLine(text);
 
             // ---------- 6. FMax 通道 ----------
             Line("[6] FMax 读取通道");
@@ -249,6 +295,11 @@ namespace ZenForge.Services
                 Line($"    !! FMax 测试失败：{ex}");
             }
             Line();
+        }
+
+        private static void AppendWatcherState(StringBuilder sb)
+        {
+            void Line(string text = "") => sb.AppendLine(text);
 
             // ---------- 7. 绑定监听模式 ----------
             Line("[7] 进程绑核监听");
@@ -263,15 +314,9 @@ namespace ZenForge.Services
                 Line($"    !! 采集失败：{ex.Message}");
             }
             Line();
-
-            Line("================================================================");
-            Line("  报告结束");
-            Line("================================================================");
-
-            return Write(sb.ToString());
         }
 
-        private static string Write(string content)
+private static string Write(string content)
         {
             string dir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),

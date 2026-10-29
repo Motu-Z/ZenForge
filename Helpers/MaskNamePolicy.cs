@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 
 namespace ZenForge.Helpers
 {
@@ -173,9 +172,5 @@ namespace ZenForge.Helpers
 
             return text.Substring(0, Math.Min(cut, text.Length));
         }
-
-        /// <summary>计数区文本，例如「已用 8／12」。</summary>
-        public static string CountText(string? text) =>
-            string.Create(CultureInfo.InvariantCulture, $"已用 {Weight((text ?? string.Empty).Trim())}／{MaxWeight}");
     }
 }

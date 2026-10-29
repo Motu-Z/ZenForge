@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
-using System.Text;
 
 namespace ZenForge.Helpers
 {
@@ -20,6 +19,8 @@ namespace ZenForge.Helpers
     /// </summary>
     public static class MaskFormatter
     {
+        private static readonly char[] Separators = { ',', '，', ' ', ';', '；' };
+
         /// <summary>位掩码转「区间列表」文本，如 0x00FF00FF → "0-7,16-23"。</summary>
         public static string ToRangeText(ulong mask)
         {
@@ -60,10 +61,6 @@ namespace ZenForge.Helpers
             return "0x" + mask.ToString("X" + hexDigits);
         }
 
-        /// <summary>同时给出区间与十六进制，用于 ToolTip。</summary>
-        public static string ToFullText(ulong mask)
-            => mask == 0 ? "无" : $"{ToRangeText(mask)}（{ToHexText(mask)}）";
-
         /// <summary>
         /// 解析用户输入的掩码文本。
         /// 返回 true 表示解析成功，mask 为结果，error 为失败原因。
@@ -89,79 +86,101 @@ namespace ZenForge.Helpers
                 return false;
             }
 
-            // ---------- 形式 1：十六进制 ----------
-            string hexCandidate = input;
-            if (hexCandidate.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-                hexCandidate = hexCandidate.Substring(2);
+            return LooksLikeHex(input)
+                ? TryParseHex(input, out mask, out error)
+                : TryParseList(input, out mask, out error);
+        }
 
-            bool looksLikeHex =
-                input.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ||
-                (hexCandidate.Length > 0 &&
-                 !input.Contains(',') &&
-                 !input.Contains('-') &&
-                 hexCandidate.All(Uri.IsHexDigit) &&
-                 hexCandidate.Any(c => char.IsLetter(c)));
+        /// <summary>
+        /// 十六进制的判定要收紧：纯数字（如 "16"）必须留给枚举列表，
+        /// 否则用户想表达 0-16 区间之外的单个核时会被误读成十六进制。
+        /// </summary>
+        private static bool LooksLikeHex(string input) =>
+            input.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ||
+            (input.Length > 0 &&
+             !input.Contains(',') &&
+             !input.Contains('-') &&
+             input.All(Uri.IsHexDigit) &&
+             input.Any(char.IsLetter));
 
-            if (looksLikeHex)
+        private static bool TryParseHex(string input, out ulong mask, out string? error)
+        {
+            string body = input.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+                ? input.Substring(2)
+                : input;
+
+            if (!ulong.TryParse(body, System.Globalization.NumberStyles.HexNumber, null, out mask))
             {
-                if (!ulong.TryParse(hexCandidate, System.Globalization.NumberStyles.HexNumber,
-                                    null, out mask))
-                {
-                    error = $"“{input}”不是合法的十六进制掩码";
-                    return false;
-                }
-
-                return Validate(mask, out error);
+                error = $"“{input}”不是合法的十六进制掩码";
+                mask = 0;
+                return false;
             }
 
-            // ---------- 形式 2/3：区间或枚举列表 ----------
-            foreach (string rawPart in input.Split(new[] { ',', '，', ' ', ';', '；' },
-                                                   StringSplitOptions.RemoveEmptyEntries))
+            return Validate(mask, out error);
+        }
+
+        /// <summary>区间列表（0-7,16-23）与枚举列表（0,1,2,3）共用一套分隔符切分。</summary>
+        private static bool TryParseList(string input, out ulong mask, out string? error)
+        {
+            mask = 0;
+
+            foreach (string rawPart in input.Split(Separators, StringSplitOptions.RemoveEmptyEntries))
             {
                 string part = rawPart.Trim();
                 if (part.Length == 0)
                     continue;
 
                 int dash = part.IndexOf('-');
-                if (dash > 0)
-                {
-                    string left = part.Substring(0, dash).Trim();
-                    string right = part.Substring(dash + 1).Trim();
+                bool ok = dash > 0
+                    ? TryParseRange(part, dash, ref mask, out error)
+                    : TryParseSingle(part, ref mask, out error);
 
-                    if (!int.TryParse(left, out int from) || !int.TryParse(right, out int to))
-                    {
-                        error = $"区间“{part}”格式不正确，应为 起始-结束";
-                        return false;
-                    }
-
-                    if (from < 0 || to > 63 || from > to)
-                    {
-                        error = $"区间“{part}”超出 0-63 范围或起止颠倒";
-                        return false;
-                    }
-
-                    for (int i = from; i <= to; i++)
-                        mask |= 1UL << i;
-                }
-                else
-                {
-                    if (!int.TryParse(part, out int core))
-                    {
-                        error = $"“{part}”既不是数字也不是区间";
-                        return false;
-                    }
-
-                    if (core < 0 || core > 63)
-                    {
-                        error = $"逻辑核 {core} 超出 0-63 范围";
-                        return false;
-                    }
-
-                    mask |= 1UL << core;
-                }
+                if (!ok)
+                    return false;
             }
 
             return Validate(mask, out error);
+        }
+
+        private static bool TryParseRange(string part, int dash, ref ulong mask, out string? error)
+        {
+            if (!int.TryParse(part.Substring(0, dash).Trim(), out int from) ||
+                !int.TryParse(part.Substring(dash + 1).Trim(), out int to))
+            {
+                error = $"区间“{part}”格式不正确，应为 起始-结束";
+                return false;
+            }
+
+            if (from < 0 || to > 63 || from > to)
+            {
+                error = $"区间“{part}”超出 0-63 范围或起止颠倒";
+                return false;
+            }
+
+            for (int i = from; i <= to; i++)
+                mask |= 1UL << i;
+
+            error = null;
+            return true;
+        }
+
+        private static bool TryParseSingle(string part, ref ulong mask, out string? error)
+        {
+            if (!int.TryParse(part, out int core))
+            {
+                error = $"“{part}”既不是数字也不是区间";
+                return false;
+            }
+
+            if (core < 0 || core > 63)
+            {
+                error = $"逻辑核 {core} 超出 0-63 范围";
+                return false;
+            }
+
+            mask |= 1UL << core;
+            error = null;
+            return true;
         }
 
         private static bool Validate(ulong mask, out string? error)
@@ -174,19 +193,6 @@ namespace ZenForge.Helpers
             }
 
             return true;
-        }
-
-        /// <summary>把掩码展开为逻辑核索引列表。</summary>
-        public static IReadOnlyList<int> ToIndices(ulong mask)
-        {
-            List<int> list = new();
-            for (int i = 0; i < 64; i++)
-            {
-                if ((mask & (1UL << i)) != 0)
-                    list.Add(i);
-            }
-
-            return list;
         }
     }
 }
