@@ -140,19 +140,20 @@ namespace ZenForge.Views
                 AutoStartToggle.IsChecked = settings.AutoStart;
                 ApplyTuningToggle.IsChecked = settings.ApplyTuningOnStartup;
 
-                // 回显监听的**真实状态**而不是配置里的意愿值。
+                // 总闸与轻量模式：纯配置项，不存在“真实状态 ≠ 意愿值”的问题
+                BackendServiceToggle.IsChecked = settings.BackendService;
+                LightModeToggle.IsChecked = settings.LightMode;
+
+                // 回显调度的**真实状态**而不是配置里的意愿值。
                 // 两者会不一致：另一个实例占着全局互斥体时 Start() 会静默跳过，
                 // 配置写着「开」实际一次都没绑 —— 以 IsRunning 为准，开关才不撒谎。
                 ProcessWatchToggle.IsChecked = ProcessWatcher.IsRunning;
 
                 ShowTrayToggle.IsChecked = settings.ShowTrayIcon;
 
-                SelectByTag(CloseBehaviorCombo, settings.CloseBehavior switch
-                {
-                    CloseBehavior.AlwaysTray => "tray",
-                    CloseBehavior.Exit => "exit",
-                    _ => "smart"
-                });
+                // 最后再算一遍显隐：上面的 IsChecked 赋值不会触发 Click，
+                // 但也不会自动刷新依赖行的可见性。
+                RefreshRowVisibility();
             }
             finally
             {
@@ -165,7 +166,6 @@ namespace ZenForge.Views
         {
             ThemeCombo.SelectionChanged += ThemeCombo_SelectionChanged;
             AccentModeCombo.SelectionChanged += AccentModeCombo_SelectionChanged;
-            CloseBehaviorCombo.SelectionChanged += CloseBehaviorCombo_SelectionChanged;
             _initialized = true;
         }
 
@@ -506,14 +506,141 @@ namespace ZenForge.Views
             UiSettingsStore.Save();
 
             LogService.Info(enabled
-                ? "启动时自动应用调校：已开启（静默启动时将回写 tuning.json）"
-                : "启动时自动应用调校：已关闭（静默启动时不再回写 SMU）");
+                ? "自动应用调校：已开启（启动时将回写 tuning.json）"
+                : "自动应用调校：已关闭（启动时不再回写 SMU）");
+        }
+
+        // ==================== 后台服务（总闸）。 ====================
+
+        /// <summary>
+        /// 开启后台服务：决定「点 × 之后进程还活不活」。
+        ///
+        /// 关掉时立刻把下面几行 Collapsed —— 不是灰显，是真的不显示。
+        /// 灰显会让人以为「这一项存在但暂时点不了」，而这里是真的没这个概念。
+        ///
+        /// 同时把调度监听的启停跟上：总闸关了却还留着一个后台监听在跑，
+        /// 就是「我明明关掉了它怎么还在占内存」的来源。
+        /// </summary>
+        private void BackendServiceToggle_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_initialized || _suppress)
+                return;
+
+            bool enabled = BackendServiceToggle.IsChecked == true;
+            UiSettingsStore.Settings.BackendService = enabled;
+
+            if (!enabled)
+            {
+                // 总闸关 = 不要后台。托盘和调度一起收，别留下看不见的活口。
+                StopScheduling("关闭后台服务");
+                TrayIconService.SetVisible(false);
+
+                _suppress = true;
+                try
+                {
+                    ProcessWatchToggle.IsChecked = false;
+                    ShowTrayToggle.IsChecked = false;
+                }
+                finally
+                {
+                    _suppress = false;
+                }
+            }
+            else
+            {
+                // 重新打开总闸：把用户上次的意愿（ui.json 里的值）恢复成实际状态。
+                UiSettings ui = UiSettingsStore.Settings;
+
+                if (ui.WatchProcessBinding)
+                    StartScheduling();
+
+                _suppress = true;
+                try
+                {
+                    ProcessWatchToggle.IsChecked = ProcessWatcher.IsRunning;
+                    ShowTrayToggle.IsChecked = ui.ShowTrayIcon;
+                }
+                finally
+                {
+                    _suppress = false;
+                }
+
+                if (ui.ShowTrayIcon)
+                    TrayIconService.EnsureCreated();
+            }
+
+            UiSettingsStore.Save();
+            RefreshRowVisibility();
+
+            LogService.Info(enabled
+                ? "后台服务：已开启（点 × 不再退出进程）"
+                : "后台服务：已关闭（点 × 将直接退出进程，调度与托盘一并停止）");
+        }
+
+        /// <summary>仅留服务进程：只决定「关掉前台之后要不要销毁界面」，不决定后台存不存在。</summary>
+        private void LightModeToggle_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_initialized || _suppress)
+                return;
+
+            bool enabled = LightModeToggle.IsChecked == true;
+            UiSettingsStore.Settings.LightMode = enabled;
+            UiSettingsStore.Save();
+
+            RefreshRowVisibility();
+
+            LogService.Info(enabled
+                ? $"仅留服务进程：已开启（关闭前台 {UiSettingsStore.Settings.LightModeDelaySeconds} 秒后销毁界面）"
+                : "仅留服务进程：已关闭（关闭前台后仅隐藏窗口，界面完整保留）");
         }
 
         /// <summary>
-        /// 后台是否显示托盘图标。
+        /// 依赖行的显隐，全页只有这一个开关函数。
         ///
-        /// 只影响图标本身。关掉之后进程仍按「关闭窗口时」设置决定留不留，
+        /// 「开启后台服务」是总闸：关掉后其余三项全部 Collapsed，
+        /// 不存在「关了一半」的中间态 —— 用户不需要后台，这些设置也就无从谈起。
+        /// 显隐一律 Visibility.Collapsed，禁止 IsEnabled=false 灰显。
+        /// </summary>
+        private void RefreshRowVisibility()
+        {
+            bool backend = BackendServiceToggle.IsChecked == true;
+            Visibility v = backend ? Visibility.Visible : Visibility.Collapsed;
+
+            RowProcessWatch.Visibility = v;
+            RowLightMode.Visibility = v;
+            RowShowTray.Visibility = v;
+        }
+
+        /// <summary>起调度监听，并把结果同步回开关与配置（Start 可能因全局互斥体静默失败）。</summary>
+        private void StartScheduling()
+        {
+            try
+            {
+                ProcessWatcher.Start();
+            }
+            catch (Exception ex)
+            {
+                LogService.Error($"启动后台常驻调度失败：{ex.Message}");
+            }
+        }
+
+        private static void StopScheduling(string reason)
+        {
+            try
+            {
+                ProcessWatcher.Stop();
+                LogService.Info($"后台常驻调度已停止（{reason}）");
+            }
+            catch (Exception ex)
+            {
+                LogService.Error($"停止后台常驻调度失败：{ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 显示托盘图标。
+        ///
+        /// 只影响图标本身。关掉之后进程仍按「开启后台服务」决定留不留，
         /// 留的时候没有托盘入口 —— 靠双击 ZenForge.exe 唤回界面。
         /// </summary>
         private void ShowTrayToggle_Click(object sender, RoutedEventArgs e)
@@ -529,11 +656,11 @@ namespace ZenForge.Views
             TrayIconService.SetVisible(visible);
 
             LogService.Info(visible
-                ? "后台托盘图标：已显示"
-                : "后台托盘图标：已隐藏（按「关闭窗口时」设置，进程可继续在后台运行；双击 ZenForge.exe 唤出界面）");
+                ? "托盘图标：已显示"
+                : "托盘图标：已隐藏（后台服务仍在运行；双击 ZenForge.exe 唤出界面）");
         }
 
-        /// <summary>后台常驻绑核：立即启停 ProcessWatcher。</summary>
+        /// <summary>后台常驻调度：立即启停 ProcessWatcher。</summary>
         private void ProcessWatchToggle_Click(object sender, RoutedEventArgs e)
         {
             if (!_initialized || _suppress)
@@ -565,55 +692,31 @@ namespace ZenForge.Views
                 if (actual)
                 {
                     LogService.Info(ProcessWatcher.UsingEvents
-                        ? "后台常驻绑核：已开启（WMI 事件驱动，空闲零轮询）"
-                        : "后台常驻绑核：已开启（WMI 不可用，已降级为定时轮询）");
+                        ? "后台常驻调度：已开启（WMI 事件驱动，空闲零轮询）"
+                        : "后台常驻调度：已开启（WMI 不可用，已降级为定时轮询）");
                 }
                 else
                 {
-                    LogService.Info("后台常驻绑核：已关闭");
+                    LogService.Info("后台常驻调度：已关闭");
                 }
 
                 if (enabled && !actual)
                 {
                     DarkDialog.ShowWarning(
-                        "后台绑核监听未能启动。\n\n" +
+                        "后台调度监听未能启动。\n\n" +
                         "常见原因是已有另一个 ZenForge 实例在监听，同一台机器只允许一个。\n" +
                         "详细信息见日志页。",
-                        "后台常驻绑核");
+                        "后台常驻调度");
                 }
             }
             catch (Exception ex)
             {
-                LogService.Error($"切换后台常驻绑核失败：{ex.Message}");
+                LogService.Error($"切换后台常驻调度失败：{ex.Message}");
 
                 _suppress = true;
                 ProcessWatchToggle.IsChecked = !enabled;
                 _suppress = false;
             }
-        }
-
-        /// <summary>关闭窗口的去向：智能 / 收进托盘 / 直接退出。</summary>
-        private void CloseBehaviorCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (!_initialized || _suppress)
-                return;
-
-            CloseBehavior behavior = SelectedTag(CloseBehaviorCombo) switch
-            {
-                "tray" => CloseBehavior.AlwaysTray,
-                "exit" => CloseBehavior.Exit,
-                _ => CloseBehavior.Smart
-            };
-
-            UiSettingsStore.Settings.CloseBehavior = behavior;
-            UiSettingsStore.Save();
-
-            LogService.Info("关闭窗口时：" + behavior switch
-            {
-                CloseBehavior.AlwaysTray => "总是收进托盘",
-                CloseBehavior.Exit => "直接退出",
-                _ => "智能（有后台监听时收进托盘）"
-            });
         }
 
         // ==================== 其他：SMU 自检 ====================

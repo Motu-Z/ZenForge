@@ -48,7 +48,7 @@ namespace ZenForge.Services
         /// </param>
         public static bool TrySignalExisting(bool signalMain)
         {
-            // 对方可能刚建完互斥体、事件还没建出来。这时候直接判「没有别的实例」
+            // 对方可能刚建完互斥体、唤醒通道还没建出来。这时候直接判「没有别的实例」
             // 会让第二次双击毫无反应 —— 既不唤醒已有的，自己又会在 TryAcquire 撞墙退出。
             // 给一小段重试窗口把它等出来。
             for (int attempt = 0; attempt < 10; attempt++)
@@ -66,6 +66,15 @@ namespace ZenForge.Services
                     return false;
                 }
 
+                // ---------- 通道 1：窗口消息（跨权限级首选） ----------
+                // 后台实例可能由计划任务以最高权限运行，而这里只是中等权限。
+                // 低权限 → 高权限方向，命名事件会被 ACL 挡住，窗口消息不会
+                // （对方在 EnsureCreated 里做过 ChangeWindowMessageFilterEx）。
+                if (WakeWindow.Signal())
+                    return true;
+
+                // ---------- 通道 2：命名事件（同权限级兜底） ----------
+                // 窗口还没建好、或注册消息失败时走这条。两条路最终指向同一个回调。
                 try
                 {
                     using EventWaitHandle wake = EventWaitHandle.OpenExisting(WakeName);

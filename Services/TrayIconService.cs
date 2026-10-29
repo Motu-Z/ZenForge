@@ -93,7 +93,13 @@ namespace ZenForge.Services
             return _icon is { Visible: true } && _icon.Icon != null;
         }
 
-        /// <summary>把主窗口叫出来。没有主窗口（静默常驻启动）就现建一个。</summary>
+        /// <summary>
+        /// 把主窗口叫出来。没有主窗口（静默常驻启动 / 轻量模式已销毁窗口）就现建一个。
+        ///
+        /// 之所以不看 Application.MainWindow：托盘菜单那个 1×1 宿主是第一个 Show 出来的
+        /// Window，会被 WPF 记成 MainWindow；轻量模式「仅驻留服务」之后，它又指向一个
+        /// 已经 Closed 的残骸。主窗口实例统一由 App 持有，这里只信 App.CurrentMainWindow。
+        /// </summary>
         public static void ShowOrCreateMainWindow()
         {
             Application? app = Application.Current;
@@ -102,14 +108,15 @@ namespace ZenForge.Services
 
             try
             {
-                Window? main = app.MainWindow;
+                MainWindow? main = App.CurrentMainWindow;
 
-                // 静默模式下主窗口还没建过；而 app.MainWindow 可能已经被
-                // 菜单宿主窗口占掉（它是第一个 Show 出来的 Window），
-                // 这里识别出宿主就当没有主窗口处理。
-                if (main == null || ReferenceEquals(main, _menuHost))
+                if (main == null)
                 {
                     main = new MainWindow();
+                    App.SetMainWindow(main);
+
+                    // WPF 仍需要一个「主窗口」概念给对话框当 Owner，
+                    // 但 App.RealMainWindow 优先认自己那份引用。
                     app.MainWindow = main;
                 }
 
@@ -121,17 +128,12 @@ namespace ZenForge.Services
                 if (main.WindowState == WindowState.Minimized)
                     main.WindowState = WindowState.Normal;
 
-                MainWindow? shell = main as MainWindow;
-
-                // 收进托盘时页面树已经被拆掉了，回来时重建
-                shell?.RestoreFromTray();
-
                 main.Activate();
                 WindowHelper.ForceForeground(main);
 
                 // 隐藏再显示的窗口偶尔会带着半截残影，主动作废重绘一次
                 if (wasHidden)
-                    shell?.ForceRepaint();
+                    main.ForceRepaint();
             }
             catch (Exception ex)
             {

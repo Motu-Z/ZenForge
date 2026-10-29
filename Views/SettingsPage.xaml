@@ -71,14 +71,17 @@
                 </StackPanel>
             </Border>
 
-            <!-- ===== 启动 ===== -->
+            <!-- ===== 启动与后台 =====
+                 六项全部平铺、同一级视觉：不再有「子菜单」与「顶层」混排。
+                 「开启后台服务」是总闸，关掉后其余三项 Collapsed ——
+                 显隐一律用 Visibility.Collapsed，不用 IsEnabled=False 灰显，
+                 灰显会留下「这一项存在但暂时不能用」的误导，而这里是真的不存在。 -->
             <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
                 <StackPanel>
-                    <TextBlock Text="启动" Style="{StaticResource CardTitleStyle}"/>
+                    <TextBlock Text="启动与后台" Style="{StaticResource CardTitleStyle}"/>
 
-                    <!-- 三行独立 Grid（而不是 UniformGrid）：与 NvForge 的行距节奏一致，
-                         开关始终贴右，标签始终贴左。 -->
-                    <Grid Margin="0,12,0,0">
+                    <!-- 开机静默自启 -->
+                    <Grid Style="{StaticResource SettingsRowStyle}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
@@ -89,60 +92,66 @@
                                       Click="AutoStartToggle_Click"/>
                     </Grid>
 
-                    <Grid Margin="0,12,0,0">
+                    <!-- 自动应用调校 -->
+                    <Grid Style="{StaticResource SettingsRowStyle}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="启动时自动应用调校" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBlock Text="自动应用调校" Style="{StaticResource FieldLabelStyle}"/>
                         <ToggleButton Grid.Column="1" x:Name="ApplyTuningToggle"
                                       Style="{StaticResource ToggleSwitchStyle}"
                                       Click="ApplyTuningToggle_Click"/>
                     </Grid>
 
-                    <Grid Margin="0,12,0,0">
+                    <!-- 开启后台服务（总闸） -->
+                    <Grid Style="{StaticResource SettingsRowStyle}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <!-- 文案直说「常驻」：这个开关的真实语义是「关掉窗口也继续绑核」，
-                             写「启动时自动应用」会让人以为只是开机跑一次，关掉程序就没了。 -->
-                        <TextBlock Text="后台常驻绑核" Style="{StaticResource FieldLabelStyle}"
-                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="开启后台服务" Style="{StaticResource FieldLabelStyle}"/>
+                        <ToggleButton Grid.Column="1" x:Name="BackendServiceToggle"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      Click="BackendServiceToggle_Click"/>
+                    </Grid>
+
+                    <!-- 后台常驻调度 -->
+                    <Grid x:Name="RowProcessWatch" Style="{StaticResource SettingsRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <!-- 文案与「调度」页对齐：这里管的是那个页面里保存的规则要不要常驻生效，
+                             不是另一个叫「绑核」的功能。 -->
+                        <TextBlock Text="后台常驻调度" Style="{StaticResource FieldLabelStyle}"/>
                         <ToggleButton Grid.Column="1" x:Name="ProcessWatchToggle"
                                       Style="{StaticResource ToggleSwitchStyle}"
                                       Click="ProcessWatchToggle_Click"/>
                     </Grid>
 
-                    <Grid Margin="0,12,0,0">
+                    <!-- 仅留服务进程 -->
+                    <Grid x:Name="RowLightMode" Style="{StaticResource SettingsRowStyle}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="后台显示托盘图标" Style="{StaticResource FieldLabelStyle}"
-                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="仅留服务进程" Style="{StaticResource FieldLabelStyle}"/>
+                        <ToggleButton Grid.Column="1" x:Name="LightModeToggle"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      Click="LightModeToggle_Click"/>
+                    </Grid>
+
+                    <!-- 显示托盘图标 -->
+                    <Grid x:Name="RowShowTray" Style="{StaticResource SettingsRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="显示托盘图标" Style="{StaticResource FieldLabelStyle}"/>
                         <ToggleButton Grid.Column="1" x:Name="ShowTrayToggle"
                                       Style="{StaticResource ToggleSwitchStyle}"
                                       Click="ShowTrayToggle_Click"/>
-                    </Grid>
-
-                    <Grid Margin="0,12,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="关闭窗口时" Style="{StaticResource FieldLabelStyle}"
-                                   VerticalAlignment="Center"/>
-                        <!-- 与主题下拉同一套路：Tag 驱动，初值在代码里按 Tag 回显，
-                             事件在回显之后才挂，避免初始化反向覆盖。 -->
-                        <ComboBox Grid.Column="1" x:Name="CloseBehaviorCombo"
-                                  MinWidth="220"
-                                  HorizontalAlignment="Right"
-                                  VerticalAlignment="Center">
-                            <ComboBoxItem Content="智能（有后台监听时收进托盘）" Tag="smart"/>
-                            <ComboBoxItem Content="收进托盘" Tag="tray"/>
-                            <ComboBoxItem Content="直接退出" Tag="exit"/>
-                        </ComboBox>
                     </Grid>
                 </StackPanel>
             </Border>

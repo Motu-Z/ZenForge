@@ -126,7 +126,22 @@ namespace ZenForge.Views
             if (_followTimer != null && _followTimer.IsEnabled)
                 _followTimer.Stop();
 
-            LogService.Clear();
+            // 摘掉数据源再清。ObservableCollection.Clear() 会让 ListBox 一次性丢弃
+            // 所有已生成的容器；列表还绑着的时候做这件事，既有开销，又容易和队列里
+            // 那半拍 ScrollIntoView 打架 —— 之前「点清空就卡死」就是这一路的现场。
+            // 先断开，清完再挂回来：界面这次只是「换了一份空数据」，不涉及容器回收。
+            System.Collections.IEnumerable? source = LogListBox.ItemsSource;
+            LogListBox.ItemsSource = null;
+
+            try
+            {
+                LogService.Clear();
+            }
+            finally
+            {
+                LogListBox.ItemsSource = source ?? LogService.Entries;
+            }
+
             UpdateCount();
         }
 

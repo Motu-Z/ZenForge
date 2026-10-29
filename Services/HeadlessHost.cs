@@ -62,10 +62,11 @@ namespace ZenForge.Services
                 return UpgradeSafely();
             }
 
-            // 常驻的唯一理由是「持续绑核」。
-            // 三个条件缺一不可：开关开着、有会生效的规则、且监听确实归本进程所有
+            // 常驻的唯一理由是「持续调度」。
+            // 三个条件缺一不可：总闸开着、调度开关开着、且监听确实归本进程所有
             // （HasOwnership 用来区分「全局互斥体被别人占用」和「WMI 降级轮询但仍属自己」）。
-            bool resident = UiSettingsStore.Settings.WatchProcessBinding
+            bool resident = UiSettingsStore.Settings.BackendService
+                         && UiSettingsStore.Settings.WatchProcessBinding
                          && result.HasActiveRules
                          && ProcessWatcher.HasOwnership;
 
@@ -111,8 +112,12 @@ namespace ZenForge.Services
         }
 
         /// <summary>
-        /// 常驻循环。托盘可关，但窗口必须建 —— 它是接收唤醒消息的唯一通道。
+        /// 常驻循环。托盘可关，但唤醒通道必须建 —— 它是接收唤醒消息的唯一入口。
         /// 关掉托盘只是不 AddIcon，进程仍在后台等用户双击 exe。
+        ///
+        /// 唤醒走 <see cref="WakeWindow"/>（窗口消息），不是命名事件：
+        /// 命名事件在「高权限后台 ← 中等权限双击」方向会被 ACL 拒绝，
+        /// 用户双击后毫无反应的同时还会多出一个幽灵进程。
         /// </summary>
         private static int RunResidentLoop()
         {
@@ -120,11 +125,18 @@ namespace ZenForge.Services
 
             try
             {
+                // 唤醒宿主无条件建出来，与托盘开不开无关。
+                // 这是纯后台形态下唯一常驻的窗口，也是 FindWindow 能命中的地址。
+                WakeWindow.EnsureCreated();
+
                 try
                 {
                     tray = new NativeTrayIcon(showIcon: UiSettingsStore.Settings.ShowTrayIcon);
 
-                    // 唤醒信号 → 投递到隐藏窗口 → 消息循环里 PostQuitMessage → 升级
+                    // 收到唤醒消息 → 由托盘把自己的消息循环退出 → 升级 WPF
+                    WakeWindow.Activated = tray.PostWake;
+
+                    // 命名事件兜底：同权限级、或消息通道没建好时仍能叫醒
                     SingleInstance.WakeRequested = tray.PostWake;
 
                     LogService.Info(UiSettingsStore.Settings.ShowTrayIcon
@@ -135,8 +147,8 @@ namespace ZenForge.Services
                 }
                 catch (Exception ex)
                 {
-                    // 托盘窗口建不出来也必须继续常驻 —— 绑核还在跑，不能因为
-                    // 少了入口就把监听一起丢掉。退化成纯事件等待，双击 exe 仍能升级。
+                    // 托盘窗口建不出来也必须继续常驻 —— 调度还在跑，不能因为
+                    // 少了入口就把监听一起丢掉。退化成纯信号等待，双击 exe 仍能升级。
                     LogService.Warn($"托盘创建失败，降级为无窗口后台等待：{ex.Message}");
 
                     // 先拆掉半成品再升级：finally 要等 app.Run() 退出才执行，
@@ -145,9 +157,14 @@ namespace ZenForge.Services
                     tray = null;
 
                     using ManualResetEventSlim signal = new(false);
+
+                    // 托盘没了，唤醒只能直接落到「升级」上，不能再指望 PostWake
+                    WakeWindow.Activated = signal.Set;
                     SingleInstance.WakeRequested = signal.Set;
+
                     signal.Wait();
 
+                    WakeWindow.Activated = null;
                     SingleInstance.WakeRequested = null;
                     return UpgradeSafely();
                 }
@@ -156,9 +173,11 @@ namespace ZenForge.Services
                 {
                     LogService.Info("升级 1/6：销毁原生托盘，准备加载 WPF 宿主");
                     SingleInstance.WakeRequested = null;
+                    WakeWindow.Activated = null;
 
                     // 必须先拆掉原生托盘再加载 WPF：
                     // 否则 WPF 的 TrayIconService 会再建一个，任务栏出现两个图标。
+                    // 唤醒窗口不拆 —— App.OnStartup 的升级分支会复用它（EnsureCreated 幂等）。
                     tray.Dispose();
                     tray = null;
 
@@ -207,6 +226,9 @@ namespace ZenForge.Services
         private static void Cleanup()
         {
             try { ProcessWatcher.Stop(); }
+            catch { /* 忽略 */ }
+
+            try { WakeWindow.Destroy(); }
             catch { /* 忽略 */ }
 
             try { LogService.Flush(); }

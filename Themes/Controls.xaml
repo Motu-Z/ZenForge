@@ -21,6 +21,37 @@
         <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
 
+    <!-- ===================== 设置页行式布局 =====================
+         设置页的行结构高度重复（左标签、右控件），以前每行手抄一遍
+         ColumnDefinitions。
+         注意 Grid.ColumnDefinitions 是**只读集合属性**（没有 setter），
+         不能写成 <Setter Property="ColumnDefinitions"> —— 那样 BAML 装载时
+         Setter.Property 解析出来是 null，会抛 ArgumentNullException，
+         而且整个 ResourceDictionary 一旦触及这个 key 就整册失效。
+         所以列定义只能由各行在 XAML 里写，这里只抽 Margin。 -->
+
+    <Style x:Key="SettingsRowStyle" TargetType="Grid">
+        <Setter Property="Margin" Value="0,12,0,0"/>
+    </Style>
+
+    <!-- 从属行：轻缩进 + 次要文字色，表达「这一项隶属于上面那一项」 -->
+    <Style x:Key="SettingsSubRowStyle" TargetType="Grid" BasedOn="{StaticResource SettingsRowStyle}">
+        <Setter Property="Margin" Value="16,10,0,0"/>
+    </Style>
+
+    <Style x:Key="SettingsSubLabelStyle" TargetType="TextBlock" BasedOn="{StaticResource FieldLabelStyle}">
+        <Setter Property="Foreground" Value="{DynamicResource Text.Secondary}"/>
+        <Setter Property="FontSize" Value="12"/>
+    </Style>
+
+    <!-- 设置项分组分隔线：1px 实线，比行间距更「重」，用来切分语义段落 -->
+    <Style x:Key="SettingsGroupSeparatorStyle" TargetType="Border">
+        <Setter Property="Height" Value="1"/>
+        <Setter Property="Margin" Value="0,14,0,2"/>
+        <Setter Property="Background" Value="{DynamicResource Separator}"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+    </Style>
+
     <!-- ===================== 卡片 ===================== -->
     <Style x:Key="CardBorderStyle" TargetType="Border">
         <Setter Property="Background" Value="{DynamicResource Card.Background}"/>

@@ -5,19 +5,6 @@ using System.Text.Json.Serialization;
 
 namespace ZenForge.Helpers
 {
-    /// <summary>点关闭按钮时的去向。</summary>
-    public enum CloseBehavior
-    {
-        /// <summary>有后台职责（绑核监听在跑）才收进托盘，否则直接退出。</summary>
-        Smart,
-
-        /// <summary>总是收进托盘。</summary>
-        AlwaysTray,
-
-        /// <summary>总是直接退出。</summary>
-        Exit
-    }
-
     /// <summary>
     /// 界面设置（主题 / 强调色），持久化到 %APPDATA%\ZenForge\ui.json
     /// </summary>
@@ -56,26 +43,49 @@ namespace ZenForge.Helpers
         public bool ApplyTuningOnStartup { get; set; } = true;
 
         /// <summary>
-        /// 后台常驻绑核：为 true 时进程常驻，按 bindings.json 的规则给新进程自动绑核。
-        /// 关掉窗口也不停 —— 这是它唯一有意义的存在方式。
+        /// 后台常驻调度：为 true 时进程常驻，按 bindings.json 的规则给新进程自动绑核。
         ///
-        /// 默认 true：绑核规则一旦存了，用户要的就是「一直生效」，
-        /// 而不是「每次开机记得先手动打开软件」。
+        /// 注意它不是总闸 —— 要不要有后台由 <see cref="BackendService"/> 决定，
+        /// 这一项只是「后台要不要干调度这件事」。
         /// </summary>
         public bool WatchProcessBinding { get; set; } = true;
 
         /// <summary>
-        /// 关闭窗口时的去向，见 <see cref="Helpers.CloseBehavior"/>。
-        /// 默认 Smart：有后台监听才留驻，没活干就别占内存。
+        /// 【总闸】开启后台服务。
+        ///
+        /// 关掉 = 用户根本不需要后台：点 X 直接彻底退出进程，
+        /// 监听 / 托盘 / 单实例锁一并收摊，不搞任何隐藏。
+        ///
+        /// 打开后才会露出「后台常驻调度 / 仅留服务进程 / 显示托盘图标」。
+        /// 默认 false：没人希望装完就被一个退不掉的常驻进程缠上。
         /// </summary>
-        [JsonConverter(typeof(JsonStringEnumConverter))]
-        public CloseBehavior CloseBehavior { get; set; } = CloseBehavior.Smart;
+        public bool BackendService { get; set; }
 
         /// <summary>
-        /// 后台常驻时是否显示托盘图标。
+        /// 仅留服务进程（界面上就这么叫）。
         ///
-        /// 关掉后进程仍然常驻（绑核照跑），但没有任何可见入口 ——
-        /// 想打开界面只能双击 ZenForge.exe，而它会请求管理员权限。
+        /// 开启：点 X 后先隐藏，倒计时结束销毁前台界面，进程只剩后台服务；
+        /// 关闭：点 X 只是隐藏窗口，界面完整保留，回来是瞬间的。
+        ///
+        /// 曾经还有一个「仅清空页面」的并行选项，实测两者内存表现一致
+        /// （工作集都被压到个位数 MB），留两个只增加理解成本，已删。
+        /// </summary>
+        public bool LightMode { get; set; }
+
+        /// <summary>
+        /// 轻量模式延迟（秒）：关闭前台（点 X / 最小化）之后等多久才销毁界面。
+        ///
+        /// 目前**固定 30 秒、界面不暴露**，等换 UI 之后再决定要不要做成可调。
+        /// 保留这个字段是为了让 MainWindow 读一个值而不是写死字面量，
+        /// 将来加回输入框时不用再动调用方。
+        /// </summary>
+        public int LightModeDelaySeconds { get; set; } = 30;
+
+        /// <summary>
+        /// 显示托盘图标。
+        ///
+        /// 关掉后进程仍然常驻（调度照跑），但没有可见入口 ——
+        /// 想打开界面只能双击 ZenForge.exe。
         /// 默认 true：用户至少得能看见它在跑，也能就地退出。
         /// </summary>
         public bool ShowTrayIcon { get; set; } = true;
@@ -99,35 +109,54 @@ namespace ZenForge.Helpers
                     // 首次运行：默认「跟随系统」强调色 + 跟随系统主题。
                     // 这里给的是出厂默认值，不是"猜"出来的。
                     Settings = new UiSettings();
-                    return;
-                }
-
-                string json = File.ReadAllText(FilePath);
-                Settings = JsonSerializer.Deserialize<UiSettings>(json) ?? new UiSettings();
-
-                // ---------- 兼容旧版 ui.json ----------
-                // 旧版字段只有 themeMode / followSystemAccent / customAccentHex，
-                // 且 followSystemAccent 的默认值曾经是 false（还配过一个写死的青色），
-                // 于是所有人打开程序看到的都是硬编码青，而不是"跟随系统"。
-                //
-                // 判定规则：文件里**根本没有** followSystemAccent 这个键 → 视为从未设置过，
-                // 强制回到「跟随系统」；只要用户明确写过这个键（无论 true/false），就尊重他。
-                using JsonDocument doc = JsonDocument.Parse(json);
-                if (doc.RootElement.ValueKind == JsonValueKind.Object &&
-                    doc.RootElement.TryGetProperty(nameof(UiSettings.FollowSystemAccent), out _))
-                {
-                    Settings.FollowSystemAccentExplicit = true;
                 }
                 else
                 {
-                    Settings.FollowSystemAccentExplicit = false;
-                    Settings.FollowSystemAccent = true;
+                    string json = File.ReadAllText(FilePath);
+                    Settings = JsonSerializer.Deserialize<UiSettings>(json) ?? new UiSettings();
+
+                    // ---------- 兼容旧版 ui.json ----------
+                    // 旧版字段只有 themeMode / followSystemAccent / customAccentHex，
+                    // 且 followSystemAccent 的默认值曾经是 false（还配过一个写死的青色），
+                    // 于是所有人打开程序看到的都是硬编码青，而不是"跟随系统"。
+                    //
+                    // 判定规则：文件里**根本没有** followSystemAccent 这个键 → 视为从未设置过，
+                    // 强制回到「跟随系统」；只要用户明确写过这个键（无论 true/false），就尊重他。
+                    using JsonDocument doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.ValueKind == JsonValueKind.Object &&
+                        doc.RootElement.TryGetProperty(nameof(UiSettings.FollowSystemAccent), out _))
+                    {
+                        Settings.FollowSystemAccentExplicit = true;
+                    }
+                    else
+                    {
+                        Settings.FollowSystemAccentExplicit = false;
+                        Settings.FollowSystemAccent = true;
+                    }
                 }
             }
             catch
             {
                 Settings = new UiSettings();
             }
+
+            Normalize();
+        }
+
+        /// <summary>
+        /// 把数值类字段拉回合法区间。
+        ///
+        /// 配置文件是纯文本，人手改坏、或从旧版本继承一个 0 / 负数都是常事。
+        /// 在这里统一收口，读出来的 Settings 就一定是能直接用、不用每处再判一遍的值。
+        /// </summary>
+        private static void Normalize()
+        {
+            UiSettings s = Settings;
+
+            // 延迟目前不可调，默认 30 秒。旧配置里可能是 1（上一版的最小值），
+            // 那会让「关掉前台」看起来像「立刻消失」，这里统一抬回 30。
+            if (s.LightModeDelaySeconds < 5 || s.LightModeDelaySeconds > 3600)
+                s.LightModeDelaySeconds = 30;
         }
 
         public static void Save()

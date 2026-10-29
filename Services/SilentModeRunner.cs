@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using ZenForge.Helpers;
@@ -14,11 +14,8 @@ namespace ZenForge.Services
         /// <summary>是否成功应用了 FMax。</summary>
         public bool FMaxApplied { get; set; }
 
-        /// <summary>是否成功应用了至少一项功耗墙。</summary>
-        public bool PowerLimitsApplied { get; set; }
-
         /// <summary>是否有任何一项被应用（全部跳过时也视为成功退出）。</summary>
-        public bool AnythingApplied => CurveOptimizerApplied || FMaxApplied || PowerLimitsApplied;
+        public bool AnythingApplied => CurveOptimizerApplied || FMaxApplied;
 
         /// <summary>失败原因汇总（成功时为空）。</summary>
         public List<string> Errors { get; } = new();
@@ -68,7 +65,6 @@ namespace ZenForge.Services
 
             bool hasCo = margins.Length > 0 && margins.Any(v => v != int.MinValue);
             bool hasFMax = fMax > 0;
-            bool hasPower = profile.HasPowerLimits;
 
             // 受「启动时自动应用调校」开关约束：关闭时只启动监听，不碰 SMU
             bool applyTuning = UiSettingsStore.Settings.ApplyTuningOnStartup;
@@ -77,7 +73,7 @@ namespace ZenForge.Services
             {
                 LogService.Info("「启动时自动应用调校」已关闭，跳过 SMU 写入（仅启动后台监听）");
             }
-            else if (!hasCo && !hasFMax && !hasPower)
+            else if (!hasCo && !hasFMax)
             {
                 LogService.Info("tuning.json 中没有已保存的调校，跳过 SMU 写入");
             }
@@ -85,19 +81,17 @@ namespace ZenForge.Services
             {
                 LogService.Info(
                     $"读取到已保存调校：CO {margins.Length} 核" +
-                    (hasFMax ? $"，FMax {fMax} MHz" : "，未设置 FMax") +
-                    (hasPower ? "，含功耗墙" : ""));
+                    (hasFMax ? $"，FMax {fMax} MHz" : "，未设置 FMax"));
             }
 
             // ---------- 2. 探测 SMU 并写入 ----------
             // 写入逻辑已抽到 TuningApplyService，与 GUI 正常启动那条路径共用同一份实现，
             // 避免「静默能应用、双击启动不能应用」这种两条路径各自演进的偏差。
-            if (applyTuning && (hasCo || hasFMax || hasPower))
+            if (applyTuning && (hasCo || hasFMax))
             {
                 TuningApplyOutcome outcome = TuningApplyService.ApplyFromStore();
                 result.CurveOptimizerApplied = outcome.CurveOptimizerApplied;
                 result.FMaxApplied = outcome.FMaxApplied;
-                result.PowerLimitsApplied = outcome.PowerLimitsApplied;
                 result.Errors.AddRange(outcome.Errors);
             }
 

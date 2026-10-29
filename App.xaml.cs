@@ -49,20 +49,68 @@ namespace ZenForge
         public static System.Threading.ManualResetEventSlim? BackgroundExitSignal;
 
         /// <summary>
-        /// 真正的主窗口；没有主窗口或主窗口是托盘那个 1×1 宿主时返回 null。
+        /// 真正的主窗口。
         ///
-        /// 托盘菜单宿主是第一个被 Show 出来的 Window，WPF 会把
-        /// Application.MainWindow 指到它身上。谁要是拿它当主窗口用
-        /// （当对话框 Owner、当导航目标），弹窗就会跑到屏幕 (-10000,-10000) 去。
+        /// 为什么不直接用 Application.MainWindow：
+        ///   · 托盘菜单宿主是第一个被 Show 出来的 Window，WPF 会把 MainWindow 指到它身上，
+        ///     拿它当宿主（当对话框 Owner、当导航目标）弹窗会跑到屏幕 (-10000,-10000) 去；
+        ///   · 轻量模式「仅驻留服务」会把主窗口整个销毁，此时 MainWindow 指向的是一个
+        ///     已经 Closed 的残骸，谁用它谁炸。
+        ///
+        /// 所以主窗口实例由 App 自己持有，创建与销毁都走 <see cref="SetMainWindow"/> /
+        /// <see cref="ReleaseMainWindow"/>。
         /// </summary>
-        public static Window? RealMainWindow
+        /// <summary>
+        /// 面向用户的版本号，取自 AssemblyInformationalVersion。
+        ///
+        /// 不用 <c>GetName().Version</c>：那是四段数字（0.8.5.0），
+        /// 而后缀（-can1 / -pre1 / -fix1）只存在于 InformationalVersion。
+        /// 金丝雀版和正式版在界面上必须能一眼分开，否则用户报问题时分不清跑的是哪个。
+        /// 曾经被 SDK 追加的 "+&lt;commit&gt;" 已在 csproj 里关掉。
+        /// </summary>
+        public static string VersionText { get; } = ReadVersionText();
+
+        private static string ReadVersionText()
         {
-            get
+            try
             {
-                Window? main = Current?.MainWindow;
-                return main is MainWindow ? main : null;
+                System.Reflection.Assembly asm = typeof(App).Assembly;
+
+                string? info = asm
+                    .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+                    is object[] { Length: > 0 } attrs
+                    && attrs[0] is System.Reflection.AssemblyInformationalVersionAttribute a
+                        ? a.InformationalVersion
+                        : null;
+
+                if (!string.IsNullOrWhiteSpace(info))
+                {
+                    // 兜底：万一哪天又带上 +commit，只显示版本本身
+                    int plus = info.IndexOf('+');
+                    return plus > 0 ? info[..plus] : info;
+                }
+
+                return asm.GetName().Version?.ToString(3) ?? "0.0.0";
+            }
+            catch
+            {
+                return "0.0.0";
             }
         }
+
+        private static MainWindow? _mainWindow;
+
+        internal static void SetMainWindow(MainWindow window) => _mainWindow = window;
+
+        internal static void ReleaseMainWindow(MainWindow window)
+        {
+            if (ReferenceEquals(_mainWindow, window))
+                _mainWindow = null;
+        }
+
+        public static MainWindow? CurrentMainWindow => _mainWindow;
+
+        public static Window? RealMainWindow => _mainWindow;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -105,7 +153,15 @@ namespace ZenForge
 
                 LogService.Info("升级 3/6：加载设置 / 主题 / 存储");
 
-                // 后台宿主注入的唤醒回调指向已销毁的原生托盘，这里换成 WPF 版本
+                // 后台宿主注入的唤醒回调指向已销毁的原生托盘，这里换成 WPF 版本。
+                // 唤醒宿主窗口在后台常驻时已经建好（EnsureCreated 幂等，这里只是兜底），
+                // 通道不变，只换回调目标 —— 这样即使升级过程中丢了引用，
+                // 下一次双击仍然能找到同一个窗口。
+                WakeWindow.EnsureCreated();
+                WakeWindow.Activated = () =>
+                    Dispatcher.BeginInvoke(new Action(TrayIconService.ShowOrCreateMainWindow));
+
+                // 命名事件通道作为兜底保留（同权限级时更省事），两路都指向同一个回调
                 SingleInstance.WakeRequested = () =>
                     Dispatcher.BeginInvoke(new Action(TrayIconService.ShowOrCreateMainWindow));
 
@@ -118,9 +174,6 @@ namespace ZenForge
                 TuningStore.Load();
                 MaskStore.Load();
                 BindingStore.Load();
-
-                // 出厂功耗墙基线：后台采集，不阻塞界面加载
-                PowerBaselineBootstrap.RunInBackground("升级路径");
 
                 LogService.Info("升级 4/6：启动进程采样与绑核回调");
 
@@ -216,7 +269,7 @@ namespace ZenForge
             SessionEnding += (_, _) => LogService.Info("系统正在注销 / 关机");
 
             LogService.Info($"ZenForge 启动 · 详细日志：{(LogService.Verbose ? "已开启" : "关闭")}"
-                + $" · 版本 {typeof(App).Assembly.GetName().Version}");
+                + $" · 版本 {VersionText}");
 
             // ==================== .NET 10 桌面运行时检测 ====================
             // 本程序为「框架依赖」发布，不自带 .NET 运行时。
@@ -332,11 +385,18 @@ namespace ZenForge
             }
 
             // 关窗不再等于退出进程：必须显式声明，默认的 OnMainWindowClose
-            // 会在窗口一关就杀掉整个进程，绑核监听随之消失。
+            // 会在窗口一关就杀掉整个进程，后台服务随之消失。
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
-            // 唤醒回调：GUI 模式下回到 UI 线程把主窗口叫出来。
-            // 后台宿主注入的是向原生托盘窗口 PostMessage，两者靠这个委托切换。
+            // ==================== 唤醒通道：消息窗优先，命名事件兜底 ====================
+            // 为什么必须有消息窗：后台可能由计划任务以「最高权限」拉起，而用户双击 exe
+            // 启动的是中等权限。低权限 → 高权限方向，EventWaitHandle.OpenExisting
+            // 会被 ACL 拒绝，于是「明明有一个在跑，双击却没反应，还多一个幽灵进程」。
+            // 窗口消息不受这个限制，只要对方把消息加进 UIPI 白名单。
+            WakeWindow.EnsureCreated();
+            WakeWindow.Activated = () =>
+                Dispatcher.BeginInvoke(new Action(TrayIconService.ShowOrCreateMainWindow));
+
             SingleInstance.WakeRequested = () =>
                 Dispatcher.BeginInvoke(new Action(TrayIconService.ShowOrCreateMainWindow));
 
@@ -358,14 +418,12 @@ namespace ZenForge
             MaskStore.Load();
             BindingStore.Load();
 
-            // 出厂功耗墙基线：首次启动采集一次落盘，之后只比对不覆盖。
-            // 放后台跑：WaitForPawnIO 最长等 60 秒，绝不能挡在 UI 线程上。
-            PowerBaselineBootstrap.RunInBackground("GUI 启动");
-
-            // S4：按设置启动进程绑核后台监听（轮询 bindings.json）
+            // 按设置启动后台调度监听（轮询 bindings.json）。
+            // 总闸「开启后台服务」关着就不启动 —— 用户没要后台，不该悄悄占着全局互斥体。
             AttachProcessWatcherUi();
 
-            if (UiSettingsStore.Settings.WatchProcessBinding)
+            if (UiSettingsStore.Settings.BackendService
+                && UiSettingsStore.Settings.WatchProcessBinding)
             {
                 ProcessWatcher.Start();
 
@@ -374,57 +432,32 @@ namespace ZenForge
                 if (!ProcessWatcher.IsRunning)
                 {
                     LogService.Warn(
-                        "后台绑核监听已开启但未能启动（多半是已有其它实例在监听），" +
+                        "后台常驻调度已开启但未能启动（多半是已有其它实例在监听），" +
                         "详见日志页。");
                 }
             }
 
             // 托盘图标常驻：关窗只是收起来，进程继续干活。
-            // 用户关掉「后台显示托盘图标」时不建 —— 此时关窗会走退出路径，
-            // 避免留下一个既看不见、又退不掉的隐藏进程。
-            if (UiSettingsStore.Settings.ShowTrayIcon)
+            // 总闸没开或用户关掉「显示托盘图标」时不建 —— 此时根本没有后台可言，
+            // 建一个没有对应进程状态的图标只会误导。
+            if (UiSettingsStore.Settings.BackendService
+                && UiSettingsStore.Settings.ShowTrayIcon)
+            {
                 TrayIconService.EnsureCreated();
+            }
 
             // 启动时自动应用已保存的调校。
             //
             // 这一步过去只在 -silent（开机计划任务）分支里做，用户双击图标正常启动
-            // 时压根不写 SMU，于是设置页那个「启动时自动应用调校」开关在最常见的使用
+            // 时压根不写 SMU，于是设置页那个「自动应用调校」开关在最常见的使用
             // 方式下形同虚设 —— 表现就是「我明明开了开关，重启电脑后降压没了」。
             // 现在两条路径共用 TuningApplyService 的同一份写入实现。
             //
             // 放在后台线程：SMU 写入最坏要等 PawnIO 就绪 60 秒，不能拖住窗口出现。
             _ = System.Threading.Tasks.Task.Run(() => ApplySavedTuningOnStartup());
 
-            LogService.Info("ZenForge 启动（S2/S3 · SMU 探测 + 进程绑核）");
+            LogService.Info("ZenForge 启动（S2/S3 · SMU 探测 + 后台调度）");
         }
-
-        /// <summary>
-        /// 关窗后进程该不该留下。
-        ///
-        /// 三种取值：
-        ///   · 始终收进托盘 → 留
-        ///   · 关闭即退出   → 不留
-        ///   · 智能（默认） → 有后台职责（监听在跑）才留
-        ///
-        /// 注意这和「能不能收进托盘」是两件事。托盘被用户关掉时，
-        /// 「留」依然成立 —— 进程在后台继续绑核，只是没有托盘入口。
-        /// </summary>
-        public static bool ShouldStayInBackground()
-        {
-            return UiSettingsStore.Settings.CloseBehavior switch
-            {
-                CloseBehavior.AlwaysTray => true,
-                CloseBehavior.Exit => false,
-                _ => ProcessWatcher.IsRunning
-            };
-        }
-
-        /// <summary>
-        /// 兼容旧调用名。语义已改为「进程是否留下」，与托盘有无无关。
-        /// 目前没有调用点，保留只为不破坏对外形状。
-        /// </summary>
-        [Obsolete("改用 ShouldStayInBackground：托盘有无不参与判断")]
-        public static bool ShouldMinimizeToTray() => ShouldStayInBackground();
 
         /// <summary>
         /// 结束进程。所有退出路径都从这一个口子出去，避免漏掉收摊。
@@ -541,6 +574,17 @@ namespace ZenForge
             try
             {
                 TrayIconService.Shutdown();
+            }
+            catch
+            {
+                // 忽略
+            }
+
+            // 唤醒宿主窗口跟着一起收：留着它等于留一个「进程已死但还能被 FindWindow 命中」
+            // 的假地址，下一次双击会 PostMessage 到无效句柄，看起来像唤不醒。
+            try
+            {
+                WakeWindow.Destroy();
             }
             catch
             {
@@ -730,7 +774,22 @@ namespace ZenForge
 
                 foreach (object? key in dictionary.Keys)
                 {
-                    if (dictionary[key] is not Style style)
+                    // 取值本身就可能抛：某个 Style 的 BAML 写坏了（例如给只读属性写
+                    // <Setter>），会在**枚举字典时**才真正解析并炸掉。0.8.4 的
+                    // SettingsRowStyle 就是这么把整个启动流程带崩的 —— 一个装饰性
+                    // 样式错误不该让程序打不开。
+                    Style? style;
+                    try
+                    {
+                        style = dictionary[key] as Style;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.Warn($"跳过无法解析的资源「{key}」：{ex.Message}");
+                        continue;
+                    }
+
+                    if (style == null)
                         continue;
                     if (style.TargetType == null || !typeof(Control).IsAssignableFrom(style.TargetType))
                         continue;
@@ -745,6 +804,11 @@ namespace ZenForge
                     catch (InvalidOperationException)
                     {
                         // Style 已被使用而 Seal：跳过，主要控件在 XAML 里已单独处理
+                    }
+                    catch (Exception ex)
+                    {
+                        // 其它原因加不进去也不该中断启动
+                        LogService.Warn($"样式「{key}」追加 FocusVisualStyle 失败：{ex.Message}");
                     }
                 }
 
