@@ -75,11 +75,14 @@ namespace ZenForge.Helpers
         /// <summary>
         /// 轻量模式延迟（秒）：关闭前台（点 X / 最小化）之后等多久才销毁界面。
         ///
-        /// 目前**固定 30 秒、界面不暴露**，等换 UI 之后再决定要不要做成可调。
+        /// 目前**固定 3 秒、界面不暴露**，等换 UI 之后再决定要不要做成可调。
         /// 保留这个字段是为了让 MainWindow 读一个值而不是写死字面量，
         /// 将来加回输入框时不用再动调用方。
+        ///
+        /// 3 秒而不是更长：这个延迟只是给「刚点 × 就想反悔」留一个回头的窗口，
+        /// 不是给系统留出准备时间。真要等半分钟才销毁界面，用户早就忘了自己开着它。
         /// </summary>
-        public int LightModeDelaySeconds { get; set; } = 30;
+        public int LightModeDelaySeconds { get; set; } = 3;
 
         /// <summary>
         /// 显示托盘图标。
@@ -153,10 +156,10 @@ namespace ZenForge.Helpers
         {
             UiSettings s = Settings;
 
-            // 延迟目前不可调，默认 30 秒。旧配置里可能是 1（上一版的最小值），
-            // 那会让「关掉前台」看起来像「立刻消失」，这里统一抬回 30。
-            if (s.LightModeDelaySeconds < 5 || s.LightModeDelaySeconds > 3600)
-                s.LightModeDelaySeconds = 30;
+            // 延迟目前不在界面上暴露，一律回到默认 3 秒。
+            // 旧配置里可能是 1（更早的最小值）或 30（更早的默认值），都不是现在想要的。
+            // 等把输入框加回来，这里再改成只做区间收敛。
+            s.LightModeDelaySeconds = 3;
         }
 
         public static void Save()
