@@ -2,7 +2,7 @@
 
 AMD Ryzen 处理器轻量化本地调校工具。可调整核心电压（Curve Optimizer）与频率上限（FMax），并基于 CPU Sets 自行绑定应用进程所用核心。
 
-使用前请确保本机已安装 .NET 10 Runtime 和 PawnIO。
+*使用前请确保本机已安装 .NET 10 Runtime 和 PawnIO。*
 
 ## 开始
 
@@ -36,5 +36,3 @@ AMD Ryzen 处理器轻量化本地调校工具。可调整核心电压（Curve O
 若启动程序后无窗口，可能是在加载 WPF 界面或已有实例运行。
 
 若 SMU 读不到值，可能是 PawnIO 未正确安装，请查看日志中的探测结果。
-
-若核心绑定失败，报 `OpenProcess 失败（错误 5）`，请以管理员权限启动。
