@@ -1,0 +1,19 @@
+# 编译输出
+bin/
+obj/
+publish/
+*.user
+*.suo
+*.cache
+
+# IDE
+.vs/
+.vscode/
+.idea/
+
+# 内部交接文档，不入库
+session_handover.md
+
+# 系统
+Thumbs.db
+.DS_Store
