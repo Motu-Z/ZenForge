@@ -77,23 +77,12 @@
                     <TextBlock Text="Curve Optimizer"
                                Style="{StaticResource CardTitleStyle}"/>
 
-                    <!-- 全核负压 -->
-                    <TextBlock Text="全核负压" Margin="0,16,0,8"
-                               FontSize="12" FontWeight="SemiBold"
-                               Foreground="{DynamicResource Text.Primary}"/>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBox x:Name="GlobalCoBox" Text="-20" Width="120"
-                                 Style="{StaticResource TuningBoxStyle}"
-                                 IsEnabled="False"/>
-                        <Button x:Name="FillAllButton" Content="填充到全核"
-                                Style="{StaticResource TuningButtonStyle}"
-                                Margin="10,0,0,0"
-                                IsEnabled="False"
-                                Click="FillAllButton_Click"/>
-                    </StackPanel>
+                    <!-- 全核负压输入框已移除。整块 CO 区域待按参考 UI 重构，见 TODO 注释。 -->
+                    <!-- TODO(UI 重构)：参考朋友的软件界面重做 Curve Optimizer 整块布局，
+                         届时一并决定是否恢复「全核批量填入」入口，以及是否改为滑杆 / 步进器。 -->
 
                     <!-- 分核负压 -->
-                    <TextBlock Text="分核负压" Margin="0,20,0,8"
+                    <TextBlock Text="分核负压" Margin="0,16,0,8"
                                FontSize="12" FontWeight="SemiBold"
                                Foreground="{DynamicResource Text.Primary}"/>
 
@@ -112,30 +101,8 @@
                 </StackPanel>
             </Border>
 
-            <!-- ======= FMax ======= -->
-            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
-                <StackPanel>
-                    <TextBlock Text="FMax" Style="{StaticResource CardTitleStyle}"/>
-
-                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                        <!-- 初值留空：4750 是 9955HX 的典型值，换机器后是个错误暗示。
-                             探测成功后由 ApplySnapshot 回填真实 FMax。 -->
-                        <TextBox x:Name="FMaxBox" Text="" Width="140"
-                                 Style="{StaticResource TuningBoxStyle}"
-                                 IsEnabled="False"/>
-                        <TextBlock Text="MHz" Margin="10,0,0,0"
-                                   Foreground="{DynamicResource Text.Secondary}"
-                                   VerticalAlignment="Center"/>
-                        <Button x:Name="FmaxApplyButton" Content="应用"
-                                Style="{StaticResource TuningButtonStyle}"
-                                Margin="16,0,0,0"
-                                IsEnabled="False" Click="FmaxApplyButton_Click"/>
-                    </StackPanel>
-                </StackPanel>
-            </Border>
-
             <!-- ======= 功耗墙 ======= -->
-            <Border Style="{StaticResource CardBorderStyle}">
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
                 <StackPanel>
                     <TextBlock Text="功耗墙" Style="{StaticResource CardTitleStyle}"/>
 
@@ -243,6 +210,27 @@
                 </StackPanel>
             </Border>
 
+            <!-- ======= FMax ======= -->
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel>
+                    <TextBlock Text="FMax" Style="{StaticResource CardTitleStyle}"/>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                        <!-- 初值留空：4750 是 9955HX 的典型值，换机器后是个错误暗示。
+                             探测成功后由 ApplySnapshot 回填真实 FMax。 -->
+                        <TextBox x:Name="FMaxBox" Text="" Width="140"
+                                 Style="{StaticResource TuningBoxStyle}"
+                                 IsEnabled="False"/>
+                        <TextBlock Text="MHz" Margin="10,0,0,0"
+                                   Foreground="{DynamicResource Text.Secondary}"
+                                   VerticalAlignment="Center"/>
+                        <Button x:Name="FmaxApplyButton" Content="应用"
+                                Style="{StaticResource TuningButtonStyle}"
+                                Margin="16,0,0,0"
+                                IsEnabled="False" Click="FmaxApplyButton_Click"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </Page>

@@ -224,8 +224,6 @@ namespace ZenForge.Views
             // 写入进行中不要重新启用：写入完成后 RefreshAfterWriteAsync 会再走一次 ApplySnapshot，
             // 若这里无条件置 true，闸门会在 finally 之前就被绕过（Z-6 补全）。
             bool enabled = !_busy;
-            GlobalCoBox.IsEnabled = enabled;
-            FillAllButton.IsEnabled = enabled;
             ApplyAllButton.IsEnabled = enabled;
             ApplySaveButton.IsEnabled = enabled;
             ResetButton.IsEnabled = enabled;
@@ -247,9 +245,8 @@ namespace ZenForge.Views
 
         /// <summary>写入期间统一禁用/恢复全部可编辑的调校控件（Z-6：防止重复点击造成并发下发）。
         ///
-        /// 不只按钮：GlobalCoBox / FMaxBox 也要锁。它们是写入的「输入源」，
-        /// 写入过程中改值会让下一次刷新回填成新值，用户会以为"我刚才改的没生效"。
-        /// FillAllButton 会把全局值铺到所有核心框，同样属于会改写输入的操作。</summary>
+        /// 不只按钮：FMaxBox 与各核心 CO 输入框也要锁。它们是写入的「输入源」，
+        /// 写入过程中改值会让下一次刷新回填成新值，用户会以为"我刚才改的没生效"。</summary>
         private void SetWriteButtonsEnabled(bool enabled)
         {
             SaveConfigButton.IsEnabled = enabled;
@@ -258,8 +255,6 @@ namespace ZenForge.Views
             ApplySaveButton.IsEnabled = enabled;
             ResetButton.IsEnabled = enabled;
             FmaxApplyButton.IsEnabled = enabled;
-            GlobalCoBox.IsEnabled = enabled;
-            FillAllButton.IsEnabled = enabled;
             FMaxBox.IsEnabled = enabled;
 
             // 功耗墙同步上锁：写入期间改输入框会让回读结果与用户预期错位
@@ -278,30 +273,9 @@ namespace ZenForge.Views
 
         // ---------- 控件交互 ----------
 
-        private void FillAllButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (!int.TryParse(GlobalCoBox.Text, out int value))
-            {
-                DarkDialog.ShowWarning("请输入有效的整数作为全局 CO 值。", "输入非法");
-                return;
-            }
-
-            // 允许 [-50, +50]：负值降压、正值加压
-            value = Math.Clamp(value, CoMin, CoMax);
-            GlobalCoBox.Text = value.ToString();
-
-            int count = 0;
-            foreach (TextBox box in CoreBoxes)
-            {
-                if (box.IsEnabled)
-                {
-                    box.Text = value.ToString();
-                    count++;
-                }
-            }
-
-            LogService.Info($"已将全局 CO 值 {value} 填充到 {count} 个核心（未下发，点击“应用”生效）");
-        }
+        // 全核负压输入框与「填充到全核」按钮已移除，FillAllButton_Click 一并删除。
+        // TODO(UI 重构)：参考朋友的软件界面重做 Curve Optimizer 区域，
+        // 届时若恢复批量填入，再用滑杆或步进器实现，不再用单个裸输入框。
 
         private void ResetButton_Click(object sender, RoutedEventArgs e)
         {
