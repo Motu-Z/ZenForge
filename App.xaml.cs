@@ -119,6 +119,9 @@ namespace ZenForge
                 MaskStore.Load();
                 BindingStore.Load();
 
+                // 出厂功耗墙基线：后台采集，不阻塞界面加载
+                PowerBaselineBootstrap.RunInBackground("升级路径");
+
                 LogService.Info("升级 4/6：启动进程采样与绑核回调");
 
                 // 调度页的进程列表靠它采样。升级路径同样要立起循环 ——
@@ -354,6 +357,10 @@ namespace ZenForge
             TuningStore.Load();
             MaskStore.Load();
             BindingStore.Load();
+
+            // 出厂功耗墙基线：首次启动采集一次落盘，之后只比对不覆盖。
+            // 放后台跑：WaitForPawnIO 最长等 60 秒，绝不能挡在 UI 线程上。
+            PowerBaselineBootstrap.RunInBackground("GUI 启动");
 
             // S4：按设置启动进程绑核后台监听（轮询 bindings.json）
             AttachProcessWatcherUi();

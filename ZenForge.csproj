@@ -10,10 +10,14 @@
     <AssemblyName>ZenForge</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <SatelliteResourceLanguages>none</SatelliteResourceLanguages>
-    <Version>0.8.1</Version>
-    <FileVersion>0.8.1.0</FileVersion>
-    <AssemblyVersion>0.8.1.0</AssemblyVersion>
+    <Version>0.8.2</Version>
+    <FileVersion>0.8.2.0</FileVersion>
+    <AssemblyVersion>0.8.2.0</AssemblyVersion>
     <Product>ZenForge</Product>
+
+    <!-- 仓库纳入 git 之后，SDK 默认往 InformationalVersion 追加 "+<commit>"。
+         属性面板里那一串 hash 对用户没有意义，关掉。 -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 
     <!-- 自定义入口点：让 -silent 走一条完全不加载 WPF 的纯后台路径。
          仍由 App.xaml 的 ApplicationDefinition 生成 App.g.cs（资源字典/BAML 全在里面），

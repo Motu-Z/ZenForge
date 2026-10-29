@@ -23,6 +23,28 @@ namespace ZenForge.Helpers
         /// </summary>
         public uint FMaxBaselineMHz { get; set; }
 
+        // ---------- 功耗墙（0 = 未设置） ----------
+        //
+        // 单位沿用 SMU 原始单位，不存瓦和安：
+        //   · 功率 mW、电流 mA、温度 ℃。
+        // 界面换算集中在 TuningPage 的边界处，配置文件里出现两种单位是自找麻烦。
+
+        /// <summary>PPT 功耗上限，mW。</summary>
+        public uint PptMilliwatt { get; set; }
+
+        /// <summary>TDC 持续电流上限，mA。</summary>
+        public uint TdcMilliamp { get; set; }
+
+        /// <summary>EDC 峰值电流上限，mA。</summary>
+        public uint EdcMilliamp { get; set; }
+
+        /// <summary>Tctl 温度上限，℃。</summary>
+        public uint TctlCelsius { get; set; }
+
+        /// <summary>是否保存过任何一项功耗墙。</summary>
+        public bool HasPowerLimits =>
+            PptMilliwatt > 0 || TdcMilliamp > 0 || EdcMilliamp > 0 || TctlCelsius > 0;
+
         /// <summary>最近一次成功应用的时间（本地时间，ISO8601）。</summary>
         public string? AppliedAt { get; set; }
     }
@@ -85,6 +107,9 @@ namespace ZenForge.Helpers
             uint baseline = Profile.FMaxBaselineMHz;
             uint effectiveFMax = baseline != 0 ? baseline : 0u;
 
+            // 功耗墙不在配置里清零：它的「出厂值」存在 power-baseline.json，
+            // 由 PowerLimitService.RestoreDefaults 负责写回 SMU，
+            // 这里只把「用户设定的墙值」抹掉，避免下次自启又把自定义值写回去。
             TuningProfile reset = new()
             {
                 CurveOptimizer = Array.Empty<int>(),

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.ServiceProcess;
 using System.Threading;
 using ZenStates.Core;
+using ZenForge.Helpers;
 using ZenForge.Services;
 
 namespace ZenForge.Services
@@ -703,6 +704,183 @@ namespace ZenForge.Services
                     return 0;
                 }
             }
+        }
+
+        // ==================== 功耗墙（PPT / TDC / EDC / Tctl） ====================
+        //
+        // 四项墙在库里都有现成的 Set，不需要自己拼 MP1/RSMU 消息号 ——
+        // 库已经按 SMUSettings.Zen4Settings / Zen5Settings 等分支处理了邮箱映射，
+        // 手拼消息号等于把兼容性重新揽回自己身上。
+        //
+        // 但「读」和「写」并不对称，这是必须记住的一点：
+        //   · 写：四项都有 Set* 接口；
+        //   · 读：只有 GetPboFusedLimits()（出厂融断值）与 GetSystemPowerLimit()
+        //         （系统供电策略的功率 / 温度上限），没有任何 GetPPTLimit / GetTDCVDDLimit。
+        // 所以写入前「快照」对 TDC / EDC 只能留空，不能编一个数字冒充。
+
+        /// <summary>
+        /// 下发一项功耗墙，返回库的原始 Status。异常统一折算成 FAILED，不外抛。
+        /// 不做范围校验 —— 区间判断在界面层完成，本类只负责把值发出去并如实报告结果。
+        /// </summary>
+        internal SMU.Status SetPowerLimit(PowerLimitKind kind, uint value)
+        {
+            Cpu? cpu = _cpu;
+            if (cpu == null || !IsAvailable)
+                return SMU.Status.FAILED;
+
+            lock (_syncRoot)
+            {
+                try
+                {
+                    return kind switch
+                    {
+                        PowerLimitKind.Ppt => cpu.SetPPTLimit(value),
+                        PowerLimitKind.Tdc => cpu.SetTDCVDDLimit(value),
+                        PowerLimitKind.Edc => cpu.SetEDCVDDLimit(value),
+                        PowerLimitKind.Tctl => cpu.SetTctlMax(value),
+                        _ => SMU.Status.UNKNOWN_CMD
+                    };
+                }
+                catch (Exception ex)
+                {
+                    LastError = $"写入 {PowerLimitOutcome.NameOf(kind)} 异常：{ex.Message}";
+                    LogService.Error(LastError);
+                    return SMU.Status.FAILED;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 现读当前生效值。0 = 该平台没有可信读通道，调用方必须跳过回读校验而不是判定失败。
+        ///
+        /// 通道差异：
+        ///   · PPT / TDC / EDC —— 库没有对应的 Get，只能返回 0；
+        ///   · Tctl —— 取 GetSystemPowerLimit().TemperatureLimit。
+        ///     注意它与 SetTctlMax 并非同一设定项（一个是系统供电策略的温度上限，
+        ///     一个是 SMU 的 Tctl 上限），多数桌面平台数值一致但无法保证，
+        ///     所以 Tctl 的回读比对必须带容差。
+        /// </summary>
+        internal uint ReadPowerLimit(PowerLimitKind kind, out string? why)
+        {
+            why = null;
+            Cpu? cpu = _cpu;
+            if (cpu == null || !IsAvailable)
+            {
+                why = LastError ?? "SMU 未初始化";
+                return 0;
+            }
+
+            if (kind != PowerLimitKind.Tctl)
+            {
+                why = "该平台无对应读取接口";
+                return 0;
+            }
+
+            lock (_syncRoot)
+            {
+                try
+                {
+                    Cpu.SystemPowerLimit? sys = cpu.GetSystemPowerLimit();
+                    if (sys == null)
+                    {
+                        why = "系统供电策略未提供温度上限";
+                        return 0;
+                    }
+
+                    int value = sys.Value.TemperatureLimit;
+                    if (value <= 0)
+                    {
+                        why = "温度上限读取为 0";
+                        return 0;
+                    }
+                    return (uint)value;
+                }
+                catch (Exception ex)
+                {
+                    why = ex.Message;
+                    return 0;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 采集出厂基线。只在启动探测与用户点「现读并覆盖」时调用，失败返回 null 不抛。
+        ///
+        /// 单位归一化：库返回的功率 / 电流可能是 W/A，也可能是 mW/mA，不同固件不一致。
+        /// 这里按「≤1000 视为 W/A」换算，并把原始值与换算值一起写进日志 ——
+        /// 真机上如果这个判断错了，日志一眼能看出来，不用猜。
+        /// </summary>
+        internal PowerBaseline? CaptureBaseline(string source)
+        {
+            Cpu? cpu = _cpu;
+            if (cpu == null || !IsAvailable)
+            {
+                LogService.Warn($"采集功耗基线失败：{LastError ?? "SMU 未初始化"}");
+                return null;
+            }
+
+            lock (_syncRoot)
+            {
+                try
+                {
+                    Cpu.PboFusedLimits? fused = cpu.GetPboFusedLimits();
+                    Cpu.SystemPowerLimit? sys = cpu.GetSystemPowerLimit();
+
+                    int rawPpt = fused?.PowerLimit ?? 0;
+                    int rawTdc = fused?.VrmVddTdcCurrent ?? 0;
+                    int rawTctl = sys?.TemperatureLimit ?? 0;
+
+                    int ppt = NormalizeToMilli(rawPpt);
+                    int tdc = NormalizeToMilli(rawTdc);
+
+                    PowerBaseline baseline = new()
+                    {
+                        CpuName = cpu.info.cpuName ?? string.Empty,
+                        CodeName = cpu.info.codeName.ToString(),
+                        SmuVersion = SmuVersionString(cpu),
+                        PptMilliwatt = ppt,
+                        TdcMilliamp = tdc,
+                        EdcMilliamp = 0,   // 融断值无独立 EDC 通道
+                        TctlCelsius = rawTctl > 0 ? rawTctl : 0,
+                        CapturedUtc = DateTime.UtcNow,
+                        Source = source
+                    };
+
+                    LogService.Info(
+                        $"功耗基线采集（{source}）：" +
+                        $"PPT 原始 {rawPpt} → {ppt} mW；" +
+                        $"TDC 原始 {rawTdc} → {tdc} mA；" +
+                        $"Tctl {rawTctl} ℃；" +
+                        $"EDC 无通道");
+
+                    if (!baseline.IsUsable)
+                        LogService.Warn("功耗基线四项均为空，该平台可能不提供融断值");
+
+                    return baseline;
+                }
+                catch (Exception ex)
+                {
+                    LogService.Error($"采集功耗基线异常：{ex}");
+                    return null;
+                }
+            }
+        }
+
+        /// <summary>≤1000 的值按 W / A 处理，乘以 1000 换算成 mW / mA。</summary>
+        private static int NormalizeToMilli(int raw)
+        {
+            if (raw <= 0)
+                return 0;
+            return raw <= 1000 ? raw * 1000 : raw;
+        }
+
+        /// <summary>SMU 版本的统一字符串形式，与 ReadSnapshot 的写法保持一致。</summary>
+        private static string SmuVersionString(Cpu cpu)
+        {
+            uint version = cpu.smu.Version;
+            if (version == 0)
+                version = cpu.GetSmuVersion();
+            return version == 0 ? "未知" : $"0x{version:X}";
         }
 
         /// <summary>

@@ -16,9 +16,10 @@ namespace ZenForge.Services
 
         public bool CurveOptimizerApplied { get; set; }
         public bool FMaxApplied { get; set; }
+        public bool PowerLimitsApplied { get; set; }
 
         /// <summary>执行了写入且没有任何失败项。</summary>
-        public bool AnythingApplied => CurveOptimizerApplied || FMaxApplied;
+        public bool AnythingApplied => CurveOptimizerApplied || FMaxApplied || PowerLimitsApplied;
 
         public bool Success => !Skipped && Errors.Count == 0 && AnythingApplied;
 
@@ -61,6 +62,7 @@ namespace ZenForge.Services
 
             bool hasCo = margins.Length > 0 && margins.Any(v => v != int.MinValue);
             bool hasFMax = fMax > 0;
+            bool hasPower = profile.HasPowerLimits;
 
             // 跳过也算一次结果：调校页要靠它显示「本次启动未应用 + 原因」，
             // 否则用户无从区别「应用失败」和「压根没尝试」。
@@ -71,7 +73,7 @@ namespace ZenForge.Services
                     SkipReason = "「启动时自动应用调校」已关闭，本次未写入 SMU"
                 });
 
-            if (!hasCo && !hasFMax)
+            if (!hasCo && !hasFMax && !hasPower)
                 return Record(new TuningApplyOutcome
                 {
                     Skipped = true,
@@ -119,9 +121,17 @@ namespace ZenForge.Services
                 try
                 {
                     SmuSnapshot snapshot = reader.ReadSnapshot();
-                    if (!snapshot.Success)
+                    if (snapshot.Success)
+                    {
+                        // 顺手采集出厂基线：静默自启走的就是这条路径，
+                        // 用户不开界面时基线也得建立起来，否则第一次想恢复默认会发现没有基线。
+                        PowerBaselineBootstrap.Ensure(reader, snapshot, "启动应用调校");
+                    }
+                    else
+                    {
                         LogService.Error(
                             $"启动应用调校：SMU 探测失败（{snapshot.Error}），继续尝试写入");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -192,6 +202,53 @@ namespace ZenForge.Services
                     {
                         outcome.Errors.Add($"FMax 写入异常：{ex.Message}");
                         LogService.Error($"启动应用调校：FMax 写入异常：{ex.Message}");
+                    }
+                }
+
+                // ---------- 功耗墙 ----------
+                // 顺序在 CO / FMax 之后：墙值决定的是功耗与温度上限，
+                // 先限功耗再调频率，比反过来更接近固件的正常状态机。
+                if (profile.HasPowerLimits)
+                {
+                    try
+                    {
+                        PowerLimitSet set = new()
+                        {
+                            PptMilliwatt = profile.PptMilliwatt > 0 ? profile.PptMilliwatt : null,
+                            TdcMilliamp = profile.TdcMilliamp > 0 ? profile.TdcMilliamp : null,
+                            EdcMilliamp = profile.EdcMilliamp > 0 ? profile.EdcMilliamp : null,
+                            TctlCelsius = profile.TctlCelsius > 0 ? profile.TctlCelsius : null
+                        };
+
+                        PowerLimitApplyResult power = PowerLimitService.Apply(reader, set);
+
+                        if (power.Items.Count == 0)
+                        {
+                            LogService.Info("启动应用调校：功耗墙无可写入项");
+                        }
+                        else if (power.AllSucceeded)
+                        {
+                            outcome.PowerLimitsApplied = true;
+                            LogService.Info($"启动应用调校：功耗墙 {power.Items.Count} 项写入成功");
+                        }
+                        else
+                        {
+                            // 逐项独立：成功的项已经生效，只把失败项计入 Errors。
+                            if (power.AnySucceeded)
+                                outcome.PowerLimitsApplied = true;
+
+                            foreach (PowerLimitOutcome item in power.Items)
+                            {
+                                if (item.Ok) continue;
+                                outcome.Errors.Add(
+                                    $"功耗墙 {PowerLimitOutcome.NameOf(item.Kind)}：{item.Message}");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        outcome.Errors.Add($"功耗墙写入异常：{ex.Message}");
+                        LogService.Error($"启动应用调校：功耗墙写入异常：{ex.Message}");
                     }
                 }
             }
