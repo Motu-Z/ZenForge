@@ -29,7 +29,7 @@ namespace ZenForge.Helpers
         [JsonIgnore]
         public bool FollowSystemAccentExplicit { get; set; }
 
-        // ==================== S4/S5：启动与后台（新增，不影响旧字段） ====================
+        // 启动与后台
 
         /// <summary>
         /// 开机静默自启：是否已注册 Windows 计划任务 ZenForgeAutoStart。

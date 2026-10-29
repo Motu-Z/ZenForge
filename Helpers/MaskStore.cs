@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 using System.Text.Json;
 using ZenForge.Services;
 
@@ -20,21 +21,11 @@ namespace ZenForge.Helpers
         public ulong Mask { get; set; }
 
         /// <summary>已勾选的逻辑核数量（用于列表展示）。</summary>
-        public int CoreCount
-        {
-            get
-            {
-                int n = 0;
-                for (int i = 0; i < 64; i++)
-                    if ((Mask & (1UL << i)) != 0)
-                        n++;
-                return n;
-            }
-        }
+        public int CoreCount => BitOperations.PopCount(Mask);
     }
 
     /// <summary>
-    /// 自定义掩码持久化（S3 重构）：保存到 %APPDATA%\ZenForge\masks.json。
+    /// 自定义掩码持久化：保存到 %APPDATA%\ZenForge\masks.json。
     /// 重启软件时由 <see cref="Load"/> 自动加载，下拉框与绑核规则都引用这里的配置。
     /// </summary>
     public static class MaskStore
@@ -88,11 +79,10 @@ namespace ZenForge.Helpers
 
                 List<CustomMask>? loaded =
                     JsonSerializer.Deserialize<List<CustomMask>>(File.ReadAllText(FilePath));
+
                 _masks.Clear();
                 if (loaded != null)
-                    foreach (CustomMask m in loaded)
-                        if (!string.IsNullOrWhiteSpace(m.Name))
-                            _masks.Add(m);
+                    _masks.AddRange(loaded.Where(m => !string.IsNullOrWhiteSpace(m.Name)));
             }
             catch (Exception ex)
             {
@@ -143,9 +133,6 @@ namespace ZenForge.Helpers
         /// 重名与套数上限也放在这里，而不是只写在窗口里 —— 窗口是可以绕过的
         /// （以后加导入 / 迁移入口就会绕过去），存储层才是唯一可信的关卡。
         /// </remarks>
-        public static bool Upsert(CustomMask mask) => Upsert(mask, out _);
-
-        /// <inheritdoc cref="Upsert(CustomMask)"/>
         public static bool Upsert(CustomMask mask, out UpsertError error)
         {
             string name = (mask.Name ?? string.Empty).Trim();

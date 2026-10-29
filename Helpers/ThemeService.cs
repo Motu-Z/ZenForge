@@ -78,26 +78,9 @@ namespace ZenForge.Helpers
             IsDark = dark;
             SwapPalette(dark ? PaletteDark : PaletteLight);
 
-            Color accent;
-            if (followSystemAccent)
-            {
-                accent = GetSystemAccentColor();
-            }
-            else if (!string.IsNullOrWhiteSpace(customAccentHex))
-            {
-                try
-                {
-                    accent = (Color)ColorConverter.ConvertFromString(customAccentHex);
-                }
-                catch
-                {
-                    accent = (Color)ColorConverter.ConvertFromString(DefaultAccentHex);
-                }
-            }
-            else
-            {
-                accent = (Color)ColorConverter.ConvertFromString(DefaultAccentHex);
-            }
+            Color accent = followSystemAccent
+                ? GetSystemAccentColor()
+                : ResolveCustomAccent(customAccentHex);
 
             if (followSystemAccent)
                 _lastKnownSystemAccent = accent;
@@ -106,6 +89,18 @@ namespace ZenForge.Helpers
             SetAccentBrushes(accent);
 
             ThemeChanged?.Invoke(null, EventArgs.Empty);
+        }
+
+        /// <summary>自定义色解析失败或没给，一律回落到默认青，而不是系统强调色那套兜底。</summary>
+        private static Color ResolveCustomAccent(string? customAccentHex)
+        {
+            if (!string.IsNullOrWhiteSpace(customAccentHex) &&
+                ColorConverter.ConvertFromString(customAccentHex) is Color parsed)
+            {
+                return parsed;
+            }
+
+            return (Color)ColorConverter.ConvertFromString(DefaultAccentHex);
         }
 
         /// <summary>
@@ -122,30 +117,40 @@ namespace ZenForge.Helpers
                 _systemMonitorTimer.Stop();
 
             _systemMonitorTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-            _systemMonitorTimer.Tick += (_, _) =>
-            {
-                bool dark = ResolveDark(Mode);
-                if (dark != _lastKnownDark)
-                {
-                    _lastKnownDark = dark;
-                    IsDark = dark;
-                    SwapPalette(dark ? PaletteDark : PaletteLight);
-                    ThemeChanged?.Invoke(null, EventArgs.Empty);
-                }
-
-                if (FollowSystemAccent)
-                {
-                    Color system = GetSystemAccentColor();
-                    if (system != _lastKnownSystemAccent)
-                    {
-                        _lastKnownSystemAccent = system;
-                        AccentColor = system;
-                        SetAccentBrushes(system);
-                        ThemeChanged?.Invoke(null, EventArgs.Empty);
-                    }
-                }
-            };
+            _systemMonitorTimer.Tick += (_, _) => OnMonitorTick();
             _systemMonitorTimer.Start();
+        }
+
+        private static void OnMonitorTick()
+        {
+            bool dark = ResolveDark(Mode);
+            if (dark == _lastKnownDark)
+            {
+                CheckSystemAccent();
+                return;
+            }
+
+            _lastKnownDark = dark;
+            IsDark = dark;
+            SwapPalette(dark ? PaletteDark : PaletteLight);
+            ThemeChanged?.Invoke(null, EventArgs.Empty);
+
+            CheckSystemAccent();
+        }
+
+        private static void CheckSystemAccent()
+        {
+            if (!FollowSystemAccent)
+                return;
+
+            Color system = GetSystemAccentColor();
+            if (system == _lastKnownSystemAccent)
+                return;
+
+            _lastKnownSystemAccent = system;
+            AccentColor = system;
+            SetAccentBrushes(system);
+            ThemeChanged?.Invoke(null, EventArgs.Empty);
         }
 
         /// <summary>
@@ -224,7 +229,6 @@ namespace ZenForge.Helpers
             ApplySystemColorOverrides(source == PaletteDark);
         }
 
-        // ==================================================================
         // App.xaml 为 SystemColors 准备了一组兜底画刷，用来压住 ComboBox 下拉弹层、
         // 右键菜单这类不走 DynamicResource 的系统部件，避免深色界面里冒出白底。
         //
@@ -234,7 +238,6 @@ namespace ZenForge.Helpers
         // 关键：资源键必须是 SystemColors.XxxKey 这个 ResourceKey 实例本身。
         // x:Key="{x:Static SystemColors.WindowBrushKey}" 存入字典时用的就是该对象；
         // 若拿同名字符串去赋值，只会新建一个无人引用的键，同步不会生效。
-        // ==================================================================
         private static void ApplySystemColorOverrides(bool dark)
         {
             if (Application.Current == null)

@@ -8,7 +8,7 @@ using ZenForge.Services;
 namespace ZenForge.Views
 {
     /// <summary>
-    /// 日志页（S1 骨架，已可用）
+    /// 日志页。
     /// </summary>
     public partial class LogPage : Page
     {

@@ -232,7 +232,7 @@ namespace ZenForge.Views
     }
 
     /// <summary>
-    /// 进程绑定页（S3 重构）：按进程名合并列表，选择目标即绑定该名称下所有 PID，
+    /// 进程绑定页：按进程名合并列表，选择目标即绑定该名称下所有 PID，
     /// 规则按「进程名 → 目标」持久化；自定义掩码由独立窗口管理并动态进入下拉框。
     /// </summary>
     public partial class ProcessBindingPage : Page

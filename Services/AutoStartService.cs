@@ -12,7 +12,7 @@ using System.Xml.Linq;
 namespace ZenForge.Services
 {
     /// <summary>
-    /// 开机静默自启（S5）：通过 Windows 计划任务实现「登录后延时 15 秒、最高权限、无窗口启动」。
+    /// 开机静默自启：通过 Windows 计划任务实现「登录后延时 15 秒、最高权限、无窗口启动」。
     ///
     /// 为什么用 schtasks.exe 而不是 COM（TaskScheduler / ITaskService）：
     ///   1. 零依赖：schtasks 是 Windows 内置命令行，不需要注册 COM 互操作程序集，
@@ -78,8 +78,6 @@ namespace ZenForge.Services
         [DllImport("kernel32.dll")]
         private static extern uint GetOEMCP();
 
-        // ==================== 查询 ====================
-
         /// <summary>计划任务当前是否已注册。</summary>
         public static bool IsEnabled()
         {
@@ -94,8 +92,6 @@ namespace ZenForge.Services
                 return false;
             }
         }
-
-        // ==================== 启用 / 停用 ====================
 
         /// <summary>
         /// 创建（或覆盖）计划任务。
@@ -202,8 +198,6 @@ namespace ZenForge.Services
             }
         }
 
-        // ==================== 内部实现 ====================
-
         /// <summary>
         /// 构造任务定义 XML。
         /// </summary>
@@ -219,7 +213,6 @@ namespace ZenForge.Services
                 new XElement(ns + "Task",
                     new XAttribute("version", "1.2"),
 
-                    // 注册信息：作者与描述
                     new XElement(ns + "RegistrationInfo",
                         new XElement(ns + "Author", "ZenForge"),
                         new XElement(ns + "Description",
@@ -242,7 +235,7 @@ namespace ZenForge.Services
                             new XElement(ns + "LogonType", "InteractiveToken"),
                             new XElement(ns + "RunLevel", "HighestAvailable"))),
 
-                    // 设置：元素顺序与「任务计划程序」自身导出的格式一致
+                    // 元素顺序与「任务计划程序」自身导出的格式一致
                     new XElement(ns + "Settings",
                         new XElement(ns + "MultipleInstancesPolicy", "IgnoreNew"),
                         new XElement(ns + "DisallowStartIfOnBatteries", "false"),

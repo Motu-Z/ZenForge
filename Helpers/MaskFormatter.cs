@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using System.Text;
 
 namespace ZenForge.Helpers
@@ -30,7 +31,6 @@ namespace ZenForge.Helpers
 
             while (i < 64)
             {
-                // 跳过 0 位
                 while (i < 64 && (mask & (1UL << i)) == 0)
                     i++;
 
@@ -54,19 +54,8 @@ namespace ZenForge.Helpers
             if (mask == 0)
                 return "0x0";
 
-            // 有效位数 = floor(log2(mask)) + 1，再向上取整到 4 的倍数
-            int highestBit = 0;
-            for (int i = 63; i >= 0; i--)
-            {
-                if ((mask & (1UL << i)) != 0)
-                {
-                    highestBit = i;
-                    break;
-                }
-            }
-
-            int hexDigits = (highestBit + 1 + 3) / 4;   // 16 位 → 4 个十六进制字符
-            hexDigits = Math.Max(1, hexDigits);
+            // 有效位数 = 最高位下标 + 1，再向上取整到 4 的倍数（16 位 → 4 个十六进制字符）
+            int hexDigits = Math.Max(1, (BitOperations.Log2(mask) + 1 + 3) / 4);
 
             return "0x" + mask.ToString("X" + hexDigits);
         }
@@ -136,7 +125,6 @@ namespace ZenForge.Helpers
                 int dash = part.IndexOf('-');
                 if (dash > 0)
                 {
-                    // 区间 a-b
                     string left = part.Substring(0, dash).Trim();
                     string right = part.Substring(dash + 1).Trim();
 
@@ -157,7 +145,6 @@ namespace ZenForge.Helpers
                 }
                 else
                 {
-                    // 单个逻辑核
                     if (!int.TryParse(part, out int core))
                     {
                         error = $"“{part}”既不是数字也不是区间";

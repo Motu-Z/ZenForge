@@ -151,22 +151,12 @@ namespace ZenForge.Services
                     // 少了入口就把监听一起丢掉。退化成纯信号等待，双击 exe 仍能升级。
                     LogService.Warn($"托盘创建失败，降级为无窗口后台等待：{ex.Message}");
 
-                    // 先拆掉半成品再升级：finally 要等 app.Run() 退出才执行，
+                    // 先拆掉半成品再升级：外层 finally 要等 app.Run() 退出才执行，
                     // 那时 WPF 早已建好自己的托盘，任务栏会出现两个图标。
                     tray?.Dispose();
                     tray = null;
 
-                    using ManualResetEventSlim signal = new(false);
-
-                    // 托盘没了，唤醒只能直接落到「升级」上，不能再指望 PostWake
-                    WakeWindow.Activated = signal.Set;
-                    SingleInstance.WakeRequested = signal.Set;
-
-                    signal.Wait();
-
-                    WakeWindow.Activated = null;
-                    SingleInstance.WakeRequested = null;
-                    return UpgradeSafely();
+                    return WaitForWakeWithoutTray();
                 }
 
                 if (tray.UpgradeRequested)
@@ -197,6 +187,25 @@ namespace ZenForge.Services
 
             Cleanup();
             return 0;
+        }
+
+        /// <summary>
+        /// 托盘建不出来时的退化路径：只等一个信号，收到就直接升级。
+        /// 托盘没了，唤醒不能再指望 PostWake，只能落到「升级」上。
+        /// </summary>
+        private static int WaitForWakeWithoutTray()
+        {
+            using ManualResetEventSlim signal = new(false);
+
+            WakeWindow.Activated = signal.Set;
+            SingleInstance.WakeRequested = signal.Set;
+
+            signal.Wait();
+
+            WakeWindow.Activated = null;
+            SingleInstance.WakeRequested = null;
+
+            return UpgradeSafely();
         }
 
         /// <summary>

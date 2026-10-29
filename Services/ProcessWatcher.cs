@@ -9,7 +9,7 @@ using ZenForge.Helpers;
 namespace ZenForge.Services
 {
     /// <summary>
-    /// 进程绑核后台监听（S4）。
+    /// 进程绑核后台监听。
     ///
     /// 工作机制（0.7.0 起改为事件驱动）：
     ///   · 主路径：订阅 WMI 的 __InstanceCreationEvent，内核一报「有新进程」就立即处理

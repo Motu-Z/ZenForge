@@ -39,7 +39,7 @@ namespace ZenForge.Services
 
     /// <summary>
     /// 极简日志服务：内存集合（供 UI 绑定）+ 按天滚动的日志文件。
-    /// S2：后台线程（SMU 探测）写日志时，通过 <see cref="UiContext"/> 自动封送回 UI 线程，
+    /// 后台线程（SMU 探测）写日志时，通过 <see cref="UiContext"/> 自动封送回 UI 线程，
     /// 避免 ObservableCollection 跨线程修改导致绑定崩溃。
     /// </summary>
     public static class LogService

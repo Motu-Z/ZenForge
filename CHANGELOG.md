@@ -29,6 +29,16 @@ ZenForge 各版本改动记录。安装包与 Release 正文均以本文件为�
 
 程序内部（日志、关于信息）显示的版本取自 `AssemblyInformationalVersion`，带后缀；资源管理器「属性 → 详细信息」里的文件版本是四段数字。两者一对照就能确定这个包是第几次发版。
 
+### 0.9.0-can1
+
+第一轮代码整理，不改动任何业务逻辑与执行流程。
+
+`Helpers`：`BindingStore` 的 Load / Reload 合并为同一条读盘实现，两者此前是逐字重复的两份；`MaskStore` 的核数统计改用 `BitOperations.PopCount`，删掉没有调用方的单参 `Upsert` 重载；`MaskFormatter` 的最高位计算改用 `BitOperations.Log2`；`ThemeService` 把主题轮询里纠缠在一起的两个分支拆成各自的方法；`WindowHelper` 把四处重复的句柄获取收敛成一处，常量与 P/Invoke 声明归拢到类首。
+
+`Services`：`WakeWindow` 与 `SingleInstance` 只精简注释，P/Invoke 结构体字段一字未动；`HeadlessHost` 把「托盘建不出来」的降级等待提成独立方法；`TuningApplyService` 去掉空转的 try/finally（异常传播行为不变）与重复的跳过结果构造；`TrayIconService` 删掉两个没有任何调用方的托盘方法及其字段。
+
+另：清理全项目残留的开发阶段标记（S1 / S2 / S3 等，现在已无对应含义）与纯装饰性分隔注释，删掉一批只是复述代码字面意思的注释。
+
 ### 0.8.6
 
 UI 重构前的最后一轮文案与交互修正。

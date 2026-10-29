@@ -1,3 +1,4 @@
+using System;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
@@ -13,31 +14,17 @@ namespace ZenForge.Helpers
         private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
         private const int DWMWCP_ROUND = 2;
 
-        [DllImport("dwmapi.dll", PreserveSig = true)]
-        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
-
-        /// <summary>在 SourceInitialized 之后调用：为 Win11 开启圆角窗口。</summary>
-        public static void ApplyWindowAttributes(Window window)
-        {
-            try
-            {
-                IntPtr hwnd = new WindowInteropHelper(window).EnsureHandle();
-
-                // 圆角仅支持 Windows 11 (build 22000+)
-                if (Environment.OSVersion.Version.Build >= 22000)
-                {
-                    int round = DWMWCP_ROUND;
-                    DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
-                }
-            }
-            catch
-            {
-                // 旧系统保持默认直角
-            }
-        }
-
         private const int GWL_EXSTYLE = -20;
         private const int WS_EX_TOOLWINDOW = 0x00000080;
+
+        private const uint SWP_FRAMECHANGED = 0x0020;
+        private const uint SWP_NOACTIVATE = 0x0010;
+        private const uint SWP_NOZORDER = 0x0004;
+        private const uint SWP_NOMOVE = 0x0002;
+        private const uint SWP_NOSIZE = 0x0001;
+
+        [DllImport("dwmapi.dll", PreserveSig = true)]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
 
         [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr")]
         private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
@@ -52,11 +39,26 @@ namespace ZenForge.Helpers
         private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
             int x, int y, int cx, int cy, uint flags);
 
-        private const uint SWP_FRAMECHANGED = 0x0020;
-        private const uint SWP_NOACTIVATE = 0x0010;
-        private const uint SWP_NOZORDER = 0x0004;
-        private const uint SWP_NOMOVE = 0x0002;
-        private const uint SWP_NOSIZE = 0x0001;
+        /// <summary>在 SourceInitialized 之后调用：为 Win11 开启圆角窗口。</summary>
+        public static void ApplyWindowAttributes(Window window)
+        {
+            try
+            {
+                // 这里必须 EnsureHandle：SourceInitialized 阶段句柄可能还没建出来，
+                // 而下面三个方法只作查询，拿不到就放弃。
+                IntPtr hwnd = new WindowInteropHelper(window).EnsureHandle();
+
+                if (Environment.OSVersion.Version.Build >= 22000)
+                {
+                    int round = DWMWCP_ROUND;
+                    DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
+                }
+            }
+            catch
+            {
+                // 旧系统保持默认直角
+            }
+        }
 
         /// <summary>
         /// 打上 WS_EX_TOOLWINDOW：窗口不进 Alt+Tab、不进任务栏。
@@ -68,8 +70,7 @@ namespace ZenForge.Helpers
         {
             try
             {
-                IntPtr hwnd = new WindowInteropHelper(window).Handle;
-                if (hwnd == IntPtr.Zero)
+                if (!TryGetHandle(window, out IntPtr hwnd))
                     return;
 
                 IntPtr style = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
@@ -98,8 +99,7 @@ namespace ZenForge.Helpers
         {
             try
             {
-                IntPtr hwnd = new WindowInteropHelper(window).Handle;
-                if (hwnd == IntPtr.Zero)
+                if (!TryGetHandle(window, out IntPtr hwnd))
                     return;
 
                 SetForegroundWindow(hwnd);
@@ -115,8 +115,7 @@ namespace ZenForge.Helpers
         {
             try
             {
-                IntPtr hwnd = new WindowInteropHelper(window).Handle;
-                if (hwnd == IntPtr.Zero)
+                if (!TryGetHandle(window, out IntPtr hwnd))
                     return;
 
                 int value = dark ? 1 : 0;
@@ -126,6 +125,12 @@ namespace ZenForge.Helpers
             {
                 // 忽略：不支持的系统保持默认
             }
+        }
+
+        private static bool TryGetHandle(Window window, out IntPtr hwnd)
+        {
+            hwnd = new WindowInteropHelper(window).Handle;
+            return hwnd != IntPtr.Zero;
         }
     }
 }

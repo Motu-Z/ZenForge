@@ -4,18 +4,16 @@ using System.Threading;
 namespace ZenForge.Services
 {
     /// <summary>
-    /// 全机单实例 + 唤醒已有实例。
+    /// 单实例 + 唤醒已有实例。
     ///
-    /// 为什么必须有它：后台常驻之后，用户双击图标会再开一个进程，两个进程会去抢
-    /// ProcessWatcher 的全局互斥体 —— 抢不到的那个监听静默失效，界面开关却显示「已开启」。
-    /// 有了单实例，第二个进程只负责把已经常驻的那个唤醒，然后自己退出。
+    /// 为什么必须有：常驻之后用户双击图标会再开一个进程，两个实例去抢 ProcessWatcher 的
+    /// 全局互斥体，抢不到的那个监听静默失效，界面开关却还显示「已开启」。
+    /// 有了单实例，第二个进程只负责把常驻的那个唤醒，然后自己退出。
     ///
-    /// 作用域用 Local\（会话级）而不是 Global\：
-    ///   · Global\ 需要 SeCreateGlobalPrivilege，跨完整性级别（计划任务的高权限实例
-    ///     与用户手动启动的中等权限实例）OpenExisting 可能直接抛无权限异常，
-    ///     结果是「明明已经有一个在跑，却又开了一个」。
-    ///   · Local\ 是登录会话级，正好对上「一个用户会话里一个 ZenForge」这个真实语义。
-    ///     跨会话 / 跨用户的「只有一个在绑核」由 ProcessWatcher 自己的 Global\ 互斥体保证。
+    /// 作用域用 Local\（会话级）不是 Global\：Global\ 需要 SeCreateGlobalPrivilege，
+    /// 跨完整性级别时 OpenExisting 可能直接抛无权限异常，结果就是「明明有一个在跑
+    /// 却又开了一个」。跨会话 / 跨用户只需一个实例在绑核，由 ProcessWatcher 自己的
+    /// Global\ 互斥体保证。
     /// </summary>
     public static class SingleInstance
     {
@@ -66,15 +64,12 @@ namespace ZenForge.Services
                     return false;
                 }
 
-                // ---------- 通道 1：窗口消息（跨权限级首选） ----------
-                // 后台实例可能由计划任务以最高权限运行，而这里只是中等权限。
-                // 低权限 → 高权限方向，命名事件会被 ACL 挡住，窗口消息不会
-                // （对方在 EnsureCreated 里做过 ChangeWindowMessageFilterEx）。
+                // 通道 1：窗口消息。跨权限级首选 —— 命名事件会被 ACL 挡住，
+                // 窗口消息不会（对方在 EnsureCreated 里放行过 UIPI）。
                 if (WakeWindow.Signal())
                     return true;
 
-                // ---------- 通道 2：命名事件（同权限级兜底） ----------
-                // 窗口还没建好、或注册消息失败时走这条。两条路最终指向同一个回调。
+                // 通道 2：命名事件。窗口还没建好或注册消息失败时的兜底，指向同一个回调。
                 try
                 {
                     using EventWaitHandle wake = EventWaitHandle.OpenExisting(WakeName);

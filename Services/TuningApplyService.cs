@@ -64,23 +64,19 @@ namespace ZenForge.Services
             // 跳过也算一次结果：调校页要靠它显示「本次启动未应用 + 原因」，
             // 否则用户无从区别「应用失败」和「压根没尝试」。
             if (!UiSettingsStore.Settings.ApplyTuningOnStartup)
-                return Record(new TuningApplyOutcome
-                {
-                    Skipped = true,
-                    SkipReason = "「启动时自动应用调校」已关闭，本次未写入 SMU"
-                });
+                return Skip("「启动时自动应用调校」已关闭，本次未写入 SMU");
 
             if (!hasCo && !hasFMax)
-                return Record(new TuningApplyOutcome
-                {
-                    Skipped = true,
-                    SkipReason = "没有已保存的调校，本次未写入 SMU"
-                });
+                return Skip("没有已保存的调校，本次未写入 SMU");
 
             TuningApplyOutcome outcome = new();
             Write(profile, margins, fMax, hasCo, hasFMax, outcome);
             return Record(outcome);
         }
+
+        /// <summary>跳过也要留下结果，让界面能区分「应用失败」和「压根没尝试」。</summary>
+        private static TuningApplyOutcome Skip(string reason) =>
+            Record(new TuningApplyOutcome { Skipped = true, SkipReason = reason });
 
         private static TuningApplyOutcome Record(TuningApplyOutcome outcome)
         {
@@ -97,9 +93,12 @@ namespace ZenForge.Services
             bool hasFMax,
             TuningApplyOutcome outcome)
         {
-            // WaitForPawnIO 返回的是进程共享的同一个 SmuReader（内部只创建一个 Cpu），
+            // WaitForPawnIO 返回进程共享的同一个 SmuReader（内部只创建一个 Cpu），
             // 驱动就绪即返回可用实例；超时（60s）仍不可用则跳过，不弹窗、不卡死。
             // 本方法只在后台线程被调用，等 60 秒不会冻住界面。
+            //
+            // 用完不 Dispose：Cpu.Dispose() 会 Opcode.Close() 掉进程级静态资源，
+            // 一键打哑所有 Cpu 的 SMU 通道。SmuReader.Dispose 本身已是 no-op。
             SmuReader? reader = SmuReader.WaitForPawnIO(60);
             if (reader == null)
             {
@@ -108,100 +107,90 @@ namespace ZenForge.Services
                 return;
             }
 
+            LogService.Info(
+                $"启动应用调校：读取到已保存配置，CO {margins.Length} 核" +
+                (hasFMax ? $"，FMax {fMax} MHz" : "，未设置 FMax"));
+
+            // ReadSnapshot 会填充写入所需的拓扑（核心数 / 每 CCD 核数）
             try
             {
-                LogService.Info(
-                    $"启动应用调校：读取到已保存配置，CO {margins.Length} 核" +
-                    (hasFMax ? $"，FMax {fMax} MHz" : "，未设置 FMax"));
+                SmuSnapshot snapshot = reader.ReadSnapshot();
+                if (!snapshot.Success)
+                {
+                    LogService.Error(
+                        $"启动应用调校：SMU 探测失败（{snapshot.Error}），继续尝试写入");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"启动应用调校：SMU 探测异常（继续尝试写入）：{ex.Message}");
+            }
 
-                // ReadSnapshot 会填充写入所需的拓扑（核心数 / 每 CCD 核数）
+            // ---------- CO ----------
+            if (hasCo)
+            {
+                // 补齐到实际核心数：配置文件可能来自核心数不同的机器
+                int coreCount = reader.CoreCount > 0 ? reader.CoreCount : margins.Length;
+                int[] values = new int[coreCount];
+                for (int i = 0; i < coreCount; i++)
+                    values[i] = i < margins.Length ? margins[i] : 0;
+
                 try
                 {
-                    SmuSnapshot snapshot = reader.ReadSnapshot();
-                    if (!snapshot.Success)
+                    SmuWriteResult co = reader.WriteCurveOptimizer(values);
+
+                    if (co.AllSucceeded)
                     {
-                        LogService.Error(
-                            $"启动应用调校：SMU 探测失败（{snapshot.Error}），继续尝试写入");
+                        outcome.CurveOptimizerApplied = true;
+                        LogService.Info($"启动应用调校：CO {co.Applied.Count} 核写入并回读一致");
+                    }
+                    else
+                    {
+                        if (!string.IsNullOrEmpty(co.Fatal))
+                            outcome.Errors.Add($"CO 写入致命错误：{co.Fatal}");
+                        if (co.WriteFailed.Count > 0)
+                            outcome.Errors.Add($"CO 被拒核心：{string.Join(", ", co.WriteFailed)}");
+                        if (co.VerifyFailed.Count > 0)
+                            outcome.Errors.Add($"CO 回读不一致核心：{string.Join(", ", co.VerifyFailed)}");
+
+                        LogService.Error("启动应用调校：CO 写入未完全成功（详见上方明细）");
                     }
                 }
                 catch (Exception ex)
                 {
-                    LogService.Warn($"启动应用调校：SMU 探测异常（继续尝试写入）：{ex.Message}");
+                    outcome.Errors.Add($"CO 写入异常：{ex.Message}");
+                    LogService.Error($"启动应用调校：CO 写入异常：{ex.Message}");
                 }
-
-                // ---------- CO ----------
-                if (hasCo)
-                {
-                    // 补齐到实际核心数：配置文件可能来自核心数不同的机器
-                    int coreCount = reader.CoreCount > 0 ? reader.CoreCount : margins.Length;
-                    int[] values = new int[coreCount];
-                    for (int i = 0; i < coreCount; i++)
-                        values[i] = i < margins.Length ? margins[i] : 0;
-
-                    try
-                    {
-                        SmuWriteResult co = reader.WriteCurveOptimizer(values);
-
-                        if (co.AllSucceeded)
-                        {
-                            outcome.CurveOptimizerApplied = true;
-                            LogService.Info($"启动应用调校：CO {co.Applied.Count} 核写入并回读一致");
-                        }
-                        else
-                        {
-                            if (!string.IsNullOrEmpty(co.Fatal))
-                                outcome.Errors.Add($"CO 写入致命错误：{co.Fatal}");
-                            if (co.WriteFailed.Count > 0)
-                                outcome.Errors.Add($"CO 被拒核心：{string.Join(", ", co.WriteFailed)}");
-                            if (co.VerifyFailed.Count > 0)
-                                outcome.Errors.Add($"CO 回读不一致核心：{string.Join(", ", co.VerifyFailed)}");
-
-                            LogService.Error("启动应用调校：CO 写入未完全成功（详见上方明细）");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        outcome.Errors.Add($"CO 写入异常：{ex.Message}");
-                        LogService.Error($"启动应用调校：CO 写入异常：{ex.Message}");
-                    }
-                }
-
-                // ---------- FMax ----------
-                if (hasFMax)
-                {
-                    try
-                    {
-                        SmuFMaxResult fm = reader.WriteFMax(fMax);
-                        if (fm.AllSucceeded)
-                        {
-                            outcome.FMaxApplied = true;
-                            LogService.Info($"启动应用调校：FMax {fm.ReadBack} MHz 写入并回读一致");
-                        }
-                        else
-                        {
-                            outcome.Errors.Add(fm.Fatal != null
-                                ? $"FMax 写入失败：{fm.Fatal}"
-                                : $"FMax 回读不一致（请求 {fm.Requested}，回读 {fm.ReadBack}）");
-
-                            LogService.Error(
-                                fm.Fatal != null
-                                    ? $"启动应用调校：FMax 写入失败：{fm.Fatal}"
-                                    : $"启动应用调校：FMax 回读不一致（请求 {fm.Requested}，回读 {fm.ReadBack}）");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        outcome.Errors.Add($"FMax 写入异常：{ex.Message}");
-                        LogService.Error($"启动应用调校：FMax 写入异常：{ex.Message}");
-                    }
-                }
-
             }
-            finally
+
+            // ---------- FMax ----------
+            if (hasFMax)
             {
-                // 不 Dispose：reader 是进程共享单例，而 Cpu.Dispose() 会
-                // Opcode.Close() 掉进程级静态资源，一键打哑所有 Cpu 的 SMU 通道。
-                // SmuReader.Dispose 本身也已是 no-op，这里只是把意图写明。
+                try
+                {
+                    SmuFMaxResult fm = reader.WriteFMax(fMax);
+                    if (fm.AllSucceeded)
+                    {
+                        outcome.FMaxApplied = true;
+                        LogService.Info($"启动应用调校：FMax {fm.ReadBack} MHz 写入并回读一致");
+                    }
+                    else
+                    {
+                        outcome.Errors.Add(fm.Fatal != null
+                            ? $"FMax 写入失败：{fm.Fatal}"
+                            : $"FMax 回读不一致（请求 {fm.Requested}，回读 {fm.ReadBack}）");
+
+                        LogService.Error(
+                            fm.Fatal != null
+                                ? $"启动应用调校：FMax 写入失败：{fm.Fatal}"
+                                : $"启动应用调校：FMax 回读不一致（请求 {fm.Requested}，回读 {fm.ReadBack}）");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    outcome.Errors.Add($"FMax 写入异常：{ex.Message}");
+                    LogService.Error($"启动应用调校：FMax 写入异常：{ex.Message}");
+                }
             }
         }
     }

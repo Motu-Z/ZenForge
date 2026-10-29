@@ -7,7 +7,7 @@ namespace ZenForge.Helpers
 {
     /// <summary>
     /// 调校配置（Curve Optimizer 每核负压 + FMax），持久化到 %APPDATA%\ZenForge\tuning.json。
-    /// 仅保存“已成功下发并回读校验通过”的设定，供开机静默自启（S7）重新应用。
+    /// 仅保存“已成功下发并回读校验通过”的设定，供开机静默自启重新应用。
     /// </summary>
     public sealed class TuningProfile
     {
@@ -29,10 +29,10 @@ namespace ZenForge.Helpers
 
     public static class TuningStore
     {
-        private static readonly string Directory =
-            System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZenForge");
+        private static readonly string DirectoryPath =
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZenForge");
 
-        private static readonly string FilePath = System.IO.Path.Combine(Directory, "tuning.json");
+        private static readonly string FilePath = Path.Combine(DirectoryPath, "tuning.json");
 
         public static TuningProfile Profile { get; private set; } = new();
 
@@ -40,12 +40,12 @@ namespace ZenForge.Helpers
         {
             try
             {
-                if (File.Exists(FilePath))
-                {
-                    TuningProfile? loaded = JsonSerializer.Deserialize<TuningProfile>(File.ReadAllText(FilePath));
-                    if (loaded != null)
-                        Profile = loaded;
-                }
+                if (!File.Exists(FilePath))
+                    return;
+
+                TuningProfile? loaded = JsonSerializer.Deserialize<TuningProfile>(File.ReadAllText(FilePath));
+                if (loaded != null)
+                    Profile = loaded;
             }
             catch
             {
@@ -57,9 +57,10 @@ namespace ZenForge.Helpers
         public static void Save(TuningProfile profile)
         {
             profile.AppliedAt = DateTime.Now.ToString("o");
+
             try
             {
-                System.IO.Directory.CreateDirectory(Directory);
+                Directory.CreateDirectory(DirectoryPath);
                 string temp = FilePath + ".tmp";
                 File.WriteAllText(temp, JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true }));
                 File.Move(temp, FilePath, true);
@@ -67,8 +68,7 @@ namespace ZenForge.Helpers
             }
             catch (Exception ex)
             {
-                // 配置落盘失败不影响主流程，但记录日志
-                Services.LogService.Error($"保存调校配置失败: {ex.Message}");
+                LogService.Error($"保存调校配置失败: {ex.Message}");
             }
         }
 
@@ -83,22 +83,20 @@ namespace ZenForge.Helpers
         public static uint ResetToFactory()
         {
             uint baseline = Profile.FMaxBaselineMHz;
-            uint effectiveFMax = baseline != 0 ? baseline : 0u;
 
-            TuningProfile reset = new()
+            Save(new TuningProfile
             {
                 CurveOptimizer = Array.Empty<int>(),
-                FMaxMHz = effectiveFMax,
+                FMaxMHz = baseline,
                 FMaxBaselineMHz = baseline
-            };
-            Save(reset);
+            });
 
-            if (effectiveFMax == 0)
+            if (baseline == 0)
                 LogService.Info("全局重置：CO 归零；FMax 出厂基线未知，未写回 FMax");
             else
-                LogService.Info($"全局重置：CO 归零，FMax 恢复出厂 {effectiveFMax} MHz");
+                LogService.Info($"全局重置：CO 归零，FMax 恢复出厂 {baseline} MHz");
 
-            return effectiveFMax;
+            return baseline;
         }
     }
 }

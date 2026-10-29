@@ -70,7 +70,7 @@ namespace ZenForge.Helpers
     }
 
     /// <summary>
-    /// 绑核规则持久化（S3 重构）：保存到 %APPDATA%\ZenForge\bindings.json。
+    /// 绑核规则持久化：保存到 %APPDATA%\ZenForge\bindings.json。
     /// 键为进程名（不再用路径），值为目标 CCD 或自定义掩码引用。
     /// </summary>
     public static class BindingStore
@@ -105,22 +105,30 @@ namespace ZenForge.Helpers
             {
                 try
                 {
-                    if (!File.Exists(FilePath))
-                        return;
-
-                    BindingProfile? loaded =
-                        JsonSerializer.Deserialize<BindingProfile>(File.ReadAllText(FilePath));
-                    if (loaded != null)
-                    {
-                        MigrateLegacyNames(loaded);
-                        _profile = loaded;
-                    }
+                    _profile = ReadFromDisk() ?? new BindingProfile();
                 }
                 catch
                 {
                     _profile = new BindingProfile();
                 }
             }
+        }
+
+        /// <summary>
+        /// 读盘并做旧版迁移。文件不存在或反序列化出 null 时返回 null，
+        /// 让调用方自己决定「落成空档」还是「保持现状」。
+        /// </summary>
+        private static BindingProfile? ReadFromDisk()
+        {
+            if (!File.Exists(FilePath))
+                return null;
+
+            BindingProfile? loaded = JsonSerializer.Deserialize<BindingProfile>(File.ReadAllText(FilePath));
+            if (loaded == null)
+                return null;
+
+            MigrateLegacyNames(loaded);
+            return loaded;
         }
 
         /// <summary>旧版按路径存储：Name 为空但有 Path 时取文件名作为进程名。</summary>
@@ -168,16 +176,9 @@ namespace ZenForge.Helpers
             {
                 try
                 {
-                    if (!File.Exists(FilePath))
-                        return;
-
-                    BindingProfile? loaded =
-                        JsonSerializer.Deserialize<BindingProfile>(File.ReadAllText(FilePath));
+                    BindingProfile? loaded = ReadFromDisk();
                     if (loaded != null)
-                    {
-                        MigrateLegacyNames(loaded);
                         _profile = loaded;
-                    }
                 }
                 catch
                 {
@@ -193,39 +194,24 @@ namespace ZenForge.Helpers
         /// 监听起来也只是空转，白占一份常驻内存。后台常驻的唯一价值是持续绑核，
         /// 没有可绑的规则，就没有常驻的理由。
         /// </summary>
-        public static bool HasEnabledRules
-        {
-            get
-            {
-                foreach (BindingRule rule in Profile.Rules)
-                {
-                    if (rule.Enabled &&
-                        rule.Target != BindingTarget.None &&
-                        !string.IsNullOrWhiteSpace(rule.Name))
-                    {
-                        return true;
-                    }
-                }
+        public static bool HasEnabledRules => Profile.Rules.Any(IsEffective);
 
-                return false;
-            }
-        }
-
-        /// <summary>根据进程名查询绑定目标（无规则返回 None）。</summary>
+        /// <summary>根据进程名查询绑定目标（无规则返回 null）。</summary>
         public static BindingRule? LookupByName(string name)
         {
             if (string.IsNullOrEmpty(name))
                 return null;
+
             string normalized = name.Trim().ToLowerInvariant();
-            foreach (BindingRule rule in Profile.Rules)
-            {
-                if (!string.IsNullOrWhiteSpace(rule.Name) &&
-                    rule.Name.Trim().ToLowerInvariant() == normalized)
-                {
-                    return rule;
-                }
-            }
-            return null;
+            return Profile.Rules.FirstOrDefault(rule =>
+                !string.IsNullOrWhiteSpace(rule.Name) &&
+                rule.Name.Trim().ToLowerInvariant() == normalized);
         }
+
+        /// <summary>规则是否真会生效：启用、目标不是 None、进程名不为空，缺一不可。</summary>
+        private static bool IsEffective(BindingRule rule) =>
+            rule.Enabled &&
+            rule.Target != BindingTarget.None &&
+            !string.IsNullOrWhiteSpace(rule.Name);
     }
 }

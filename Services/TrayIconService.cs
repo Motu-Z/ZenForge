@@ -38,7 +38,6 @@ namespace ZenForge.Services
         private static Window? _menuHost;
         private static ContextMenu? _menu;
         private static MenuItem? _watchItem;
-        private static bool _bubbleShown;
 
         /// <summary>
         /// 建立托盘图标。必须在 UI 线程调用，且只调一次。
@@ -82,15 +81,6 @@ namespace ZenForge.Services
                 DisposeIcon();
                 return false;
             }
-        }
-
-        /// <summary>
-        /// 关窗时能不能安全地躲进托盘：托盘存在、可见，而且真的有图标。
-        /// 少了图标这一条，托盘里什么都没有，用户既叫不出界面也退不掉进程。
-        /// </summary>
-        public static bool TryHideToTray()
-        {
-            return _icon is { Visible: true } && _icon.Icon != null;
         }
 
         /// <summary>
@@ -138,28 +128,6 @@ namespace ZenForge.Services
             catch (Exception ex)
             {
                 LogService.Error($"唤出主窗口失败：{ex.Message}");
-            }
-        }
-
-        /// <summary>首次收进托盘时提示一次，之后不再打扰。</summary>
-        public static void NotifyMinimizedOnce()
-        {
-            if (_icon == null || _bubbleShown)
-                return;
-
-            _bubbleShown = true;
-
-            try
-            {
-                _icon.ShowBalloonTip(
-                    4000,
-                    "ZenForge 已收进托盘",
-                    "进程绑核继续在后台运行。右键托盘图标可打开界面或退出。",
-                    System.Windows.Forms.ToolTipIcon.None);
-            }
-            catch
-            {
-                // 气泡失败无关紧要
             }
         }
 
@@ -222,8 +190,6 @@ namespace ZenForge.Services
             Shutdown();
             LogService.Info("托盘图标已隐藏（后台仍常驻，双击 ZenForge.exe 打开界面）");
         }
-
-        // ==================== 内部实现 ====================
 
         private static void DisposeIcon()
         {

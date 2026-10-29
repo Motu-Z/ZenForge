@@ -28,7 +28,7 @@ namespace ZenForge.Services
     }
 
     /// <summary>
-    /// 静默应用配置（S5，-silent 模式）。
+    /// 静默应用配置（-silent 模式）。
     ///
     /// 触发场景：计划任务在用户登录 15 秒后以最高权限启动
     ///   ZenForge.exe -silent
@@ -145,8 +145,5 @@ namespace ZenForge.Services
 
             return result;
         }
-
-        /// <summary>上述 SMU 写入的实现已上移到 <see cref="TuningApplyService.Write"/>，
-        /// 由静默模式与 GUI 启动路径共用。</summary>
     }
 }

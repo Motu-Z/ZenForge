@@ -8,7 +8,7 @@ using ZenForge.Services;
 namespace ZenForge.Views
 {
     /// <summary>
-    /// 调校页（S3 完整版）。
+    /// 调校页。
     ///
     /// 四个动作各有明确方向，互不重叠：
     ///   · 保存 —— 界面 → tuning.json，不碰 SMU

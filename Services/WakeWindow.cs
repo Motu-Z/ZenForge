@@ -6,30 +6,20 @@ namespace ZenForge.Services
     /// <summary>
     /// 唤醒宿主窗口：整个程序唯一的跨进程寻址点。
     ///
-    /// 为什么必须存在这件事：后台常驻实例可能由计划任务以「最高权限」拉起，
-    /// 而用户双击 exe 启动的实例是中等权限。低权限 → 高权限方向，
-    /// 命名内核对象（EventWaitHandle.OpenExisting）会因 ACL 被直接拒绝 ——
-    /// 结果就是「明明有一个在后台跑，双击却没反应，还多出一个幽灵进程」。
-    /// 窗口消息走的是另一条路：只要对方把这条自定义消息加进 UIPI 白名单，
-    /// 低权限进程的 PostMessage 就能被高权限进程收到。
+    /// 为什么不用命名内核对象：后台常驻实例可能由计划任务以最高权限拉起，
+    /// 用户双击启动的是中等权限。低 → 高方向，EventWaitHandle.OpenExisting 会被 ACL 拒绝，
+    /// 表现为「明明有一个在跑，双击却没反应，还多出一个幽灵进程」。
+    /// 窗口消息只要对方放行了 UIPI，就能收到。
     ///
-    /// 四个必须踩准的坑（任一写错，唤醒就会「看起来成功、实际没反应」）：
-    ///
-    ///   1. 不能用 HWND_MESSAGE。-3 的 message-only 窗口不参与 Z 序、
-    ///      跨完整性级别时 FindWindow 命中不稳定，而且它收不到任何广播。
-    ///      必须用 0×0 的 WS_POPUP | WS_EX_TOOLWINDOW 顶层窗。
-    ///
-    ///   2. 消息号必须来自 RegisterWindowMessage。WM_APP + n 是**进程内**私有范围，
-    ///      字节相同的数值在另一个进程里含义完全不同 —— 跨进程用它等于没发。
-    ///      RegisterWindowMessage 返回的是系统级唯一 ID，同名字符串在任何进程里都一致。
-    ///
-    ///   3. 必须 ChangeWindowMessageFilterEx(hwnd, msg, MSGFLT_ALLOW)。
-    ///      UIPI 默认丢弃「低权限进程发给高权限窗口」的自定义消息，
-    ///      而且 PostMessage 自身返回 true —— 不查日志根本发现不了。
-    ///      这一步只放行我们注册的这一条消息，不动其他。
-    ///
-    ///   4. 委托必须由静态字段持有。Marshal.GetFunctionPointerForDelegate 之后
-    ///      如果委托被 GC 回收，窗口过程就是一个野指针，下一次收消息直接崩进程。
+    /// 四个必须踩准的点（任一写错，唤醒就会「看起来成功、实际没反应」）：
+    ///   1. 不能用 HWND_MESSAGE：message-only 窗口不参与 Z 序，跨完整性级别时
+    ///      FindWindow 命中不稳定。必须是 0×0 的 WS_POPUP | WS_EX_TOOLWINDOW 顶层窗。
+    ///   2. 消息号必须来自 RegisterWindowMessage：WM_APP + n 是进程内私有范围，
+    ///      同一个数值在另一个进程里含义完全不同。
+    ///   3. 必须 ChangeWindowMessageFilterEx(hwnd, msg, MSGFLT_ALLOW)：UIPI 默认丢弃
+    ///      低权限进程发往高权限窗口的自定义消息，且 PostMessage 照样返回 true。
+    ///   4. 委托必须由静态字段持有：GetFunctionPointerForDelegate 之后委托一旦被回收，
+    ///      窗口过程就是野指针，下一次收消息直接崩进程。
     /// </summary>
     internal static class WakeWindow
     {
@@ -42,15 +32,12 @@ namespace ZenForge.Services
         /// <summary>注册消息用的名字。系统级唯一，跨进程、跨会话都一致。</summary>
         private const string MessageName = "ZenForge.Activate";
 
-        // ==================== Win32 常量 ====================
 
         private const uint WS_POPUP = 0x80000000;
         private const uint WS_EX_TOOLWINDOW = 0x00000080;
 
         /// <summary>MSGFLT_ALLOW：把这条消息从 UIPI 过滤器里放行。</summary>
         private const uint MSGFLT_ALLOW = 1;
-
-        // ==================== 状态 ====================
 
         private static IntPtr _hwnd;
         private static ushort _classAtom;
@@ -77,7 +64,6 @@ namespace ZenForge.Services
         /// <summary>本进程是否已成功建出宿主窗口。</summary>
         public static bool IsCreated => _hwnd != IntPtr.Zero;
 
-        // ==================== 创建 / 销毁 ====================
 
         /// <summary>
         /// 建出隐藏宿主窗（幂等）。
@@ -229,7 +215,6 @@ namespace ZenForge.Services
             // 同一进程内再次注册会拿到同一个值，留着不影响任何判断。
         }
 
-        // ==================== 窗口过程 ====================
 
         private static IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
         {
@@ -259,7 +244,6 @@ namespace ZenForge.Services
             return NativeMethods.DefWindowProc(hWnd, msg, wParam, lParam);
         }
 
-        // ==================== 互操作 ====================
 
         private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 

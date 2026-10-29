@@ -365,7 +365,7 @@ namespace ZenForge
                 return;
             }
 
-            // S2: SMU 只读探测需要管理员权限。未提权时自动以 runas 重启自身，
+            // SMU 只读探测需要管理员权限。未提权时自动以 runas 重启自身，
             // 提权副本启动后本实例退出；用户拒绝 UAC 时以普通权限继续（读取会失败并提示）。
             if (!EnsureAdministrator(e.Args))
             {
@@ -413,7 +413,7 @@ namespace ZenForge
             ThemeService.Initialize();
             ThemeService.StartSystemMonitor();
 
-            // 读取调校 / 绑核 / 掩码的本地配置（供 S2/S3 显示与开机静默自启重新应用）
+            // 读取调校 / 绑核 / 掩码的本地配置（供界面显示与开机静默自启重新应用）
             TuningStore.Load();
             MaskStore.Load();
             BindingStore.Load();
@@ -456,7 +456,7 @@ namespace ZenForge
             // 放在后台线程：SMU 写入最坏要等 PawnIO 就绪 60 秒，不能拖住窗口出现。
             _ = System.Threading.Tasks.Task.Run(() => ApplySavedTuningOnStartup());
 
-            LogService.Info("ZenForge 启动（S2/S3 · SMU 探测 + 后台调度）");
+            LogService.Info("ZenForge 启动 · SMU 探测 + 后台调度");
         }
 
         /// <summary>

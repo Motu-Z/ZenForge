@@ -28,7 +28,7 @@ namespace ZenForge.Helpers
         private static extern IntPtr GetCurrentProcess();
 
         /// <summary>此刻的工作集与私有提交（字节）。取不到时返回 0。</summary>
-        internal static (long WorkingSet, long Private) Snapshot()
+        private static (long WorkingSet, long Private) Snapshot()
         {
             try
             {
