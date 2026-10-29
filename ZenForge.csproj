@@ -1,0 +1,67 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>ZenForge</RootNamespace>
+    <AssemblyName>ZenForge</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>none</SatelliteResourceLanguages>
+    <Version>0.8.1</Version>
+    <FileVersion>0.8.1.0</FileVersion>
+    <AssemblyVersion>0.8.1.0</AssemblyVersion>
+    <Product>ZenForge</Product>
+
+    <!-- 自定义入口点：让 -silent 走一条完全不加载 WPF 的纯后台路径。
+         仍由 App.xaml 的 ApplicationDefinition 生成 App.g.cs（资源字典/BAML 全在里面），
+         只是 csc 会用 -main:ZenForge.Program 指定真正的入口，自动生成的 Main 被忽略。
+         绝不能把 App.xaml 改成 Page —— 那会丢掉整套资源字典。 -->
+    <StartupObject>ZenForge.Program</StartupObject>
+
+    <!-- 程序图标：exe、任务栏、托盘图标共用同一份，告别 .NET 默认灰图标 -->
+    <ApplicationIcon>Assets/ZenForge.ico</ApplicationIcon>
+
+    <!-- 单文件发布：用户拿到的就是一个 exe，不用管旁边躺着几个 dll。
+         框架依赖（不自带运行时）—— 自包含会把体积抬到 70MB 以上，
+         而 .NET 10 桌面运行时本来就该装一次。
+         IncludeNativeLibrariesForSelfExtract 把原生库也塞进去，否则解压出来
+         的目录里还会漏 dll；.NET 10 起默认在内存里加载，不落盘。 -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <SelfContained>false</SelfContained>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 托盘图标要用 System.Windows.Forms.NotifyIcon。
+         刻意不开 UseWindowsForms：那个属性会让 SDK 注入 System.Windows.Forms /
+         System.Drawing 的全局 using，而本项目到处裸写着 Application、Brush、
+         Color、Point、Size —— 一注入就是满屏歧义错误。
+         只加 FrameworkReference 不注入任何 using，代码里写全名即可。 -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
+
+    <Resource Include="Assets/ZenForge.ico" />
+  </ItemGroup>
+
+  <!-- 诊断版开关：发布时加 -p:VerboseLog=true 即编译出默认开启详细日志的版本。
+       常规模块不受影响（VERBOSE_LOG 未定义 → LogService.Verbose 默认 false）。 -->
+  <PropertyGroup Condition="'$(VerboseLog)' == 'true'">
+    <DefineConstants>$(DefineConstants);VERBOSE_LOG</DefineConstants>
+  </PropertyGroup>
+
+  <!-- ZenStates-Core（Lenovo Legion Toolkit 零改动打包分支，net9.0 资产可被 net10.0 引用）。
+       S3 起用于 SMU 读写：Curve Optimizer（SetPsmMarginSingleCore）+ FMax（SetFMax），
+       每次写入后立即回读校验。 -->
+  <ItemGroup>
+    <PackageReference Include="LLT.ZenStates-Core" Version="1.92.4" />
+
+    <!-- System.Management：进程绑核监听的 WMI 事件订阅（__InstanceCreationEvent /
+         __InstanceDeletionEvent），替代原先 1 秒一次的全表快照轮询。
+         这是 Windows 桌面程序的标准库组件，不引入额外原生依赖。 -->
+    <PackageReference Include="System.Management" Version="9.0.0" />
+  </ItemGroup>
+
+</Project>

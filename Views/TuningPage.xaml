@@ -1,0 +1,139 @@
+﻿<Page x:Class="ZenForge.Views.TuningPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Title="调校"
+      Focusable="False"
+      FocusVisualStyle="{x:Null}">
+
+    <Page.Resources>
+        <!-- 统一输入框规格：高 36、主题底色、居中 -->
+        <Style x:Key="TuningBoxStyle" TargetType="TextBox" BasedOn="{StaticResource AppTextBoxStyle}">
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Background" Value="{DynamicResource Input.Background}"/>
+            <Setter Property="TextAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Padding" Value="0"/>
+        </Style>
+
+        <!-- 与输入框等高的次要按钮：宽度规格与强调按钮严格一致 -->
+        <Style x:Key="TuningButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+        <!-- CCD 行标签 -->
+        <Style x:Key="CcdTagStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="{DynamicResource Text.Secondary}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+        </Style>
+    </Page.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="16">
+
+            <!-- ======= 设备信息与操作按钮组 ======= -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- 设备身份：左列，垂直居中。
+                         初值不用任何具体型号：探测失败时写着「AMD Ryzen 9 9955HX」会误导用户
+                         以为识别成功。/ 由探测结果覆盖为真实 CPU 名。 -->
+                    <TextBlock Grid.Column="0"
+                               x:Name="CpuNameText"
+                               Text="/"
+                               Style="{StaticResource PageHeaderTitleStyle}"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"/>
+
+                    <!-- 标题行右侧：保存 / 读取 / 全部应用（统一规格、等间距） -->
+                    <StackPanel Grid.Column="1"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center"
+                                Margin="16,0,0,0">
+                        <Button x:Name="SaveConfigButton" Content="保存"
+                                Style="{StaticResource TuningButtonStyle}"
+                                Click="SaveConfigButton_Click"/>
+                        <Button x:Name="LoadConfigButton" Content="读取"
+                                Style="{StaticResource TuningButtonStyle}"
+                                Margin="10,0,0,0"
+                                Click="LoadConfigButton_Click"/>
+                        <Button x:Name="ApplyAllButton" Content="全部应用"
+                                Style="{StaticResource TuningButtonStyle}"
+                                Margin="10,0,0,0"
+                                IsEnabled="False"
+                                Click="ApplyAllButton_Click"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- ======= Curve Optimizer ======= -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="Curve Optimizer"
+                               Style="{StaticResource CardTitleStyle}"/>
+
+                    <!-- 全核负压 -->
+                    <TextBlock Text="全核负压" Margin="0,16,0,8"
+                               FontSize="12" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Text.Primary}"/>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBox x:Name="GlobalCoBox" Text="-20" Width="120"
+                                 Style="{StaticResource TuningBoxStyle}"
+                                 IsEnabled="False"/>
+                        <Button x:Name="FillAllButton" Content="填充到全核"
+                                Style="{StaticResource TuningButtonStyle}"
+                                Margin="10,0,0,0"
+                                IsEnabled="False"
+                                Click="FillAllButton_Click"/>
+                    </StackPanel>
+
+                    <!-- 分核负压 -->
+                    <TextBlock Text="分核负压" Margin="0,20,0,8"
+                               FontSize="12" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Text.Primary}"/>
+
+                    <StackPanel x:Name="CoreGrid"/>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                        <Button x:Name="ApplySaveButton" Content="应用"
+                                Style="{StaticResource TuningButtonStyle}"
+                                Margin="0"
+                                IsEnabled="False" Click="ApplySaveButton_Click"/>
+                        <Button x:Name="ResetButton" Content="恢复初始值"
+                                Style="{StaticResource TuningButtonStyle}"
+                                Margin="10,0,0,0"
+                                IsEnabled="False" Click="ResetButton_Click"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ======= FMax ======= -->
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel>
+                    <TextBlock Text="FMax" Style="{StaticResource CardTitleStyle}"/>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                        <!-- 初值留空：4750 是 9955HX 的典型值，换机器后是个错误暗示。
+                             探测成功后由 ApplySnapshot 回填真实 FMax。 -->
+                        <TextBox x:Name="FMaxBox" Text="" Width="140"
+                                 Style="{StaticResource TuningBoxStyle}"
+                                 IsEnabled="False"/>
+                        <TextBlock Text="MHz" Margin="10,0,0,0"
+                                   Foreground="{DynamicResource Text.Secondary}"
+                                   VerticalAlignment="Center"/>
+                        <Button x:Name="FmaxApplyButton" Content="应用"
+                                Style="{StaticResource TuningButtonStyle}"
+                                Margin="16,0,0,0"
+                                IsEnabled="False" Click="FmaxApplyButton_Click"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>

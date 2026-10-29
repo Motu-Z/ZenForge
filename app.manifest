@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <assemblyIdentity version="1.0.0.0" name="ZenForge.app"/>
+
+  <!-- S4：清单要求 requireAdministrator。
+       原因（曾误判为 asInvoker + runas 重启，已回退）：
+         · 绑核需要管理员令牌。asInvoker 下双击启动的是非提权进程，
+           依赖 EnsureAdministrator() 用 runas 重启自身去提权；一旦 UAC 被拒、
+           或取不到 exe 路径，残留的非提权实例会去 OpenProcess SYSTEM/受保护进程，
+           直接 Error 5（绑定失败）。「以管理员身份运行」能成功，证明差的就是这一层。
+         · requireAdministrator 让双击即提权（一次 UAC），没有「启动后重启」的竞态，
+           也不会留下非提权的残留实例。
+         · 静默自启不受影响：计划任务用的是 RunLevel=HighestAvailable，以完整管理令牌
+           拉起本 exe，此时不再弹 UAC（任务在用户会话内以已授权的令牌运行是标准做法）。
+       确保Administrator() 作为兜底保留：万一仍以非提权令牌运行，它仍会尝试 runas。 -->
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+    <security>
+      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+        <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+    </windowsSettings>
+  </application>
+
+  <compatibility xmlns="urn:schemas-microsoft-com:asm.v1">
+    <application>
+      <!-- Windows 10 and Windows 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-9a5a-48fd50a15a9a}"/>
+    </application>
+  </compatibility>
+</assembly>

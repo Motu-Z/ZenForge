@@ -1,0 +1,192 @@
+﻿<Page x:Class="ZenForge.Views.SettingsPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Title="设置"
+      FontFamily="Microsoft YaHei UI, Microsoft YaHei, Segoe UI"
+      FontSize="13"
+      Focusable="False"
+      FocusVisualStyle="{x:Null}">
+
+    <!-- 与其他页面统一：外边距 16 -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="16">
+
+            <!-- ===== 外观 ===== -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="外观" Style="{StaticResource CardTitleStyle}"/>
+
+                    <!-- 主题模式 + 强调色：并列两列（与 NvForge 完全一致） -->
+                    <Grid Margin="0,12,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- 左：主题模式
+                             顺序与 NvForge 一致：跟随系统 / 深色 / 浅色。
+                             刻意不写 SelectedIndex / SelectionChanged，
+                             初值在代码里读 ui.json 后按 Tag 赋值，事件在赋值之后才挂载，
+                             否则初始化阶段会反向触发 SelectionChanged 把主题重置成下拉框默认值。 -->
+                        <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                            <TextBlock Text="主题模式" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                            <ComboBox x:Name="ThemeCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Content="跟随系统" Tag="system"/>
+                                <ComboBoxItem Content="深色" Tag="dark"/>
+                                <ComboBoxItem Content="浅色" Tag="light"/>
+                            </ComboBox>
+                        </StackPanel>
+
+                        <!-- 右：强调色 -->
+                        <StackPanel Grid.Column="1" Margin="16,0,0,0">
+                            <TextBlock Text="强调色" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
+                            <ComboBox x:Name="AccentModeCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Content="跟随系统" Tag="follow"/>
+                                <ComboBoxItem Content="自定义" Tag="custom"/>
+                            </ComboBox>
+                        </StackPanel>
+                    </Grid>
+
+                    <!--
+                        色板行：圆形色块 + 自定义色值输入，全部放在同一行。
+                        与 NvForge 完全一致（同一套 8 个预设、同样的 34px 圆形 + 3px 选中环、
+                        同样的右侧输入框 + 应用按钮）。
+                        不设「恢复默认外观」按钮：第一个色块就是默认青，点它即恢复。
+                        色块由代码按 PresetAccents 生成，不在 XAML 里写死，避免两处不同步。
+                    -->
+                    <StackPanel x:Name="CustomAccentPanel" Orientation="Horizontal" Margin="0,12,0,0">
+                        <StackPanel x:Name="AccentPresetRow" Orientation="Horizontal" VerticalAlignment="Center"/>
+
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                                    HorizontalAlignment="Right" Margin="16,0,0,0">
+                            <TextBox x:Name="AccentHexBox" Width="110"
+                                     VerticalContentAlignment="Center"
+                                     ToolTip="支持 #RRGGBB 或 RRGGBB"/>
+                            <Button x:Name="ApplyAccentBtn" Content="应用颜色"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Padding="18,0"
+                                    Margin="8,0,0,0" Click="ApplyAccentBtn_Click"/>
+                        </StackPanel>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 启动 ===== -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="启动" Style="{StaticResource CardTitleStyle}"/>
+
+                    <!-- 三行独立 Grid（而不是 UniformGrid）：与 NvForge 的行距节奏一致，
+                         开关始终贴右，标签始终贴左。 -->
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="开机静默自启" Style="{StaticResource FieldLabelStyle}"/>
+                        <ToggleButton Grid.Column="1" x:Name="AutoStartToggle"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      Click="AutoStartToggle_Click"/>
+                    </Grid>
+
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="启动时自动应用调校" Style="{StaticResource FieldLabelStyle}"/>
+                        <ToggleButton Grid.Column="1" x:Name="ApplyTuningToggle"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      Click="ApplyTuningToggle_Click"/>
+                    </Grid>
+
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <!-- 文案直说「常驻」：这个开关的真实语义是「关掉窗口也继续绑核」，
+                             写「启动时自动应用」会让人以为只是开机跑一次，关掉程序就没了。 -->
+                        <TextBlock Text="后台常驻绑核" Style="{StaticResource FieldLabelStyle}"
+                                   VerticalAlignment="Center"/>
+                        <ToggleButton Grid.Column="1" x:Name="ProcessWatchToggle"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      Click="ProcessWatchToggle_Click"/>
+                    </Grid>
+
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="后台显示托盘图标" Style="{StaticResource FieldLabelStyle}"
+                                   VerticalAlignment="Center"/>
+                        <ToggleButton Grid.Column="1" x:Name="ShowTrayToggle"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      Click="ShowTrayToggle_Click"/>
+                    </Grid>
+
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="关闭窗口时" Style="{StaticResource FieldLabelStyle}"
+                                   VerticalAlignment="Center"/>
+                        <!-- 与主题下拉同一套路：Tag 驱动，初值在代码里按 Tag 回显，
+                             事件在回显之后才挂，避免初始化反向覆盖。 -->
+                        <ComboBox Grid.Column="1" x:Name="CloseBehaviorCombo"
+                                  MinWidth="220"
+                                  HorizontalAlignment="Right"
+                                  VerticalAlignment="Center">
+                            <ComboBoxItem Content="智能（有后台监听时收进托盘）" Tag="smart"/>
+                            <ComboBoxItem Content="收进托盘" Tag="tray"/>
+                            <ComboBoxItem Content="直接退出" Tag="exit"/>
+                        </ComboBox>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 其他 ===== -->
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel>
+                    <TextBlock Text="其他" Style="{StaticResource CardTitleStyle}"/>
+
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="SMU 自检" Style="{StaticResource FieldLabelStyle}"
+                                   VerticalAlignment="Center"/>
+                        <!-- 按钮只写动作：报告文件由自检自己写出并打开目录，不用在文案里再强调「导出」。 -->
+                        <Button Grid.Column="1" x:Name="SmuDiagButton"
+                                Content="运行"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                HorizontalAlignment="Right"
+                                Padding="18,0" Margin="0"
+                                Click="SmuDiagButton_Click"/>
+                    </Grid>
+
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="全局重置" Style="{StaticResource FieldLabelStyle}"
+                                   VerticalAlignment="Center"/>
+                        <!-- 文案分工：左侧标签负责说明「这是全局重置」，按钮只写动作「重置」。
+                             两处都写「全局重置」会重复，而且和 NvForge 设置页不一致。 -->
+                        <Button Grid.Column="1" x:Name="GlobalResetButton"
+                                Content="重置"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                HorizontalAlignment="Right"
+                                Padding="18,0" Margin="0"
+                                Click="GlobalResetButton_Click"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>
