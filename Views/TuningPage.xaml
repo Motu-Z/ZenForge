@@ -15,9 +15,14 @@
             <Setter Property="Padding" Value="0"/>
         </Style>
 
-        <!-- 与输入框等高的次要按钮：宽度规格与强调按钮严格一致 -->
+        <!-- 与输入框等高的次要按钮。
+             基类 MinWidth 是 156，四个按钮并排就要 650px 以上，窄窗口会把 CPU 名挤没，
+             这里放宽到 96 —— 按钮内容本来只有两个字，不需要那么宽。 -->
         <Style x:Key="TuningButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
             <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="MinWidth" Value="96"/>
+            <Setter Property="Padding" Value="14,0"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
         </Style>
 
         <!-- CCD 行标签 -->
@@ -50,21 +55,29 @@
                                VerticalAlignment="Center"
                                TextTrimming="CharacterEllipsis"/>
 
-                    <!-- 标题行右侧：保存 / 读取 / 全部应用（统一规格、等间距） -->
+                    <!-- 标题行右侧：保存 / 加载 / 刷新 / 应用（统一规格、等间距）
+                         四个动作的语义严格区分，互不重叠：
+                           保存 = 界面 → tuning.json（不碰 SMU）
+                           加载 = tuning.json → 界面（不碰 SMU）
+                           刷新 = SMU 现值 → 界面（不写盘）
+                           应用 = 界面 → SMU，并落盘（唯一的写入口） -->
                     <StackPanel Grid.Column="1"
                                 Orientation="Horizontal"
                                 VerticalAlignment="Center"
                                 Margin="16,0,0,0">
                         <Button x:Name="SaveConfigButton" Content="保存"
                                 Style="{StaticResource TuningButtonStyle}"
+                                Margin="0"
                                 Click="SaveConfigButton_Click"/>
-                        <Button x:Name="LoadConfigButton" Content="读取"
+                        <Button x:Name="LoadConfigButton" Content="加载"
                                 Style="{StaticResource TuningButtonStyle}"
-                                Margin="10,0,0,0"
                                 Click="LoadConfigButton_Click"/>
-                        <Button x:Name="ApplyAllButton" Content="全部应用"
+                        <Button x:Name="RefreshButton" Content="刷新"
                                 Style="{StaticResource TuningButtonStyle}"
-                                Margin="10,0,0,0"
+                                IsEnabled="False"
+                                Click="RefreshButton_Click"/>
+                        <Button x:Name="ApplyAllButton" Content="应用"
+                                Style="{StaticResource TuningButtonStyle}"
                                 IsEnabled="False"
                                 Click="ApplyAllButton_Click"/>
                     </StackPanel>
@@ -81,23 +94,7 @@
                     <!-- TODO(UI 重构)：参考朋友的软件界面重做 Curve Optimizer 整块布局，
                          届时一并决定是否恢复「全核批量填入」入口，以及是否改为滑杆 / 步进器。 -->
 
-                    <!-- 分核负压 -->
-                    <TextBlock Text="分核负压" Margin="0,16,0,8"
-                               FontSize="12" FontWeight="SemiBold"
-                               Foreground="{DynamicResource Text.Primary}"/>
-
-                    <StackPanel x:Name="CoreGrid"/>
-
-                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                        <Button x:Name="ApplySaveButton" Content="应用"
-                                Style="{StaticResource TuningButtonStyle}"
-                                Margin="0"
-                                IsEnabled="False" Click="ApplySaveButton_Click"/>
-                        <Button x:Name="ResetButton" Content="恢复初始值"
-                                Style="{StaticResource TuningButtonStyle}"
-                                Margin="10,0,0,0"
-                                IsEnabled="False" Click="ResetButton_Click"/>
-                    </StackPanel>
+                    <StackPanel x:Name="CoreGrid" Margin="0,16,0,0"/>
                 </StackPanel>
             </Border>
 
@@ -115,10 +112,6 @@
                         <TextBlock Text="MHz" Margin="10,0,0,0"
                                    Foreground="{DynamicResource Text.Secondary}"
                                    VerticalAlignment="Center"/>
-                        <Button x:Name="FmaxApplyButton" Content="应用"
-                                Style="{StaticResource TuningButtonStyle}"
-                                Margin="16,0,0,0"
-                                IsEnabled="False" Click="FmaxApplyButton_Click"/>
                     </StackPanel>
                 </StackPanel>
             </Border>

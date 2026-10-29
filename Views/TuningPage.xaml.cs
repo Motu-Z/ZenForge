@@ -9,10 +9,15 @@ namespace ZenForge.Views
 {
     /// <summary>
     /// 调校页（S3 完整版）。
-    /// 三个入口彼此独立：
-    ///   · CO 区「应用」        —— 只写 CO，绝不碰 FMax
-    ///   · FMax 区「应用」      —— 只写 FMax，绝不碰 CO
-    ///   · 顶部「全部应用并保存」 —— CO + FMax 一起写入
+    ///
+    /// 四个动作各有明确方向，互不重叠：
+    ///   · 保存 —— 界面 → tuning.json，不碰 SMU
+    ///   · 加载 —— tuning.json → 界面，不碰 SMU
+    ///   · 刷新 —— SMU 现值 → 界面，不写盘
+    ///   · 应用 —— 界面 → SMU，并落盘（唯一的写入口）
+    ///
+    /// CO 与 FMax 不再各有独立的应用按钮：两个区块一旦分开写，
+    /// 就会出现「CO 生效了但 FMax 还是旧的」这种半套状态，配置与硬件对不上。
     /// CO 允许 [-50, +50]（负值降压 / 正值加压），仅校验整数合法性，不做安全拦截。
     /// </summary>
     public partial class TuningPage : Page
@@ -222,10 +227,8 @@ namespace ZenForge.Views
             // 若这里无条件置 true，闸门会在 finally 之前就被绕过（Z-6 补全）。
             bool enabled = !_busy;
             ApplyAllButton.IsEnabled = enabled;
-            ApplySaveButton.IsEnabled = enabled;
-            ResetButton.IsEnabled = enabled;
+            RefreshButton.IsEnabled = enabled;
             FMaxBox.IsEnabled = enabled;
-            FmaxApplyButton.IsEnabled = enabled;
         }
 
         /// <summary>写入期间统一禁用/恢复全部可编辑的调校控件（Z-6：防止重复点击造成并发下发）。
@@ -236,10 +239,8 @@ namespace ZenForge.Views
         {
             SaveConfigButton.IsEnabled = enabled;
             LoadConfigButton.IsEnabled = enabled;
+            RefreshButton.IsEnabled = enabled;
             ApplyAllButton.IsEnabled = enabled;
-            ApplySaveButton.IsEnabled = enabled;
-            ResetButton.IsEnabled = enabled;
-            FmaxApplyButton.IsEnabled = enabled;
             FMaxBox.IsEnabled = enabled;
 
             // 核心输入框本身也锁上：写入期间手改某个核心值，会让回填结果与用户预期错位
@@ -252,21 +253,6 @@ namespace ZenForge.Views
         // 全核负压输入框与「填充到全核」按钮已移除，FillAllButton_Click 一并删除。
         // TODO(UI 重构)：参考朋友的软件界面重做 Curve Optimizer 区域，
         // 届时若恢复批量填入，再用滑杆或步进器实现，不再用单个裸输入框。
-
-        private void ResetButton_Click(object sender, RoutedEventArgs e)
-        {
-            int count = 0;
-            foreach (TextBox box in CoreBoxes)
-            {
-                if (box.IsEnabled)
-                {
-                    box.Text = "0";
-                    count++;
-                }
-            }
-
-            LogService.Info($"已恢复 {count} 个核心为默认 CO 值 0（未下发，点击“应用”生效）");
-        }
 
         /// <summary>
         /// 从界面收集每个核心的 CO 值（允许 -50 ~ +50，负降压 / 正加压）。
@@ -338,94 +324,7 @@ namespace ZenForge.Views
             return fmax;
         }
 
-        // ---------- 入口 1：CO 区「应用」——只写 CO ----------
-
-        private void ApplySaveButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (_busy)
-                return;
-
-            // 仅校验 CO；绝对不读取 FMax 输入框、不写 FMax
-            int[]? margins = CollectCoreMargins(out string? coReject);
-            if (coReject != null)
-            {
-                DarkDialog.ShowWarning(coReject, "ZenForge · CO 输入非法");
-                return;
-            }
-
-            _ = ApplyCoOnlyAsync(margins!);
-        }
-
-        private async System.Threading.Tasks.Task ApplyCoOnlyAsync(int[] margins)
-        {
-            _busy = true;
-            SetWriteButtonsEnabled(false);
-            SetSmuState(SmuUiState.Writing, "正在写入 Curve Optimizer");
-
-            SmuWriteResult co = new();
-            try
-            {
-                co = await System.Threading.Tasks.Task.Run(() =>
-                {
-                    SmuReader reader = SmuReader.Shared;
-                    return reader.WriteCurveOptimizer(margins); // 只写 CO，绝不写 FMax
-                });
-            }
-            catch (Exception ex)
-            {
-                LogService.Error($"CO 写入线程异常: {ex}");
-                DarkDialog.ShowError(
-                    $"写入过程中发生异常：{ex.Message}\n\n详细信息已写入日志。",
-                    "写入异常");
-                return;
-            }
-            finally
-            {
-                _busy = false;
-                SetWriteButtonsEnabled(true);
-            }
-
-            ProcessCoResult(co, margins);
-        }
-
-        private void ProcessCoResult(SmuWriteResult co, int[] margins)
-        {
-            if (!co.AllSucceeded)
-            {
-                if (!string.IsNullOrEmpty(co.Fatal))
-                    LogService.Error($"CO 写入致命错误：{co.Fatal}");
-                if (co.WriteFailed.Count > 0)
-                    LogService.Error($"CO 写入被拒核心：{string.Join(", ", co.WriteFailed)}");
-                if (co.VerifyFailed.Count > 0)
-                    LogService.Error($"CO 回读不一致核心：{string.Join(", ", co.VerifyFailed)}");
-
-                SetSmuState(SmuUiState.Failed, "CO 写入存在失败");
-                System.Text.StringBuilder msg = new("Curve Optimizer 部分写入失败，未保存配置。详细如下：\n\n");
-                if (!string.IsNullOrEmpty(co.Fatal)) msg.AppendLine($"· {co.Fatal}");
-                if (co.WriteFailed.Count > 0) msg.AppendLine($"· CO 被拒核心：{string.Join(", ", co.WriteFailed)}");
-                if (co.VerifyFailed.Count > 0) msg.AppendLine($"· CO 回读不一致核心：{string.Join(", ", co.VerifyFailed)}");
-                msg.AppendLine("\n已写入成功的部分仍生效（SMU 实时生效），但未落盘以免配置不一致。");
-                DarkDialog.ShowError(msg.ToString(), "CO 写入失败");
-                return;
-            }
-
-            // 成功：仅保存 CO，保留配置中已有的 FMax
-            TuningProfile profile = TuningStore.Profile;
-            profile.CurveOptimizer = margins.Where(v => v != int.MinValue).ToArray();
-            TuningStore.Save(profile);
-
-            LogService.Info($"CO 全部 {co.Applied.Count} 个核心写入并回读一致（FMax 未改动）");
-            SetSmuState(SmuUiState.Applied, "CO 已生效 · 已保存");
-            DarkDialog.ShowSuccess(
-                $"Curve Optimizer 已应用并保存。\n\n" +
-                $"CO：{profile.CurveOptimizer.Length} 个核心写入并回读一致\n" +
-                $"（FMax 未改动，未写入 SMU）",
-                "CO 应用成功");
-
-            _ = RefreshAfterWriteAsync();
-        }
-
-        // ---------- 入口 2：顶部「全部应用并保存」——CO + FMax 一起写 ----------
+        // ---------- 唯一的写入口：顶部「应用」——CO + FMax 一起写 ----------
 
         private void ApplyAllButton_Click(object sender, RoutedEventArgs e)
         {
@@ -451,7 +350,7 @@ namespace ZenForge.Views
                 $"Curve Optimizer：{margins!.Count(v => v != int.MinValue)} 个核心\n" +
                 $"FMax：{fmax} MHz\n\n" +
                 $"若发生黑屏或闪退，重启电脑即可复原。",
-                "全部应用");
+                "应用");
 
             if (!confirmed)
                 return;
@@ -530,14 +429,14 @@ namespace ZenForge.Views
                 profile.CurveOptimizer = margins.Where(v => v != int.MinValue).ToArray();
                 profile.FMaxMHz = fmax;
                 TuningStore.Save(profile);
-                LogService.Info("调校已全部应用并保存到本地配置（tuning.json）");
+                LogService.Info("调校已应用并保存到本地配置（tuning.json）");
 
                 SetSmuState(SmuUiState.Applied, "CO + FMax 已生效 · 已保存");
                 DarkDialog.ShowSuccess(
-                    $"全部应用成功。\n\n" +
+                    $"应用成功。\n\n" +
                     $"CO：{profile.CurveOptimizer.Length} 个核心写入并回读一致\n" +
                     $"FMax：{fmax} MHz 回读一致",
-                    "全部应用成功");
+                    "应用成功");
 
                 _ = RefreshAfterWriteAsync();
             }
@@ -580,76 +479,6 @@ namespace ZenForge.Views
             }
         }
 
-        private void FmaxApplyButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (_busy)
-                return;
-
-            uint? fmax = CollectFMax();
-            if (fmax == null)
-                return;
-
-            _ = ApplyFMaxOnlyAsync(fmax.Value);
-        }
-
-        /// <summary>FMax 区「应用」：只写 FMax，绝不碰 CO。</summary>
-        private async System.Threading.Tasks.Task ApplyFMaxOnlyAsync(uint fmax)
-        {
-            _busy = true;
-            SetWriteButtonsEnabled(false);
-            SetSmuState(SmuUiState.Writing, "正在写入 FMax");
-
-            SmuFMaxResult fm = new();
-            try
-            {
-                fm = await System.Threading.Tasks.Task.Run(() =>
-                    SmuReader.Shared.WriteFMax(fmax)); // 只写 FMax，绝不写 CO
-            }
-            catch (Exception ex)
-            {
-                LogService.Error($"FMax 写入线程异常: {ex}");
-                DarkDialog.ShowError(
-                    $"写入过程中发生异常：{ex.Message}\n\n详细信息已写入日志。",
-                    "写入异常");
-                return;
-            }
-            finally
-            {
-                _busy = false;
-                SetWriteButtonsEnabled(true);
-            }
-
-            ProcessFmaxResult(fm, fmax);
-        }
-
-        private void ProcessFmaxResult(SmuFMaxResult fm, uint fmax)
-        {
-            if (fm.AllSucceeded)
-            {
-                // 仅更新 FMax 到配置，保留已有 CO 设定
-                TuningProfile profile = TuningStore.Profile;
-                profile.FMaxMHz = fmax;
-                TuningStore.Save(profile);
-                LogService.Info($"FMax 已应用并保存：{fmax} MHz（回读 {fm.ReadBack}，CO 未改动）");
-                SetSmuState(SmuUiState.Applied, $"FMax {fm.ReadBack} MHz 已生效 · 已保存");
-                DarkDialog.ShowSuccess(
-                    $"FMax 已应用并回读一致：{fm.ReadBack} MHz\n（CO 未改动，未写入 SMU）",
-                    "FMax 应用成功");
-            }
-            else
-            {
-                LogService.Error(fm.Fatal != null
-                    ? $"FMax 写入失败：{fm.Fatal}"
-                    : $"FMax 回读不一致：请求 {fm.Requested}，回读 {fm.ReadBack}");
-                SetSmuState(SmuUiState.Failed, "FMax 写入失败");
-                DarkDialog.ShowError(
-                    fm.Fatal != null
-                        ? $"FMax 写入失败：{fm.Fatal}"
-                        : $"FMax 回读不一致（请求 {fmax}，回读 {fm.ReadBack}），未保存。",
-                    "FMax 写入失败");
-            }
-        }
-
         // ---------- 新增：一键读取 / 配置存档 ----------
 
         /// <summary>
@@ -680,8 +509,10 @@ namespace ZenForge.Views
         }
 
         /// <summary>
-        /// 「读取」：从 tuning.json 读出 CO / FMax 回填到界面输入框。
-        /// 只回填，不下发 SMU（下发由「全部应用」负责）。
+        /// 「加载」：从 tuning.json 读出 CO / FMax 回填到界面输入框。
+        /// 只回填，不下发 SMU（下发由顶部「应用」负责）。
+        ///
+        /// 和「刷新」的区别：加载读的是本地存档，刷新读的是 SMU 当前生效值。
         /// </summary>
         private void LoadConfigButton_Click(object sender, RoutedEventArgs e)
         {
@@ -697,10 +528,68 @@ namespace ZenForge.Views
             // 回填后启用控件
             EnableTuningControls();
 
-            LogService.Info("读取已保存配置并回填到界面（未写入 SMU）");
-            DarkDialog.Show("已读取已保存配置并回填到界面（未写入 SMU）。", "读取配置");
+            LogService.Info("已加载本地配置并回填到界面（未写入 SMU）");
+            DarkDialog.Show("已加载本地配置并回填到界面（未写入 SMU）。", "加载配置");
         }
 
+        /// <summary>
+        /// 「刷新」：从 SMU 现读当前生效的 CO / FMax，回填到界面。
+        /// 只读，不写盘、不下发。
+        ///
+        /// 和「加载」的区别：加载读本地 tuning.json，可能早就和硬件不一致；
+        /// 刷新读的是硬件此刻的真实值，用来确认「我上一次应用的到底生效了没有」。
+        /// </summary>
+        private void RefreshButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_busy)
+                return;
 
+            _ = RefreshFromSmuAsync();
+        }
+
+        private async System.Threading.Tasks.Task RefreshFromSmuAsync()
+        {
+            _busy = true;
+            SetWriteButtonsEnabled(false);
+            SetSmuState(SmuUiState.Probing, "手动刷新：从 SMU 现读");
+
+            SmuSnapshot? snapshot = null;
+            string? error = null;
+
+            try
+            {
+                snapshot = await System.Threading.Tasks.Task.Run(() =>
+                {
+                    SmuReader reader = SmuReader.Shared;
+                    if (!reader.IsAvailable)
+                        throw new InvalidOperationException(reader.LastError ?? "ZenStates-Core 初始化失败");
+                    return reader.ReadSnapshot();
+                });
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+            }
+            finally
+            {
+                _busy = false;
+                SetWriteButtonsEnabled(true);
+            }
+
+            if (snapshot == null || !snapshot.Success)
+            {
+                string reason = snapshot?.Error ?? error ?? "未知原因";
+                LogService.Error($"手动刷新失败：{reason}");
+                SetSmuState(SmuUiState.Failed, reason);
+                DarkDialog.ShowWarning(
+                    "刷新失败，请确认已安装 PawnIO 驱动并以管理员身份运行。\n\n详细信息已写入日志（设置 → 日志）。",
+                    "刷新失败");
+                return;
+            }
+
+            ApplySnapshot(snapshot);
+
+            LogService.Info("已按 SMU 现值刷新界面（未写入 SMU、未改本地配置）");
+        }
     }
 }

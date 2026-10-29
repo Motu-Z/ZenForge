@@ -11,8 +11,16 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <SatelliteResourceLanguages>none</SatelliteResourceLanguages>
     <!-- ==================== 版本号 ====================
-         Version 面向用户，可带 -can1 / -pre1 / -fix1 后缀；
-         FileVersion 与 AssemblyVersion 只能是四段数字，用第四段记录「第几次发这个版本」：
+         Version 面向用户，后缀含义（默认不带后缀，后缀只在有必要时才加）：
+
+             无后缀        普通更新。日常默认，不代表「绝对稳定」——
+                           真出了单点问题还有 -fix 通道兜着。
+             -pre1 / -pre2  功能更新但没改完，或可能不完全可用。
+             -can1 / -can2  仅当改动巨大、完全无法预计可用程度时才用。
+             -fix1 / -fix2  针对已发布版本的单点 Bug 修复。
+
+         FileVersion / AssemblyVersion 只能是四段数字，第四段记录
+         「同一主.次.修订下第几次发版」，从 0 起算，每发一次 +1：
 
              Version              FileVersion / AssemblyVersion
              0.8.5-can1           0.8.5.0
@@ -21,11 +29,11 @@
              0.8.5                0.8.5.3
              0.8.5-fix1           0.8.5.4
 
-         每在同一主.次.修订下多发一次包，第四段 +1，不跳号、不复用。
+         第四段跟发版次序走，不与后缀数字对齐。
          改 Version 时这两行必须一起改，别让资源管理器里的数字和 Release 标题对不上。 -->
-    <Version>0.8.5-can1</Version>
-    <FileVersion>0.8.5.0</FileVersion>
-    <AssemblyVersion>0.8.5.0</AssemblyVersion>
+    <Version>0.8.6</Version>
+    <FileVersion>0.8.6.0</FileVersion>
+    <AssemblyVersion>0.8.6.0</AssemblyVersion>
     <Product>ZenForge</Product>
 
     <!-- 仓库纳入 git 之后，SDK 默认往 InformationalVersion 追加 "+<commit>"。

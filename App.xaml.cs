@@ -640,7 +640,7 @@ namespace ZenForge
 
             LogService.Error("启动应用调校失败：" + message);
             ShowWhenMainWindowReady("启动时自动应用调校失败：\n\n" + message +
-                                    "\n\n已保存的配置没有被改动，可以在调校页手动点「全部应用」重试。",
+                                    "\n\n已保存的配置没有被改动，可以在调校页手动点「应用」重试。",
                                     "启动应用调校失败");
         }
 
