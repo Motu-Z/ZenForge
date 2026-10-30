@@ -730,8 +730,6 @@ namespace ZenForge.Views
                 ParkingEditablePanel.Visibility = Visibility.Collapsed;
                 ParkingUnavailablePanel.Visibility = Visibility.Visible;
                 ParkingUnavailableText.Text = DescribeParkingUnavailable(error);
-
-                LogService.Warn($"核心停放不可用：{error}");
                 return;
             }
 
@@ -757,30 +755,32 @@ namespace ZenForge.Views
         }
 
         /// <summary>
-        /// 把底层错误翻成一句用户能懂的话。
+        /// 核心停放不可用时的那一句提示。
         ///
-        /// 原始的 powrprof 错误串是「索引不存在 / 无权限 / 方案未暴露此项」的混合体，
-        /// 直接贴出来等于把实现细节丢给用户。这里按关键字分流成三种说法，
-        /// 每种都带上「所以你现在什么都做不了，以及为什么」。
+        /// 【为什么不再按错误串分流成三长句】
+        /// 旧实现把 powrprof 的原始错误贴进正文，于是界面上出现了：
+        ///
+        ///     当前系统无法读取核心停放设置（当前电源方案不提供核心停放设置。），此项已停用。
+        ///
+        /// 括号里那半句本身就是「为什么」，把它原样嵌进「无法读取（…）」的括号里，
+        /// 一句话里说了两遍同一件事，还带着句号和全角括号 —— 读起来像把异常对象
+        /// 直接 ToString 贴到了界面上。
+        ///
+        /// 用户在这个位置需要知道的只有一件事：**这一项现在用不了，别找了**。
+        /// 至于具体是「方案没暴露」还是「注册表没有这一项」，都是同一件事的两种技术说法，
+        /// 对用户没有区别。所以统一成一句 12 个字的话；原始错误仍然进日志，
+        /// 排查时看得到，界面上不占地方。
         /// </summary>
         private static string DescribeParkingUnavailable(string error)
         {
-            if (error.Contains("拒绝", StringComparison.Ordinal) ||
-                error.Contains("权限", StringComparison.Ordinal) ||
-                error.Contains("Access", StringComparison.OrdinalIgnoreCase))
-            {
-                return "需要管理员权限才能读取核心停放设置。以管理员身份重新运行后可开启此项。";
-            }
-
-            if (error.Contains("不存在", StringComparison.Ordinal) ||
-                error.Contains("未找到", StringComparison.Ordinal) ||
-                error.Contains("NotFound", StringComparison.OrdinalIgnoreCase))
-            {
-                return "当前电源方案未暴露核心停放设置，此项在本机上不可用。可在「控制面板 → 电源选项」中换成「平衡」方案后重试。";
-            }
-
-            return $"当前系统无法读取核心停放设置（{error}），此项已停用。";
+            // 原始错误只进日志，不进界面。放这里是为了保证「读不到」与「写不进去」
+            // 两条路径都能留下证据 —— 之前同一句话被拼进 UI，日志里反而只有半句。
+            LogService.Warn($"核心停放不可用的原始原因：{error}");
+            return ParkingUnsupportedText;
         }
+
+        /// <summary>不可用时展示的唯一一句话。</summary>
+        private const string ParkingUnsupportedText = "当前电源方案不支持核心停放，此项已停用";
 
         /// <summary>
         /// 拖滑杆：只同步输入框与文案，不写系统。

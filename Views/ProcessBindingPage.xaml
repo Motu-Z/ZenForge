@@ -2,6 +2,7 @@
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:local="clr-namespace:ZenForge.Views"
+      xmlns:ctl="clr-namespace:ZenForge.Controls"
       Title="进程"
       FontFamily="{StaticResource AppFontFamily}"
       FontSize="13"
@@ -64,6 +65,10 @@
             <Setter Property="Margin" Value="0,0,10,0"/>
             <Setter Property="HorizontalAlignment" Value="Stretch"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
+            <!-- 下拉项文本一律单行省略：自定义掩码名可能是「CCD0 物理核 0-7」这种长串，
+                 以前没有 TextTrimming，长名字会被下拉框右缘直接切掉半个字，
+                 看起来像「这行选了个残缺的值」。 -->
+            <Setter Property="TextBlock.TextTrimming" Value="CharacterEllipsis"/>
         </Style>
 
         <!-- 规则行末尾的操作按钮：定宽 72、高 28，三个并排等距。
@@ -151,48 +156,15 @@
                                         VerticalAlignment="Center"
                                         Margin="16,0,0,0">
 
-                                <!-- 搜索框：图标与文字走 Grid 两列，不用绝对定位。
-                                     第 0 列留白 10、第 1 列图标 14、第 2 列输入框。
-                                     TextBox 内缩 32（= 10 + 14 + 8），光标永远从
-                                     图标右侧 8px 起算，与图标列不重叠。 -->
-                                <Grid Width="180" Margin="0,0,8,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="10"/>
-                                        <ColumnDefinition Width="14"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-
-                                    <Path Grid.Column="1"
-                                          x:Name="SearchIcon"
-                                          Width="14"
-                                          Height="14"
-                                          VerticalAlignment="Center"
-                                          IsHitTestVisible="False"
-                                          Stretch="Uniform"
-                                          Stroke="{DynamicResource Text.MetaBrush}"
-                                          StrokeThickness="1.2"
-                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                                          Data="M 5.5,1 A 4.5,4.5 0 1 1 5.49,1 M 9,9 L 12,12"/>
-
-                                    <Grid Grid.Column="2">
-                                        <TextBox x:Name="SearchBox"
-                                                 Style="{StaticResource SearchBoxStyle}"
-                                                 TextAlignment="Left"
-                                                 HorizontalContentAlignment="Left"
-                                                 VerticalContentAlignment="Center"
-                                                 TextChanged="SearchBox_TextChanged"
-                                                 GotFocus="SearchBox_GotFocus"
-                                                 LostFocus="SearchBox_LostFocus"
-                                                 KeyDown="SearchBox_KeyDown"/>
-                                        <TextBlock x:Name="SearchPlaceholder" Text="搜索进程..."
-                                                   Margin="{StaticResource SearchBoxTextInset}"
-                                                   HorizontalAlignment="Left"
-                                                   VerticalAlignment="Center"
-                                                   IsHitTestVisible="False"
-                                                   Foreground="{DynamicResource Text.MetaBrush}"
-                                                   FontSize="12" Visibility="Collapsed"/>
-                                    </Grid>
-                                </Grid>
+                                <!-- 搜索框统一用 zenforge:SearchBox（见 Themes/SearchBox.xaml）。
+                                     它自己负责图标 / 文本 / 占位符的列布局与内缩，
+                                     页面里只给宽度和事件 —— 不再出现「哪个 Margin 管哪一段」。 -->
+                                <ctl:SearchBox x:Name="SearchBox"
+                                               Width="180"
+                                               Margin="0,0,8,0"
+                                               VerticalAlignment="Center"
+                                               Placeholder="搜索进程..."
+                                               InputKeyDown="SearchBox_KeyDown"/>
 
                                 <Button Content="管理掩码"
                                         Style="{StaticResource SecondaryButtonStyle}"
@@ -212,18 +184,18 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="3*"/>
                             <ColumnDefinition Width="7*"/>
-                            <ColumnDefinition Width="80"/>
-                            <ColumnDefinition Width="120"/>
-                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="72"/>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="128"/>
                         </Grid.ColumnDefinitions>
                         <Border Grid.ColumnSpan="5" Padding="12,0">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="3*"/>
                                     <ColumnDefinition Width="7*"/>
-                                    <ColumnDefinition Width="80"/>
-                                    <ColumnDefinition Width="120"/>
-                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition Width="72"/>
+                                    <ColumnDefinition Width="150"/>
+                                    <ColumnDefinition Width="128"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="进程名" Style="{StaticResource TableHeaderTextStyle}"/>
                                 <TextBlock Grid.Column="1" Text="路径"   Style="{StaticResource TableHeaderTextStyle}" Margin="0,0,16,0"/>
@@ -266,9 +238,9 @@
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="3*"/>
                                                     <ColumnDefinition Width="7*"/>
-                                                    <ColumnDefinition Width="80"/>
-                                                    <ColumnDefinition Width="120"/>
-                                                    <ColumnDefinition Width="110"/>
+                                                    <ColumnDefinition Width="72"/>
+                                                    <ColumnDefinition Width="150"/>
+                                                    <ColumnDefinition Width="128"/>
                                                 </Grid.ColumnDefinitions>
 
                                                 <TextBlock Grid.Column="0"

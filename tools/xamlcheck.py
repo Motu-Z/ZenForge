@@ -5,7 +5,10 @@ NS_P = '{http://schemas.microsoft.com/winfx/2006/xaml/presentation}'
 NS_X = '{http://schemas.microsoft.com/winfx/2006/xaml}'
 
 def tag(el):
-    return el.tag.replace(NS_P, '').replace(NS_X, '').split(':')[-1]
+    # 自定义命名空间（xmlns:ctl="clr-namespace:..."）解析出来是
+    # "{clr-namespace:ZenForge.Controls}SearchBox" —— 必须连花括号一起剥掉，
+    # 否则前面的 "xxx}" 会留在结果里，名称比对永远不命中。
+    return re.sub(r'^\{[^}]*\}', '', el.tag).split(':')[-1]
 
 def collect_keytypes(files):
     kt = {}
@@ -48,7 +51,7 @@ def norm(t):
 def walk(el, parent_tag, fname, out, kt):
     t = tag(el)
     for attr, val in el.attrib.items():
-        a = attr.replace(NS_P, '').replace(NS_X, '').split(':')[-1]
+        a = re.sub(r'^\{[^}]*\}', '', attr).split(':')[-1]
         m = re.fullmatch(r'\{(?:Static|Dynamic)Resource\s+([^}]+)\}', val.strip())
         if not m:
             continue
@@ -94,6 +97,57 @@ def check_structure(el, parent_tag, fname, out):
             out.append((fname, t, f'写了 {attr} 但父级是 <{parent_tag}>，该值会被忽略'))
 
 
+# ============================================================
+# [4] 事件与属性名是否存在于控件上
+# ============================================================
+# 这一条是为「SearchBox 从 TextBox 换成自定义控件」那次事故加的：
+# XAML 里仍然写着 GotFocus="SearchBox_GotFocus"、代码里也仍然实现着
+# private void SearchBox_GotFocus(...)，编译期 0 报错；
+# 运行期才在 FindName/模板套用阶段抛「找不到名为 TextChanged 的事件」，
+# 或者事件根本不触发（占位符永远不消失）。
+#
+# 判据只能覆盖本项目自己的控件（SearchBox / ToastHost）：它们的成员是已知的，
+# 而 WPF 内置控件的成员表写不全，一写就会误报。
+KNOWN_CONTROLS = {
+    'SearchBox': {
+        'props': {'Text', 'Placeholder', 'Height', 'Width', 'Margin',
+                  'VerticalAlignment', 'HorizontalAlignment', 'Style', 'Name',
+                  'Grid.Row', 'Grid.Column', 'Grid.RowSpan', 'Grid.ColumnSpan',
+                  'Background', 'Foreground', 'FontSize', 'FontFamily', 'Cursor',
+                  'ToolTip', 'IsEnabled', 'Visibility', 'TabIndex', 'MinWidth',
+                  'MaxWidth', 'MinHeight', 'MaxHeight', 'Panel.ZIndex'},
+        'events': {'TextChanged', 'InputKeyDown', 'GotFocus', 'LostFocus'},
+    },
+}
+
+def check_events(root, fname, out):
+    for el in root.iter():
+        if not isinstance(el.tag, str):
+            continue
+        t = tag(el)
+        if t not in KNOWN_CONTROLS:
+            continue
+        spec = KNOWN_CONTROLS[t]
+        for attr, val in el.attrib.items():
+            if attr.startswith(NS_P) or attr.startswith('{'):
+                continue
+            if attr in spec['props']:
+                continue
+            # 事件 attribute 的特征：值是一个 C# 方法名（Page_Loaded / OnChanged）
+            # attribute 名含下划线的一定是事件；否则只有「值是可调用标识符」
+            # 且名字不以常见属性前缀开头时才可能是事件 —— 这样
+            # GotFocus="X_Y"（真事件、名字未登记）与 FontWieght="Bold"（打字错误）
+            # 报出来的措辞不会互相误导。
+            looks_like_event = (attr in spec['events']) or ('_' in attr)
+            if looks_like_event:
+                if attr not in spec['events']:
+                    out.append((fname, t, f'{t} 上没有事件 {attr}（处理函数 {val}）'))
+            elif attr not in spec['props']:
+                # 值为标识符（PascalCase）说明作者以为这是事件，措辞按事件报，
+                # 否则真的是属性名写错
+                kind = '事件（或属性）' if re.fullmatch(r'[A-Z][A-Za-z0-9_]*', val) else '属性'
+                out.append((fname, t, f'{t} 上没有{kind} {attr}'))
+
 def walk2(el, parent_tag, fname, struct_out):
     check_structure(el, parent_tag, fname, struct_out)
     for c in el:
@@ -105,7 +159,7 @@ def main():
     files = [x for x in glob.glob('**/*.xaml', recursive=True) if not x.startswith('obj/')]
     kt = collect_keytypes(files)
 
-    type_out, struct_out, parse_fail = [], [], []
+    type_out, struct_out, parse_fail, ctl_out = [], [], [], []
     trees = {}
     for f in files:
         try:
@@ -116,6 +170,7 @@ def main():
     for f, root in trees.items():
         walk(root, None, f, type_out, kt)
         walk2(root, None, f, struct_out)
+        check_events(root, f, ctl_out)
 
     print(f'[1] XML 解析失败：{len(parse_fail)}')
     for f, e in parse_fail:
@@ -130,7 +185,11 @@ def main():
     for o in struct_out:
         print(f'    {o[0]}  <{o[1]}>  {o[2]}')
 
-    return 1 if (parse_fail or type_out or struct_out) else 0
+    print(f'[4] 自定义控件上的属性/事件不存在：{len(ctl_out)}')
+    for o in ctl_out:
+        print(f'    {o[0]}  <{o[1]}>  {o[2]}')
+
+    return 1 if (parse_fail or type_out or struct_out or ctl_out) else 0
 
 
 if __name__ == '__main__':

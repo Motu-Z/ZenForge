@@ -14,6 +14,11 @@
                 <ResourceDictionary Source="Themes/Typography.xaml"/>
                 <!-- 控件样式 -->
                 <ResourceDictionary Source="Themes/Controls.xaml"/>
+                <!-- 搜索框（zenforge:SearchBox 的默认模板）。
+                     排在 Controls.xaml 之后：模板里引用 AppTextBoxStyle，
+                     那是 App.xaml 本地资源，元素树查找不受兄弟顺序影响，
+                     但 Controls 里的通用资源要先用上，保持与其它字典一致的先后。 -->
+                <ResourceDictionary Source="Themes/SearchBox.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
             <!-- 系统画刷兜底：弹层 / 提示 / 右键菜单不再出现白底。
@@ -166,53 +171,12 @@
 
                  结论：任何 BasedOn App.xaml 里样式的样式，都必须定义在 App.xaml。
                  ================================================================== -->
-            <!-- ==================================================================
-                 搜索框：图标与文字用 Grid 两列排，不再用绝对定位叠 Path。
-                 ==================================================================
-                 【为什么必须改掉原来的叠层写法】
-                 原来把放大镜 Path 和占位 TextBlock 都 HorizontalAlignment="Left"
-                 再各给一个写死的 Margin 叠在 TextBox 上。三处数值
-                 （TextBox.Padding 左值 / Path.Margin / Placeholder.Margin）
-                 描述的是同一件事，却存了三份：
-                   · 改其中一处，另外两处不会跟着动；
-                   · 光标起点由 TextBox.Padding 决定，文字起点由 Placeholder.Margin
-                     决定 —— 两者一旦不等，光标就会落在占位文字左边或中间。
-                 现在图标占一列、输入框占一列，真实布局保证两者永不重叠，
-                 内缩只剩一个数：SearchBoxStyle 的 Padding 左值。
-
-                 【内缩 = 10 + 14 + 8 = 32】
-                 图标左边距 10（SearchIconMargin 的 Left）
-                 + 图标宽 14（SearchIconSize）
-                 + 图标与文字间距 8（SearchIconGap）
-                 三个数都是 x:Double，改大小只改这一处，Padding 由它们推不出来
-                 （XAML 不支持在 Setter 里做算术），所以直接写成 32 并在注释里
-                 标明这三个来源；若改图标尺寸，这里必须同比改。 -->
-            <!-- ==================================================================
-                 搜索框几何：为什么不再做成资源
-                 ==================================================================
-                 试过把 10 / 14 / 8 抽成 sys:Double 资源给列宽用，
-                 运行时直接抛「"10" 不是属性 Width 的有效值」——
-                 ColumnDefinition.Width 要的是 GridLength，Double 转不过去
-                 （GridLength 是结构体，没有从 Double 的隐式转换）。
-                 再拆成 GridLength + Double 两套，则同一个"14"存两份，
-                 反而更容易不一致。
-
-                 所以这三个数在页面里直接写字面值，把公式集中写在这里：
-
-                     内缩 = 左留白 10 + 图标 14 + 间距 8 = 32
-
-                 32 同时是 SearchBoxStyle 的 Padding.Left 与占位符左内缩。
-                 改图标大小时要同步改：两个页面的 ColumnDefinition 两处、
-                 Path 宽高两处、SearchBoxStyle 的 Padding、SearchBoxTextInset。 -->
-
-            <!-- 占位符左内缩，与 SearchBoxStyle 的 Padding.Left 同值 -->
-            <Thickness x:Key="SearchBoxTextInset">32,0,0,0</Thickness>
-
-            <Style x:Key="SearchBoxStyle" TargetType="TextBox" BasedOn="{StaticResource AppTextBoxStyle}">
-                <Setter Property="Height" Value="32"/>
-                <Setter Property="Padding" Value="32,0,10,0"/>
-                <Setter Property="VerticalContentAlignment" Value="Center"/>
-            </Style>
+            <!-- 搜索框已经整体收进 zenforge:SearchBox（Controls/SearchBox.cs）
+                 + Themes/SearchBox.xaml 的模板里。
+                 这里不再保留 SearchBoxStyle / SearchBoxTextInset：
+                 那两个资源是「页面各自摆一遍图标与占位符」时代的产物，
+                 数值一旦被页面以自己的坐标系解读就会错位（两次事故都是这么来的）。
+                 现在几何只有模板里那一份，页面拿不到也就不可能写错。 -->
 
             <!-- ==================================================================
                  ComboBoxItem 深色样式（下拉列表项）

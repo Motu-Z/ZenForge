@@ -123,7 +123,9 @@ namespace ZenForge.Services
         private static readonly List<Entry> _latest = new();
         private static readonly object _gate = new();
 
-        /// <summary>保护 <see cref="_samples"/>：单例字典会被采样线程与任何外部 Sample 调用同时接触。</summary>
+        /// <summary>
+        /// 保护 <see cref="_samples"/>：单例字典会被采样线程与任何外部 Sample 调用同时接触。
+        /// </summary>
         private static readonly object _sampleGate = new();
 
         private static CancellationTokenSource? _cts;
@@ -135,11 +137,27 @@ namespace ZenForge.Services
         private static readonly object _wakeGate = new();
 
         /// <summary>
-        /// 采集循环的唤醒信号。有人在看 → 每轮 Delay 超时自然醒来；
-        /// 没人看 → 循环在这里无限期等待，CPU 占用为零。
-        /// 用信号量而不是轮询标志，是为了「切回页面」时能立即唤醒，不必等到下个周期。
+        /// 「有人在看」的唤醒事件。计数从 0 变 1 时置位，采样线程随即醒来。
+        ///
+        /// 【为什么改成「专用 STA 线程 + ManualResetEvent」而不是 Task.Run 循环】
+        /// 旧实现用 Task.Run 跑异步循环，采样过程在线程池线程（MTA）上完成。
+        /// 纯 Win32 调用不受影响，但只要有任何一个订阅方在回调里碰到了 WPF 对象
+        /// （哪怕只是读一个 DependencyProperty），立刻抛
+        /// 「调用线程必须为 STA，因为许多 UI 组件都需要」。
+        /// 这个异常发生在【采样线程】内部，被循环体的 catch 吞成一条 WARN，
+        /// 于是表现成「每隔几秒一条 WARN + 列表永远不更新」，而堆栈里看不到任何 UI 代码。
+        ///
+        /// 现在：一条命名后台线程，显式设成 STA，采样与回调都在它上面串行发生。
+        /// 【但订阅方仍必须自己 Dispatcher.BeginInvoke 回 UI 线程】——
+        /// STA 只解决「单元状态」，不解决「这不是 UI 线程」。
+        /// 见 ProcessBindingPage.OnProcessesRefreshed。
         /// </summary>
-        private static readonly SemaphoreSlim _wakeSignal = new(0);
+        private static readonly ManualResetEventSlim _watchSignal = new(false);
+
+        /// <summary>「立即采一帧」请求。与观察者信号分开，避免互相吃掉。</summary>
+        private static readonly SemaphoreSlim _sampleNowSignal = new(0);
+
+        private static Thread? _samplerThread;
 
         /// <summary>
         /// 「正在看进程列表」的引用计数。
@@ -170,15 +188,15 @@ namespace ZenForge.Services
                 _watcherCount++;
                 if (_watcherCount == 1)
                 {
-                    // 从「停」切到「跑」：立即唤醒循环，并补一次采样，
+                    // 从「停」切到「跑」：立即唤醒采样线程，
                     // 让用户切回来的第一眼就是新数据，而不是空白或陈数据。
-                    _wakeSignal.Release();
+                    _watchSignal.Set();
                     LogService.Info("进程快照采样：已恢复（列表可见）");
                 }
             }
         }
 
-        /// <summary>释放观察者。计数归零后采样循环会挂起，不再消耗 CPU。</summary>
+        /// <summary>释放观察者。计数归零后采样线程挂起，不再消耗 CPU。</summary>
         public static void ReleaseWatch()
         {
             lock (_wakeGate)
@@ -209,7 +227,13 @@ namespace ZenForge.Services
             get { lock (_gate) return _latest.ToArray(); }
         }
 
-        /// <summary>采样完成事件（携带本轮快照）。订阅方需自行切回 UI 线程。</summary>
+        /// <summary>
+        /// 采样完成事件（携带本轮快照）。
+        ///
+        /// 【在采样线程（STA 后台线程）上同步触发】
+        /// 订阅方必须自行 Dispatcher.BeginInvoke 回 UI 线程再动任何控件或集合。
+        /// 这里不做封送，是因为本类要能在没有 Dispatcher 的纯后台模式（-silent）下工作。
+        /// </summary>
         public static event Action<IReadOnlyList<Entry>>? Refreshed;
 
         /// <summary>采样周期（秒）。设为更小值时由搜索框聚焦场景驱动。
@@ -221,17 +245,17 @@ namespace ZenForge.Services
         /// （见 AcquireWatch / ReleaseWatch），不再是「降频到某个慢周期」。
         /// 自动绑定与此无关，那条链路走 ProcessWatcher 的 WMI 事件。
         ///
-        /// volatile：UI 线程写、后台采样循环读，不加会让循环可能长期读到缓存里的旧值。</summary>
+        /// volatile：UI 线程写、后台采样线程读，不加会让循环可能长期读到缓存里的旧值。</summary>
         private static volatile int _intervalSeconds = 3;
         public static int IntervalSeconds
         {
             get => _intervalSeconds;
-            set => _intervalSeconds = value;
+            set => _intervalSeconds = Math.Max(1, value);
         }
 
-        /// <summary>启动后台采样循环（幂等）。应用启动时调用一次即可。
+        /// <summary>启动后台采样线程（幂等）。应用启动时调用一次即可。
         ///
-        /// 循环启动后并不等于立刻开始采集：没人观察时它会挂在 _wakeSignal 上等待，
+        /// 线程启动后并不等于立刻开始采集：没人观察时它会挂在信号量上等待，
         /// 真正的采集频率由「有没有人在看」决定（见 AcquireWatch / ReleaseWatch）。
         /// </summary>
         public static void Start()
@@ -242,93 +266,128 @@ namespace ZenForge.Services
             CancellationTokenSource cts = new();
             _cts = cts;
 
-            Task.Run(() => RunLoopAsync(cts.Token), cts.Token);
+            Thread thread = new(() => RunLoop(cts.Token))
+            {
+                IsBackground = true,
+                Name = "ZenForge.ProcessSampler",
+                // 采样属于「后台维护」工作，绝不该和 UI 抢时间片。
+                Priority = ThreadPriority.BelowNormal,
+            };
+
+            // 【必须是 STA】
+            // 见 _watchSignal 的注释：MTA 线程上一旦碰到 WPF 对象就是
+            //「调用线程必须为 STA」。把它设成 STA 之后，这类问题从「必然崩溃」
+            // 变成「只是不该这么做」，采样链路本身也不会再因为单元状态被带崩。
+            thread.SetApartmentState(ApartmentState.STA);
+            _samplerThread = thread;
+            thread.Start();
         }
 
-        private static async Task RunLoopAsync(CancellationToken token)
+        /// <summary>
+        /// 请求「现在立刻采一帧」，用于刚打开列表时不要干等一个完整周期。
+        ///
+        /// 排队而不是直接同步执行：采样必须在采样线程上跑（STA + 串行），
+        /// 在 UI 线程上同步 Collect 会把几百次 OpenProcess 压到界面上。
+        /// </summary>
+        public static void RequestSample()
+        {
+            try
+            {
+                _sampleNowSignal.Release();
+            }
+            catch (SemaphoreFullException)
+            {
+                // 已经有一个待处理的请求，合并即可
+            }
+        }
+
+        private static void RunLoop(CancellationToken token)
         {
             while (!token.IsCancellationRequested)
             {
-                if (!IsWatched)
-                {
-                    if (!await WaitForWatchersAsync(token).ConfigureAwait(false))
-                        break;
-
-                    // 唤醒后可能又是「没人看」（Stop 引起的取消），这一轮就不采了
-                    if (!IsWatched)
-                        continue;
-                }
-
                 try
                 {
-                    Sample();
+                    // 没人看：挂在事件上，CPU 占用为零。取消时 Stop() 会 Set 一次把它踢出。
+                    if (!IsWatched)
+                    {
+                        if (!WaitSignal(_watchSignal.WaitHandle, token))
+                            break;
+
+                        continue;
+                    }
+
+                    // 有人看：到点就采一帧，或被打断（有人要求立即采）。
+                    SampleOnce("周期刷新");
+
+                    if (!WaitInterval(token))
+                        break;
                 }
-                catch (Exception ex)
+                catch (ObjectDisposedException)
                 {
-                    // 循环体本身不能因为一次异常就停摆。
-                    // WARN 而不是 ERROR：单轮采样失败（某个进程刚退出、句柄失效）
-                    // 下一秒就会自愈，它不构成「操作失败」，只是「这一轮没采全」。
-                    // 记 ERROR 会让日志页红一片，把真正的失败埋掉。
-                    LogService.Warn($"进程快照失败（本轮已跳过）: {ex.Message}");
-                }
-
-                if (!await WaitForNextRoundAsync(token).ConfigureAwait(false))
+                    // 退出阶段事件被释放，正常收尾
                     break;
+                }
             }
         }
 
-        /// <summary>没人看时挂在信号量上等待，返回 false 表示循环该退出。</summary>
-        private static async Task<bool> WaitForWatchersAsync(CancellationToken token)
+        /// <summary>等一个句柄，同时响应取消。返回 false 表示该退出。</summary>
+        private static bool WaitSignal(WaitHandle handle, CancellationToken token)
         {
-            // 用等待信号量而不是「睡一个很长的时间」：
-            // 后者在用户切回页面的瞬间无法立刻响应，还得等睡完。
-            try
-            {
-                await _wakeSignal.WaitAsync(token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                return false;
-            }
-
-            return !token.IsCancellationRequested;
+            int index = WaitHandle.WaitAny(
+                new[] { handle, token.WaitHandle }, Timeout.Infinite);
+            return index == 0;
         }
 
-        /// <summary>等满一个周期，或被「有人切回列表」提前唤醒。返回 false 表示循环该退出。</summary>
-        private static async Task<bool> WaitForNextRoundAsync(CancellationToken token)
+        /// <summary>
+        /// 等满一个采样周期，或被「立即采样」请求提前唤醒。
+        ///
+        /// 用定时器而不是 Task.Delay：这条线程上没有同步上下文，用 async/await
+        /// 只会把执行流甩回线程池（又变回 MTA），那正是要避免的事。
+        /// </summary>
+        private static bool WaitInterval(CancellationToken token)
         {
-            int seconds = Math.Max(1, IntervalSeconds);
-
-            // 进入睡眠前先把信号量清零：上一轮可能因为「提前唤醒」
-            // 残留了若干个未消费的信号，不清掉会让后续每一轮都立即返回，
+            // 进睡眠前清掉残留请求：不清的话上一轮的「立即采样」会让这一轮立刻返回，
             // 从 3 秒一次退化成紧密循环。
-            while (_wakeSignal.Wait(0))
+            while (_sampleNowSignal.Wait(0))
             {
                 // 消费完毕
             }
 
-            using CancellationTokenSource roundCts =
-                CancellationTokenSource.CreateLinkedTokenSource(token);
+            using Timer ticker = new(
+                _ => TryRelease(_sampleNowSignal), null,
+                TimeSpan.FromSeconds(Math.Max(1, IntervalSeconds)), Timeout.InfiniteTimeSpan);
 
-            Task delay = Task.Delay(TimeSpan.FromSeconds(seconds), roundCts.Token);
-            Task signal = _wakeSignal.WaitAsync(roundCts.Token);
+            int index = WaitHandle.WaitAny(
+                new[]
+                {
+                    _sampleNowSignal.AvailableWaitHandle,
+                    _watchSignal.WaitHandle,
+                    token.WaitHandle,
+                },
+                Timeout.Infinite);
 
+            // 0 = 立即采样 / 定时到点，1 = 观察者状态变化（进页面或离开，离开时下一轮会挂起）
+            return index is 0 or 1;
+        }
+
+        /// <summary>采一帧并广播；异常只记 WARN，绝不让循环停摆。</summary>
+        private static void SampleOnce(string reason)
+        {
             try
             {
-                await Task.WhenAny(delay, signal).ConfigureAwait(false);
+                Sample();
             }
-            catch (OperationCanceledException)
+            catch (Exception ex)
             {
-                return false;
+                // WARN 而不是 ERROR：单轮采样失败（某个进程刚退出、句柄失效）
+                // 下一秒就会自愈，它不构成「操作失败」，只是「这一轮没采全」。
+                // 记 ERROR 会让日志页红一片，把真正的失败埋掉。
+                LogService.Warn($"进程快照失败（{reason}，本轮已跳过）: {ex.Message}");
             }
             finally
             {
-                // 撤销本轮未完成的等待，避免残留的 WaitAsync 在
-                // 下一轮被误当成「新的唤醒」（也避免任务越积越多）
-                roundCts.Cancel();
+                CompleteWaiters();
             }
-
-            return !token.IsCancellationRequested;
         }
 
         /// <summary>停止后台采样。</summary>
@@ -351,27 +410,36 @@ namespace ZenForge.Services
                 // 已释放等情况忽略
             }
 
-            // 循环可能正挂在信号量上等待（没人看列表），光 Cancel 不会让它醒来，
-            // 必须补一次 Release 把 WaitAsync 踢出，否则线程会一直挂着。
+            // 循环可能正挂在信号量上等待，光 Cancel 不会让它醒来，必须补一次信号。
+            _watchSignal.Set();
+            TryRelease(_sampleNowSignal);
+
+            cts.Dispose();
+        }
+
+        private static void TryRelease(SemaphoreSlim semaphore)
+        {
             try
             {
-                _wakeSignal.Release();
+                semaphore.Release();
             }
             catch (SemaphoreFullException)
             {
                 // 计数已满说明本来就有待消费的信号，无需再补
             }
-
-            cts.Dispose();
         }
 
         /// <summary>调整采样周期（搜索框聚焦时加速）。下一轮循环生效。</summary>
-        public static void SetInterval(int seconds)
-        {
-            IntervalSeconds = Math.Max(1, seconds);
-        }
+        public static void SetInterval(int seconds) => IntervalSeconds = Math.Max(1, seconds);
 
-        /// <summary>执行一次采样并广播结果。可由后台循环或外部调用。</summary>
+        /// <summary>
+        /// 执行一次采样并广播结果。
+        ///
+        /// 【公开方法，但只应在采样线程上调用】
+        /// 唯一的例外是启动补扫（ProcessWatcher.TakeSnapshotForScan），它需要
+        /// 「同步拿到结果」。那条路径在 WMI 回调线程上，同样是 MTA —— 所以它
+        /// 现在也改成走 <see cref="SampleOnSamplerThread"/>。
+        /// </summary>
         public static void Sample()
         {
             List<Entry> collected;
@@ -381,7 +449,6 @@ namespace ZenForge.Services
             }
             catch (Exception ex)
             {
-                // 同上：单次采样失败属于可恢复的瞬时问题。
                 LogService.Warn($"进程快照失败（本次请求已跳过）: {ex.Message}");
                 return;
             }
@@ -392,8 +459,50 @@ namespace ZenForge.Services
                 _latest.AddRange(collected);
             }
 
-            // 注意：本事件在后台线程触发，订阅方必须自行切回 UI 线程。
+            // 注意：本事件在采样线程上触发，订阅方必须自行切回 UI 线程。
             Refreshed?.Invoke(collected);
+        }
+
+        /// <summary>
+        /// 在采样线程上同步跑一次采样，并等它完成。
+        ///
+        /// 给「启动补扫」这类需要结果立刻可用的调用方用：它不能等 3 秒周期，
+        /// 也不该自己在调用线程上跑（那条线程可能是 MTA 的 WMI 回调）。
+        /// </summary>
+        public static IReadOnlyList<Entry> SampleOnSamplerThread(TimeSpan timeout)
+        {
+            using ManualResetEventSlim done = new(false);
+
+            // 把「采一帧 + 通知完成」打包成一个请求：请求队列每被消费一次，
+            // 就说明采样线程已经处理到它了，此时 Latest 一定是最新的。
+            lock (_pendingWaiters)
+                _pendingWaiters.Enqueue(done);
+
+            RequestSample();
+
+            done.Wait(timeout);
+            return Latest;
+        }
+
+        /// <summary>等待中的同步调用方。采样线程每完成一帧就把它们全部唤醒。</summary>
+        private static readonly Queue<ManualResetEventSlim> _pendingWaiters = new();
+
+        private static void CompleteWaiters()
+        {
+            lock (_pendingWaiters)
+            {
+                while (_pendingWaiters.Count > 0)
+                {
+                    try
+                    {
+                        _pendingWaiters.Dequeue().Set();
+                    }
+                    catch
+                    {
+                        // 调用方可能已经超时释放了事件，忽略
+                    }
+                }
+            }
         }
 
         /// <summary>执行一次快照采集（单次 Toolhelp 遍历 + 按需查路径）。</summary>

@@ -1262,12 +1262,10 @@
         </Setter>
     </Style>
 
-    <!-- 页面级搜索框（SearchBoxStyle）已挪到 App.xaml。
-         原因：它需要 BasedOn="{StaticResource AppTextBoxStyle}"，而 StaticResource
-         只查「本字典 → 本字典合并的字典」，不向上查父字典。本文件是被 App.xaml
-         Merge 进来的兄弟字典，看不到 App.xaml 本地资源里的键，运行期会拿到 null
-         并抛 XamlParseException（编译期无警告，点日志页即闪退）。
-         以后凡是 BasedOn App.xaml 里样式的样式，一律定义在 App.xaml。 -->
+    <!-- 页面级搜索框已经整体改成 zenforge:SearchBox 控件，
+         模板在 Themes/SearchBox.xaml（由 App.xaml 合并）。
+         这里不需要、也不应该再放搜索框的样式：
+         一旦页面能覆盖它，几何又会变成两处来源。 -->
 
     <!-- 分隔线颜色也写死在默认模板里，同样要重写，否则会拖出一条亮灰线 -->
     <Style x:Key="DarkMenuSeparatorStyle" TargetType="Separator">

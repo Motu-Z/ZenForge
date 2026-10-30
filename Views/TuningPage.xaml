@@ -425,7 +425,13 @@
                                    Margin="0,10,0,0"/>
                     </Grid>
 
-                    <!-- ===== 状态 B：读不到（整块折叠成提示） ===== -->
+                    <!-- ===== 状态 B：读不到（整块折叠成提示） =====
+                         【为什么只有一句 12 字的话】
+                         这一格的职责是「告诉你它现在用不了」，不是解释电源方案的索引结构。
+                         旧版把 powrprof 的原始错误串直接拼进正文，屏幕上出现了
+                         「当前系统无法读取核心停放设置（当前电源方案不提供核心停放设置。），
+                         此项已停用。」—— 一句话里说了两遍同一件事，还带着嵌套括号和句号。
+                         原始错误现在只进日志。 -->
                     <StackPanel x:Name="ParkingUnavailablePanel" Visibility="Collapsed">
                         <StackPanel Orientation="Horizontal">
                             <Path Width="13" Height="13"
@@ -444,7 +450,7 @@
                                        Style="{StaticResource CardRowLabelStyle}"/>
                         </StackPanel>
                         <TextBlock x:Name="ParkingUnavailableText"
-                                   Text="当前电源方案不提供核心停放设置，此项在本机上不可用。"
+                                   Text="当前电源方案不支持核心停放，此项已停用"
                                    Style="{StaticResource CardRowDescStyle}"
                                    Margin="21,6,0,0"/>
                     </StackPanel>

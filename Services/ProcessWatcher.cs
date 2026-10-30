@@ -522,56 +522,30 @@ namespace ZenForge.Services
         /// <summary>
         /// 把单个进程设成指定优先级档位。
         ///
-        /// 与 ProcessBindingPage 里的实现刻意不共用：那边操作的是"一组 PID"（按名合并），
-        /// 这边是监听器逐个进程处理，参数形态不同；共用会把两边的模型互相绑死。
-        /// 档位字符串必须与 ProcessBindingPage.PriorityOptions 一致，
-        /// 空串或陌生值直接跳过（旧规则没有这个字段）。
+        /// 实现统一放在 <see cref="ProcessPriority"/>：页面与这里必须是同一套
+        /// 访问权与错误处理，否则会出现「页面里改不了、后台能改」这种自相矛盾的行为。
+        /// 这里只做日志，不弹 Toast —— 监听器是后台路径，开机时一次要处理几十个进程。
         /// </summary>
         private static void ApplyPriority(int pid, string label)
         {
-            uint cls = label switch
-            {
-                "High" => 0x00000080,
-                "Above Normal" => 0x00008000,
-                "Normal" => 0x00000020,
-                "Below Normal" => 0x00004000,
-                "Low" => 0x00000040,
-                _ => 0,
-            };
+            PriorityApplyResult result = ProcessPriority.Apply(pid, label);
 
-            if (cls == 0)
+            if (result.Ok > 0)
+            {
+                LogService.Info($"已设置优先级 PID {pid} → {label}");
                 return;
+            }
 
-            IntPtr handle = OpenProcess(0x0200 /* PROCESS_SET_INFORMATION */, false, pid);
-
-            // 拿不到句柄通常是权限不足（系统进程）或进程已退出 ——
-            // 两种都不值得记 Warn：后台每次开机都会碰到几十个系统进程。
-            if (handle == IntPtr.Zero)
+            // 进程已退出 / 受保护：开机补扫时必然撞上一大堆，记 Info 就够，
+            // 记 Warn 会让日志页在每次开机时糊一层黄色，把真正的问题埋掉。
+            if (ProcessPriority.IsTransient(result))
+            {
+                LogService.Debug($"跳过优先级 PID {pid}：进程已退出");
                 return;
+            }
 
-            try
-            {
-                if (SetPriorityClass(handle, cls))
-                    LogService.Info($"已设置优先级 PID {pid} → {label}");
-            }
-            catch
-            {
-                // 单条失败不影响绑核结果
-            }
-            finally
-            {
-                CloseHandle(handle);
-            }
+            LogService.Warn($"设置优先级失败 PID {pid} → {label}：{result.Error}");
         }
-
-        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool SetPriorityClass(IntPtr hProcess, uint priorityClass);
-
-        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-        private static extern IntPtr OpenProcess(uint access, bool inheritHandle, int processId);
-
-        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool CloseHandle(IntPtr handle);
 
         /// <summary>
         /// 按进程名找规则，返回 null 表示无需绑定（无规则 / 被禁用 / 目标为 None）。
@@ -665,7 +639,12 @@ namespace ZenForge.Services
         {
             try
             {
-                ProcessRefresher.Sample();
+                // 【不能在调用线程上直接 Sample】
+                // 这条路径跑在 WMI 事件线程上，那是线程池的 MTA 线程。
+                // 快照采集本身是纯 Win32，MTA 也能跑；但 Sample() 会同步触发
+                // Refreshed 事件，订阅方（进程页）一旦在里面碰 UI 就会抛
+                // 「调用线程必须为 STA」。转交采样线程后，链路只有一条，单元状态固定为 STA。
+                return ProcessRefresher.SampleOnSamplerThread(TimeSpan.FromSeconds(5));
             }
             catch (Exception ex)
             {

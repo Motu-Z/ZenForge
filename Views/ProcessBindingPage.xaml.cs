@@ -383,97 +383,20 @@ namespace ZenForge.Views
         // 下拉是双向绑定，回填时拿 PriorityLabel 的结果去匹配选项，
         // 少一个字就匹配不上、下拉显示空白。
 
-        public const string PriorityHigh = "High";
-        public const string PriorityAboveNormal = "Above Normal";
-        public const string PriorityNormal = "Normal";
-        public const string PriorityBelowNormal = "Below Normal";
-        public const string PriorityLow = "Low";
+        public const string PriorityHigh = ProcessPriority.High;
+        public const string PriorityAboveNormal = ProcessPriority.AboveNormal;
+        public const string PriorityNormal = ProcessPriority.Normal;
+        public const string PriorityBelowNormal = ProcessPriority.BelowNormal;
+        public const string PriorityLow = ProcessPriority.Low;
 
         /// <summary>优先级下拉的选项，顺序由高到低（与页面其他下拉一致）。</summary>
-        public static ObservableCollection<string> PriorityOptions { get; } = new()
-        {
-            PriorityHigh,
-            PriorityAboveNormal,
-            PriorityNormal,
-            PriorityBelowNormal,
-            PriorityLow,
-        };
+        public static ObservableCollection<string> PriorityOptions { get; } =
+            new(ProcessPriority.Options);
 
-        /// <summary>
-        /// 档位标签 → SetPriorityClass 常量。
-        /// 返回 0 表示这个标签不对应任何可写档位（自定义数值 / 未知值），调用方应跳过下发。
-        /// </summary>
-        private const uint PRIORITY_CLASS_IDLE = 0x00000040;
-        private const uint PRIORITY_CLASS_BELOW_NORMAL = 0x00004000;
-        private const uint PRIORITY_CLASS_NORMAL = 0x00000020;
-        private const uint PRIORITY_CLASS_ABOVE_NORMAL = 0x00008000;
-        private const uint PRIORITY_CLASS_HIGH = 0x00000080;
-
-        private static uint PriorityClassOf(string label) => label switch
-        {
-            PriorityHigh => PRIORITY_CLASS_HIGH,
-            PriorityAboveNormal => PRIORITY_CLASS_ABOVE_NORMAL,
-            PriorityNormal => PRIORITY_CLASS_NORMAL,
-            PriorityBelowNormal => PRIORITY_CLASS_BELOW_NORMAL,
-            PriorityLow => PRIORITY_CLASS_IDLE,
-            _ => 0,
-        };
-
-        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool SetPriorityClass(IntPtr hProcess, uint priorityClass);
-
-        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-        private static extern IntPtr OpenProcess(uint access, bool inheritHandle, int processId);
-
-        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool CloseHandle(IntPtr handle);
-
-        private const uint PROCESS_SET_INFORMATION = 0x0200;
-        private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
-
-        /// <summary>
-        /// 把一家子进程都设成指定优先级。
-        ///
-        /// 只提升不降级？不 —— 用户选什么就设什么，包括降级。
-        /// 「后台隔离」这类用法本来就是把 QQ / 浏览器降到 Below Normal，
-        /// 只给升不给降等于砍掉一半用途。
-        ///
-        /// 返回 (成功数, 失败数)。失败通常是权限不足（系统进程、受保护进程）
-        /// 或进程已退出，两种情况都不需要向用户弹窗。
-        /// </summary>
-        private static (int Ok, int Failed) ApplyPriority(IEnumerable<ProcessMember> members, string label)
-        {
-            uint cls = PriorityClassOf(label);
-            if (cls == 0)
-                return (0, 0);
-
-            int ok = 0, failed = 0;
-
-            foreach (ProcessMember member in members)
-            {
-                IntPtr handle = OpenProcess(PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION,
-                                            false, member.Pid);
-                if (handle == IntPtr.Zero)
-                {
-                    failed++;
-                    continue;
-                }
-
-                try
-                {
-                    if (SetPriorityClass(handle, cls))
-                        ok++;
-                    else
-                        failed++;
-                }
-                finally
-                {
-                    CloseHandle(handle);
-                }
-            }
-
-            return (ok, failed);
-        }
+        // 优先级的档位常量、下拉顺序与下发实现全部在 Services/ProcessPriority.cs。
+        // 这里曾经自己实现过一份 OpenProcess + SetPriorityClass，与 ProcessWatcher
+        // 里另一份重复，而且两份都漏了查询权限 —— 那就是「某些进程设不了优先级」的成因。
+        // 页面现在只负责「取成员 PID → 调服务 → 报结果」。
 
         private readonly ObservableCollection<ProcessGroupRow> _groups = new();
         private readonly List<ProcessGroupRow> _allGroups = new();
@@ -484,9 +407,6 @@ namespace ZenForge.Views
 
         /// <summary>规则列表重建期间抑制开关回调，避免误写盘。</summary>
         private bool _loadingRules;
-
-        /// <summary>本次聚焦是否已经做过一次全选，避免每敲一个字都被重新选中。</summary>
-        private bool _searchSelectDone;
 
         /// <summary>CPU Sets 拓扑是否可用（false 时禁用所有绑定入口）。</summary>
         private bool _topologyAvailable = true;
@@ -504,16 +424,13 @@ namespace ZenForge.Views
             // 永久多挂一个回调：旧页面的 OnMasksChanged 会一直持有已卸载页面的
             // 控件引用（阻止回收），改名 / 删掩码时还会对死控件做一次 Dispatcher 调用。
 
-            // 搜索框聚焦时加速刷新（1s），失焦恢复默认（3s，与 ProcessRefresher 的默认值一致）
-            SearchBox.GotFocus += (_, _) => ProcessRefresher.SetInterval(1);
-            SearchBox.LostFocus += (_, _) => ProcessRefresher.SetInterval(3);
-
-            // 输入法组字高亮：中文输入法组字阶段会用系统高亮色把正在输入的那一段
-            // 涂成实心色块，看起来就是"高亮不合理"。这里把 SelectionOpacity 调低，
-            // 选中/组字底色变淡，文字仍然可读，不再出现整块实心色。
-            SearchBox.SelectionOpacity = 0.22;
-            // 保留输入法（中文搜索需要），不关闭。
-            InputMethod.SetIsInputMethodEnabled(SearchBox, true);
+            // 【搜索框只挂 TextChanged】
+            // zenforge:SearchBox 内部已经处理了「占位符何时隐藏」「图标何时变色」
+            // 「选中文案的透明度」三件事，页面只管过滤列表。
+            // 旧版把这些全写在页面里：占位符的 Margin 用错了坐标系（详见
+            // Themes/SearchBox.xaml 顶部注释），且 LostFocus 里读 IsKeyboardFocusWithin
+            // 拿到的是旧值，于是占位符要么不消失、要么不回来。
+            SearchBox.TextChanged += SearchBox_TextChanged;
 
             // Ctrl+F 聚焦搜索框（常规习惯）
             CommandBindings.Add(new CommandBinding(
@@ -564,9 +481,13 @@ namespace ZenForge.Views
                     List<GroupedProcess> grouped = await Task.Run(() => GroupEntries(latest));
                     ApplySnapshot(grouped);
                 }
-
-                // 搜索框占位提示：统一由 UpdateSearchPlaceholder 决定
-                UpdateSearchPlaceholder();
+                else
+                {
+                    // 采样器刚开始跑、首轮还没出结果：主动催一次。
+                    // 不催的话要干等 3 秒，用户看到的是一个空列表 ——
+                    // 这会让人以为「列表坏了、不刷新」。
+                    RequestImmediateSample();
+                }
             };
             Unloaded += (_, _) =>
             {
@@ -747,15 +668,85 @@ namespace ZenForge.Views
         /// </summary>
         private int _snapshotBusy;
 
-        private async void OnProcessesRefreshed(IReadOnlyList<ProcessRefresher.Entry> entries)
+        /// <summary>
+        /// 采样线程推来一帧快照。
+        ///
+        /// 【这个方法是 async void，且由后台线程直接调用】
+        /// 1.0.0-can8 之前它长这样：
+        ///
+        ///     List&lt;GroupedProcess&gt; grouped = await Task.Run(...);
+        ///     ApplySnapshot(grouped);                     // ← 在哪个线程？
+        ///
+        /// 看起来 await 之后会「回到原线程」，但那个「原线程」是**采样器的线程池
+        /// 线程**，不是 UI 线程 —— async 只保证回到调用它的那个 SynchronizationContext，
+        /// 线程池线程上没有这个上下文。于是后半段依旧在后台线程执行，
+        /// ApplySnapshot 去写绑定在 ItemsControl 上的 ObservableCollection，
+        /// WPF 立刻抛「调用线程必须为 STA，因为许多 UI 组件都需要」。
+        ///
+        /// 日志里那一整屏 WARN 全部来自这里：采样本身是好的，数据也拿到了，
+        /// 只是「往回送」的那一步走错了线程。同时 _snapshotBusy 在 finally 里
+        /// 被清掉，于是下一轮又同样失败 —— 表现就是「列表永远不刷新」。
+        ///
+        /// 现在把「计算」和「回写」彻底分开：
+        ///   计算在后台（纯 CPU：GroupEntries 只吃快照，不碰任何 UI 对象）；
+        ///   回写一律 Dispatcher.BeginInvoke（也可用 Invoke，但采样线程不该等 UI 帧）。
+        /// </summary>
+        private void OnProcessesRefreshed(IReadOnlyList<ProcessRefresher.Entry> entries)
         {
+            // 【不能在这里做「忙则丢弃」的判断】
+            // 上一版在第一行就 Interlocked 抢占，一旦 Unowned 就 return；
+            // 那个标志原本只该跳过「重复计算」，不该丢弃「唯一一次回写」。
+            // 现在的语义是：计算可能被合并，但最新一帧一定会被送到 UI。
             if (System.Threading.Interlocked.Exchange(ref _snapshotBusy, 1) == 1)
+            {
+                // 已有一次在算：记下「又来了一帧」，算完后再补最后一帧，
+                // 保证用户最终看到的一定是最新数据（而不是被丢弃的那一帧旧数据）。
+                _snapshotDirty = true;
                 return;
+            }
 
+            _ = PushSnapshotAsync(entries);
+        }
+
+        /// <summary>计算期间又来了新快照：算完补一帧。</summary>
+        private volatile bool _snapshotDirty;
+
+        private async Task PushSnapshotAsync(IReadOnlyList<ProcessRefresher.Entry> entries)
+        {
             try
             {
-                List<GroupedProcess> grouped = await Task.Run(() => GroupEntries(entries));
-                ApplySnapshot(grouped);
+                while (true)
+                {
+                    _snapshotDirty = false;
+
+                    List<GroupedProcess> grouped = await Task.Run(() => GroupEntries(entries))
+                        .ConfigureAwait(false);
+
+                    // 【唯一正确的一跳：回到 UI 线程再动集合】
+                    // 显式丢弃返回的 DispatcherOperation：这里不需要等它执行完，
+                    // 也不该等（等在采样线程上会把下一帧采样一起堵住）。
+                    _ = Dispatcher.BeginInvoke(
+                        DispatcherPriority.Background,
+                        new Action(() =>
+                        {
+                            try
+                            {
+                                ApplySnapshot(grouped);
+                            }
+                            catch (Exception ex)
+                            {
+                                LogService.Warn($"进程列表刷新失败：{ex.Message}");
+                            }
+                        }));
+
+                    if (!_snapshotDirty)
+                        break;
+
+                    // 有新帧进来：用最新的那份重算，别把旧数据画上去。
+                    entries = ProcessRefresher.Latest;
+                    if (entries.Count == 0)
+                        break;
+                }
             }
             catch (Exception ex)
             {
@@ -764,6 +755,24 @@ namespace ZenForge.Views
             finally
             {
                 System.Threading.Interlocked.Exchange(ref _snapshotBusy, 0);
+            }
+        }
+
+        /// <summary>
+        /// 主动催一次采样（进页面立刻要数据时用）。
+        ///
+        /// 采样线程本身会处理节流：这里只负责把「现在就要」这件事排进它的队列，
+        /// 不在 UI 线程上同步跑 Collect —— 那会把 200+ 进程的 OpenProcess 压在 UI 上。
+        /// </summary>
+        private static void RequestImmediateSample()
+        {
+            try
+            {
+                ProcessRefresher.RequestSample();
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"请求进程快照失败：{ex.Message}");
             }
         }
 
@@ -908,10 +917,18 @@ namespace ZenForge.Views
             if (query.Length > 0)
                 rows = rows.Where(g => g.Name.ToLowerInvariant().Contains(query));
 
-            // 默认高占用在前；同占用时按名称排，保证顺序稳定
+            // 默认高占用在前；同占用时按名称排，保证顺序稳定。
+            //
+            // 【占用率要按 0.1% 取整再比】
+            // 悬浮窗口里那一列显示的是一位小数（"22.1%"），但排序用的是完整双精度值：
+            // 两行都显示 0.0% 时，实际值是 0.031 与 0.028，相对顺序会随采样抖动来回翻。
+            // 用户看到的是一堆一模一样的 0.0% 在互相换位 —— 这正是「列表一直在跳」的来源之一。
+            // 按显示精度取整后，显示相同的行之间只用进程名定序，屏幕上的顺序就稳定了。
             rows = _sortByCpuDescending
-                ? rows.OrderByDescending(g => g.CpuValue).ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
-                : rows.OrderBy(g => g.CpuValue).ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase);
+                ? rows.OrderByDescending(g => Math.Round(g.CpuValue, 1))
+                      .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
+                : rows.OrderBy(g => Math.Round(g.CpuValue, 1))
+                      .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase);
 
             // 增量同步：原地增删 + 重排，避免每次刷新整列表重建
             // （Clear+Add 会让 ListView 重建设施，造成闪屏、滚动跳变、焦点丢失）。
@@ -1041,17 +1058,8 @@ namespace ZenForge.Views
         /// 这是「基础优先级类」，取值只有几档固定值（4/6/8/10/13/24/32），
         /// 不随线程动态优先级浮动。未知值原样带出，不猜。
         /// </summary>
-        private static string PriorityLabel(int pcPriClassBase) => pcPriClassBase switch
-        {
-            4 => "Idle",
-            6 => "Below Normal",
-            8 => "Normal",
-            10 => "Above Normal",
-            13 => "High",
-            24 => "RealTime",
-            32 => "RealTime",
-            _ => pcPriClassBase > 0 ? pcPriClassBase.ToString() : "—"
-        };
+        private static string PriorityLabel(int pcPriClassBase) =>
+            ProcessPriority.FromBasePriority(pcPriClassBase);
 
         // ---------- 规则解析 ----------
 
@@ -1089,65 +1097,17 @@ namespace ZenForge.Views
 
         // ---------- 事件 ----------
 
+        /// <summary>
+        /// 搜索词变化。
+        ///
+        /// 占位符与图标状态由 zenforge:SearchBox 自己在内部处理，
+        /// 这里只负责「过滤列表」这一件事 —— 职责分开之后，
+        /// 就不会再出现「页面以为自己在管占位符、控件以为页面在管」的空白地带。
+        /// </summary>
         private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
         {
-            UpdateSearchPlaceholder();
             // 打字是用户主动行为，过滤必须立刻跟上，不能被交互保护推迟
             ApplyFilter(true);
-        }
-
-        /// <summary>
-        /// 占位文字的显示规则：只有在"没有内容 且 没有焦点"时才显示。
-        /// 获得焦点后立刻隐去，避免光标压在占位文字上（之前看起来像光标跑到了文字中间）。
-        /// </summary>
-        private void UpdateSearchPlaceholder()
-        {
-            if (SearchPlaceholder == null || SearchBox == null)
-                return;
-
-            bool empty = string.IsNullOrEmpty(SearchBox.Text);
-            bool focused = SearchBox.IsKeyboardFocusWithin;
-            SearchPlaceholder.Visibility = (empty && !focused) ? Visibility.Visible : Visibility.Collapsed;
-
-            // 打开（点进来）时如果有内容，直接全选：下次输入即覆盖，
-            // 不用先手动清空，符合"打开搜索框后文字应当消去"的期望。
-            if (focused && !empty && !_searchSelectDone)
-            {
-                _searchSelectDone = true;
-                SearchBox.Dispatcher.BeginInvoke(
-                    DispatcherPriority.Input,
-                    new Action(() => SearchBox.SelectAll()));
-            }
-            else if (!focused)
-            {
-                _searchSelectDone = false;
-            }
-        }
-
-        private void SearchBox_GotFocus(object sender, RoutedEventArgs e)
-        {
-            UpdateSearchPlaceholder();
-            UpdateSearchIcon();
-        }
-
-        private void SearchBox_LostFocus(object sender, RoutedEventArgs e)
-        {
-            UpdateSearchPlaceholder();
-            UpdateSearchIcon();
-        }
-
-        /// <summary>
-        /// 聚焦时把放大镜图标染成强调色，作为「已选中此输入框」的轻提示。
-        /// 不去加粗整个边框：那正是之前看起来"颜色过重"的原因。
-        /// </summary>
-        private void UpdateSearchIcon()
-        {
-            if (SearchIcon == null)
-                return;
-
-            object key = SearchBox.IsKeyboardFocusWithin ? "AccentBrush" : "Text.Secondary";
-            if (TryFindResource(key) is System.Windows.Media.Brush brush)
-                SearchIcon.Stroke = brush;
         }
 
         /// <summary>Esc 清空搜索并退出焦点，符合搜索框的常规预期。</summary>
@@ -1226,35 +1186,46 @@ namespace ZenForge.Views
             if (sender is not ProcessGroupRow group)
                 return;
 
-            (int ok, int failed) = ApplyPriority(group.Members, group.PrioritySelection);
+            PriorityApplyResult result = ProcessPriority.Apply(
+                group.Members.Select(m => m.Pid), group.PrioritySelection);
 
-            if (ok == 0 && failed == 0)
+            if (result.Ok == 0 && result.Failed == 0 && string.IsNullOrEmpty(result.Error))
                 return;
 
-            if (ok == 0)
+            if (result.Ok == 0)
             {
-                // 全部失败：通常是系统进程 / 受保护进程，没有权限改。
-                // 不弹窗 —— 用户点一下就知道结果，弹窗反而打断。
-                LogService.Warn($"设置优先级失败：{group.Name}（{failed} 个实例）");
-                ToastService.Error($"无法修改 {group.Name} 的优先级（权限不足或进程已退出）");
+                // 全部失败。三种情况分开说，因为用户该做的事完全不同：
+                //   · 进程刚好退出 → 什么都不用做，下一轮刷新它就没了；
+                //   · 保护拒绝     → 这个进程改不了，说明白原因，不劝用户重试；
+                //   · 其它         → 带上错误码，用户能拿去查。
+                // 【不再写死「权限不足或进程已退出」】
+                // 之前那句话把两种截然不同的失败混成一句猜测，用户看不出到底哪种，
+                // 也没法判断要不要以管理员身份重跑。现在给出真实的错误码。
+                if (ProcessPriority.IsTransient(result))
+                {
+                    LogService.Info($"设置优先级跳过：{group.Name}（进程已退出）");
+                    ToastService.Info($"{group.Name} 已经退出，无需设置优先级");
+                }
+                else
+                {
+                    LogService.Warn($"设置优先级失败：{group.Name}（{result.Failed} 个实例）{result.Error}");
+                    ToastService.Error($"无法修改 {group.Name} 的优先级：{result.Error}");
+                }
                 return;
             }
 
-            LogService.Info($"优先级已设置：{group.Name} → {group.PrioritySelection}（{ok} 个实例）");
+            LogService.Info($"优先级已设置：{group.Name} → {group.PrioritySelection}（{result.Ok} 个实例）");
 
-            if (failed > 0)
-                ToastService.Info($"{group.Name} → {group.PrioritySelection}：{ok} 个成功，{failed} 个无权修改");
+            if (result.Failed > 0)
+                ToastService.Info($"{group.Name} → {group.PrioritySelection}：{result.Ok} 个成功，{result.Failed} 个失败");
             else
                 ToastService.Success($"{group.Name} → {group.PrioritySelection}");
 
             // 有保存规则的进程，把优先级一并记进规则，新实例启动时会被 ProcessWatcher 应用。
             if (_savedRules.Any(r => string.Equals(r.Name, group.Name, StringComparison.OrdinalIgnoreCase)))
             {
-                UpsertRule(group.Name, SelectionToTarget(group.Selection).Target,
-                           SelectionToTarget(group.Selection).MaskId,
-                           SelectionToTarget(group.Selection).Mask,
-                           group.Path,
-                           group.PrioritySelection);
+                (BindingTarget target, string maskId, ulong mask) = SelectionToTarget(group.Selection);
+                UpsertRule(group.Name, target, maskId, mask, group.Path, group.PrioritySelection);
                 ReloadRulesAfterChange();
             }
         }
@@ -1534,15 +1505,16 @@ namespace ZenForge.Views
         /// 一个我们不会去写的档位（RealTime）出现在下拉里，会让用户
         /// 以为点了能保持，实际点「应用」时 PriorityClassOf 返回 0 直接被跳过。
         /// </summary>
-        private static string PriorityLabelToOption(string label) => label switch
-        {
-            PriorityHigh => PriorityHigh,
-            PriorityAboveNormal => PriorityAboveNormal,
-            PriorityNormal => PriorityNormal,
-            PriorityBelowNormal => PriorityBelowNormal,
-            PriorityLow => PriorityLow,
-            _ => PriorityNormal,
-        };
+        private static string PriorityLabelToOption(string label) =>
+            ProcessPriority.FromBasePriority(label switch
+            {
+                "Idle" => 4,
+                "Below Normal" => 6,
+                "Normal" => 8,
+                "Above Normal" => 10,
+                "High" => 13,
+                _ => 0,
+            });
 
         /// <summary>优先级下拉展开 / 收起：与掩码下拉共用同一套「别在用户操作时重排」的保护。</summary>
         private void PriorityCombo_DropDownOpened(object? sender, EventArgs e) => _comboOpen = true;
@@ -1635,11 +1607,18 @@ namespace ZenForge.Views
             // 优先级与绑核一起下发：一条规则 = 一套完整调度，
             // 只恢复掩码不恢复优先级，用户会觉得「改了 High 怎么又变回 Normal」。
             int priorityOk = 0;
+            string priorityError = string.Empty;
             if (!string.IsNullOrEmpty(rule.Priority))
             {
                 ProcessGroupRow? live = FindGroup(row.Name);
                 if (live != null)
-                    priorityOk = ApplyPriority(live.Members, rule.Priority).Ok;
+                {
+                    PriorityApplyResult pr = ProcessPriority.Apply(
+                        live.Members.Select(m => m.Pid), rule.Priority);
+                    priorityOk = pr.Ok;
+                    if (pr.Ok == 0 && !ProcessPriority.IsTransient(pr))
+                        priorityError = pr.Error;
+                }
             }
 
             int bound = HotApplyRule(row.Name);
@@ -1653,6 +1632,10 @@ namespace ZenForge.Views
 
             LogService.Info(msg);
             ToastService.Success(msg);
+
+            // 优先级没设上时必须单独说清楚，否则用户以为「应用」把两件事都做了
+            if (!string.IsNullOrEmpty(priorityError))
+                ToastService.Error($"优先级未能设置：{priorityError}");
         }
 
         /// <summary>规则行选了「不绑定」：删掉这条规则，并把界面上的下拉框复位。</summary>
@@ -1735,18 +1718,22 @@ namespace ZenForge.Views
 
             if (row.Enabled)
             {
-                // 热绑定：开关一打开就立刻对正在运行的实例下发，不等后台轮询
+                // 热绑定：开关一打开就立刻对正在运行的实例下发，不等后台轮询。
                 // 优先级与绑核一起下发：一条规则 = 一套完整调度，
-            // 只恢复掩码不恢复优先级，用户会觉得「改了 High 怎么又变回 Normal」。
-            int priorityOk = 0;
-            if (!string.IsNullOrEmpty(rule.Priority))
-            {
-                ProcessGroupRow? live = FindGroup(row.Name);
-                if (live != null)
-                    priorityOk = ApplyPriority(live.Members, rule.Priority).Ok;
-            }
+                // 只恢复掩码不恢复优先级，用户会觉得「改了 High 怎么又变回 Normal」。
+                if (!string.IsNullOrEmpty(rule.Priority))
+                {
+                    ProcessGroupRow? live = FindGroup(row.Name);
+                    if (live != null)
+                    {
+                        PriorityApplyResult pr = ProcessPriority.Apply(
+                            live.Members.Select(m => m.Pid), rule.Priority);
+                        if (pr.Ok == 0 && !ProcessPriority.IsTransient(pr))
+                            ToastService.Error($"规则已启用，但优先级未能设置：{pr.Error}");
+                    }
+                }
 
-            int bound = HotApplyRule(row.Name);
+                int bound = HotApplyRule(row.Name);
                 LogService.Info(bound > 0
                     ? $"规则已启用：{row.Name} → {row.Label}，并对 {bound} 个正在运行的进程立即生效"
                     : $"规则已启用：{row.Name} → {row.Label}（当前无运行实例，启动后自动生效）");
