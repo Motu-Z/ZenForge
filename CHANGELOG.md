@@ -29,6 +29,118 @@ ZenForge 各版本改动记录。安装包与 Release 正文均以本文件为�
 
 程序内部（日志、关于信息）显示的版本取自 `AssemblyInformationalVersion`，带后缀；资源管理器「属性 → 详细信息」里的文件版本是四段数字。两者一对照就能确定这个包是第几次发版。
 
+### 1.0.0-can3
+
+色彩解耦 + 崩溃修复 + 四项 UI 交互重构。本版最重要的一件事不是加了什么界面，
+而是把「强调色」和「语义色」彻底分成两套互不影响的东西。
+
+**1. 修复：点日志页即闪退（XamlParseException: 找不到 SearchBoxStyle）**
+
+根因不是样式缺失，是 `StaticResource` 查找作用域错了：
+
+`Themes/Controls.xaml` 里的 `SearchBoxStyle` 写了
+`BasedOn="{StaticResource AppTextBoxStyle}"`，而 `AppTextBoxStyle` 定义在 `App.xaml`。
+`App.xaml` 的合并结构是兄弟关系（`Accent.xaml` / `Palette.Dark.xaml` / `Controls.xaml`），
+`StaticResource` 只查「本字典 → 本字典合并的字典」，**不向上查父字典**，
+于是拿到 `null` 并抛异常。编译期完全无警告，只在日志页实例化时炸。
+
+同样的写法在 `TuningPage.xaml` / `MaskManagerWindow.xaml` 里却不崩 —— 因为它们位于
+`Page.Resources` / `Window.Resources`，属于元素树，查找能回溯到 `App.Resources`。
+全项目 4 处引用，只有写进独立字典那一处失效。
+
+修法：把 `SearchBoxStyle` 整体搬到 `App.xaml`（同字典内 `BasedOn` 合法），
+`Controls.xaml` 原位置留注释说明这条规则。BAML 已核对：`App.baml` 含该键，
+`Themes/Controls.baml` 不含。
+
+**2. 色彩解耦：语义色与强调色彻底分离**
+
+规范：**语义色优先级绝对高于强调色**。用户自定义的强调色只能用于交互元素
+（按钮、滑块、选中高亮、焦点边框）；警告、错误、日志级别这些状态颜色必须固定。
+
+- `Palette.Dark.xaml` 硬编码四个语义色，与 Accent 无任何关联：
+  `Log.Info` `#8B9BB4`（中性灰蓝，避免与新强调色撞色）、
+  `Log.Warn` `#F5D90A`、`Log.Error` `#FF453A`、`Log.Critical` `#C42B1C`。
+- 新增 `Log.Critical` / `Log.CriticalTint` 键（深浅两册各一份，键名严格对齐，已校验 59/59 一致）。
+- `LogLevel` 增加 `Critical` 级别（显示为 `FATAL`），异常兜底改用 `LogService.Critical`，
+  并发时立刻冲盘。
+- `ThemeService.SetAccentBrushes` 只允许写 5 个 `Accent*` 键，新增 `WriteAccent`
+  双重校验：语义色黑名单 + 强调色白名单，写错直接抛 —— 让「手滑改语义色」
+  在开发期就炸，而不是发布后让用户看见一堆跟着主题变色的告警。
+- 日志页四枚 pill 由「调试/信息/警告/错误」改为「信息/警告/错误/致命」：
+  调试级常规运行下永远是 0，占着最显眼的位置却没有内容。
+- 顺手修掉两个统计/配色 bug：`UpdateStats` 原先用 `default: info++` 兜底，
+  `Critical` 会被静默算进「信息」；日志行徽章底色原为写死的
+  `#1FFFFFFF` / `#2EFFD60A` / `#2EFF453A`，现全部改走 `Log.*Tint` 资源键。
+
+**3. 强调色：默认换 `#38BDF8`，主按钮改 v2 淡底方案**
+
+- 默认强调色 `#60CDFF` → `#38BDF8`，共 6 类落点全部同步（漏一处就掉色）：
+  `Accent.xaml` 五键、`ThemeService.DefaultAccentHex`、`SettingsPage.DefaultAccent`、
+  `UiSettingsStore.CustomAccentHex`、`App.xaml` 的 `SystemColors.HighlightBrushKey`、
+  `SettingsPage` 色板样本。
+- `AccentSoftBrush` 改为 15% Alpha（`0x26`）。原先 `ThemeService` 里算的是 `0x2E`（18%），
+  只改 XAML 不生效 —— 用户一改主题就被重算回去。
+- `PrimaryButtonStyle` 从「实底强调色 + 深色字」改为「15% 淡底 + 强调色字 + 1px 强调色边」，
+  悬停反转为实底。同时补上基类模板缺失的 `BorderBrush` / `BorderThickness`
+  `TemplateBinding`（不补的话边框永远不显示）。
+
+**4. Toast：普通反馈不再用模态弹窗**
+
+新增 `Services/ToastService.cs` + `Controls/ToastHost.xaml`，主窗口顶部居中叠加层
+（`IsHitTestVisible=False`，绝不挡住底下按钮），200ms 滑入 + 3 秒淡出，鼠标悬停时延长驻留。
+
+判据只有一条：**用户必须读完并做决定吗？** 是 → 模态；否 → Toast。
+
+改为 Toast 的（共 9 处）：保存配置、加载配置、应用成功、PBO 策略、SMU 自检完成、
+规则已保存、应用完成、应用规则、启用/禁用规则、清空规则的空状态提示。
+仍然保留模态的：全局重置、参数严重越界、写入失败、PBO 写入失败、未处理异常、删除确认。
+
+**5. 侧栏指示条贴边**
+
+原来有两层内缩叠加：`NavPanel` 的 `Margin` 左 12px ＋ 模板里竖条的 `Margin` 左 6px
+= 距边 18px；而且选中时文字还会右移 8px「给竖条让位」，那才是「挤占左边距」的观感来源。
+
+现在：`NavPanel` 左边距归零，竖条所在列固定 3px 宽、零边距，文字位置恒定不受选中态影响。
+选中背景块的圆角改为只留右侧（`0,6,6,0`），避免左缘出现两个被边界切掉的圆角缺口。
+
+**6. CPU 信息卡重排 + SMU 重读改图标按钮**
+
+两列 Grid（`*` / `Auto`），左列两行文字垂直居中，右列四个控件横排：
+`[加载] [保存] [⟳] [应用全部]`。窗口拉窄时先压缩 CPU 名（`TextTrimming` 兜底），
+四个按钮永远完整可见。
+
+刷新按钮从页脚文字链（`LinkButtonStyle`）改为 32×32 图标按钮（新增 `IconButtonStyle`），
+图标是矢量圆圈箭头（`Viewbox` 缩放，直接改 `Path` 的 `Width/Height` 只会裁切不会缩放笔画）。
+
+**7. PBO 卡片：走 Windows 电源策略，不是 SMU**
+
+FMax 下方新增 PBO 策略卡片，下拉框 Auto / Enabled / Disabled，已接事件。
+
+- **不做**：AMD SMU 固件层 PBO（功耗墙 / 曲线优化 / Boost 上限）。那一层没有公开 API，
+  硬发 SMU 消息属于拿用户机器赌博（消息号或载荷错一位就是黑屏 + 清 CMOS）。
+- **做**：Windows 电源策略里的「处理器性能提升模式」
+  （`GUID_PROCESSOR_PERF_BOOST_MODE`），新增 `Services/ProcessorPowerPolicy.cs`，
+  用 `PowerReadACValueIndex` / `PowerWriteACValueIndex` / `PowerWriteDCValueIndex`
+  读写 AC 与 DC，再 `PowerSetActiveScheme` 让设置立即生效。
+- 卡片说明行如实写明「与 SMU 固件层 PBO 为两套机制」，不误导用户。
+- 读不到就置灰并写出原因，不做「假装能改」的开关；写入失败回滚下拉框并弹模态。
+
+**8. 掩码管理窗口重绘**
+
+780×540，深色卡片（`#121214`、圆角 10），标题栏圆形图标 + 标题 + 副标题 + 关闭按钮，
+主体左栏固定 220（列表 + 新建），右区自适应（快捷按钮 + 勾选区 + 取消/保存）。
+
+核心勾选框改为自绘深色方块（16×16、圆角 4、未选 1px 灰边、选中强调色实底 + 深色勾、
+整行可点）。**保留 `CheckBox` 类型，只换 `ControlTemplate`** —— 代码里有 6 处
+`foreach (CheckBox box in _allBoxes)`，换成 `ToggleButton` 子类会让这些循环全部编译失败。
+
+**9. 全局异常兜底补齐两条通道**
+
+原先只有 `DispatcherUnhandledException`（UI 线程）。补上
+`AppDomain.UnhandledException`（进程级，只落盘不弹窗）与
+`TaskScheduler.UnobservedTaskException`（`SetObserved` 阻止静默吞掉）。
+异常弹窗加了递归闸门，防止「弹窗自身抛 → 再弹窗」的 `StackOverflow`。
+
 ### 1.0.0-can2
 
 界面重做完成版：按 v12 视觉稿把五个页面全部落到纯原生 WPF。大版本号从 0.x 跳到 1.0.0，

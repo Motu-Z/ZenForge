@@ -83,13 +83,24 @@ namespace ZenForge.Views
 
         // ==================== 级别 pill ====================
 
-        /// <summary>四枚 pill 的生成顺序与配色（与 v12 一致：调试 / 信息 / 警告 / 错误）。</summary>
+        /// <summary>
+        /// 四枚 pill 的生成顺序与配色（信息 / 警告 / 错误 / 致命）。
+        ///
+        /// 【为什么去掉「调试」换成「致命」】
+        /// 调试级只在 Verbose 打开时才有内容，常规运行下永远显示 0 ——
+        /// 一枚「按下去永远是空列表」的筛选器，占着最左边最显眼的位置。
+        /// 换成「致命」后，异常兜底记录的崩溃信息有了独立入口，
+        /// 而且四项正好对应四个固定语义色：Log.Info / Warn / Error / Critical。
+        ///
+        /// 【配色铁律】这四个 DotKey 全部指向 Palette 里的硬编码语义色，
+        /// 不跟随 AccentBrush。用户改强调色时，警告还是黄、错误还是红。
+        /// </summary>
         private static readonly (string Label, LogLevel? Level, string DotKey, string? TintKey)[] PillSpecs =
         {
-            ("调试", LogLevel.Debug, "Text.Disabled", null),
-            ("信息", LogLevel.Info,  "Log.Info",      "Log.InfoTint"),
-            ("警告", LogLevel.Warn,  "Log.Warn",      "Log.WarnTint"),
-            ("错误", LogLevel.Error, "Log.Error",     "Log.ErrorTint"),
+            ("信息", LogLevel.Info,     "Log.Info",     "Log.InfoTint"),
+            ("警告", LogLevel.Warn,     "Log.Warn",     "Log.WarnTint"),
+            ("错误", LogLevel.Error,    "Log.Error",    "Log.ErrorTint"),
+            ("致命", LogLevel.Critical, "Log.Critical", "Log.CriticalTint"),
         };
 
         /// <summary>
@@ -151,19 +162,25 @@ namespace ZenForge.Views
         /// <summary>按当前计数刷新 pill 文案与选中态（选中 = 描边加粗 + 不降透明度）。</summary>
         private void UpdateStats()
         {
-            int debug = 0, info = 0, warn = 0, error = 0;
+            int info = 0, warn = 0, error = 0, critical = 0;
             foreach (LogEntry e in LogService.Entries)
             {
+                // 必须把四个级别全部列全。原实现用 `default: info++` 兜底，
+                // 新增 Critical 时会被静默算进「信息」——致命错误显示成 Info 数量 +1，
+                // 是那种不报错、但统计永远对不上的隐蔽 bug。
                 switch (e.Level)
                 {
-                    case LogLevel.Debug: debug++; break;
                     case LogLevel.Warn: warn++; break;
                     case LogLevel.Error: error++; break;
-                    default: info++; break;
+                    case LogLevel.Critical: critical++; break;
+                    case LogLevel.Info: info++; break;
+                    // Debug 不计入任何 pill（没有对应筛选器），但仍计入下方总数。
+                    default: break;
                 }
             }
 
-            int[] counts = { debug, info, warn, error };
+            // 顺序必须与 PillSpecs 一一对应：信息 / 警告 / 错误 / 致命
+            int[] counts = { info, warn, error, critical };
 
             for (int i = 0; i < PillHost.Children.Count && i < PillSpecs.Length; i++)
             {

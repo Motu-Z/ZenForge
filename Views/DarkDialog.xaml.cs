@@ -68,7 +68,7 @@ namespace ZenForge.Views
                 DialogKind.Success => new("\u2713", "#16C60C", "#0B6B06"),  // ✓ 绿
                 DialogKind.Warning => new("!", "#FFB900", "#5C4200"),       // ! 黄
                 DialogKind.Error => new("\u2715", "#C42B1C", "#7A1810"),    // ✕ 红
-                _ => new(kind == DialogKind.Question ? "?" : "i", "#00B4D8", "#00566B")
+                _ => new(kind == DialogKind.Question ? "?" : "i", "#38BDF8", "#0B4A66")
             };
         }
 

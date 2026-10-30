@@ -235,7 +235,16 @@ namespace ZenForge.Views
                 // 不写死 Foreground：之前用 Brushes.White，亮色主题下白底白字看不见。
                 // 继承主题前景色即可。
                 Focusable = true,
-                FocusVisualStyle = null
+                FocusVisualStyle = null,
+
+                // 自绘深色方块模板（见 XAML 的 CoreCheckBoxStyle）。
+                //
+                // 【为什么保留 CheckBox 类型，只换模板】
+                // 本类里有 6 处 `foreach (CheckBox box in _allBoxes)`，字段声明是
+                // List<CheckBox>。若改成一个 ToggleButton 子类，这些循环的隐式转换
+                // 会全部编译失败，等于为了外观重写整个选择逻辑（867 行）。
+                // 换模板即可拿到完全相同的视觉效果，而类型契约一行不动。
+                Style = (Style)FindResource("CoreCheckBoxStyle"),
             };
 
             _allBoxes.Add(box);

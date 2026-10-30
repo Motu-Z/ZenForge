@@ -110,7 +110,7 @@
                                 <Border.Effect>
                                     <DropShadowEffect x:Name="ColorPreviewGlow"
                                                       BlurRadius="14" ShadowDepth="0" Opacity="0.55"
-                                                      Color="#60CDFF"/>
+                                                      Color="#38BDF8"/>
                                 </Border.Effect>
                             </Border>
 

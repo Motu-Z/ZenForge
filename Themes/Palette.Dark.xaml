@@ -49,14 +49,38 @@
 
     <SolidColorBrush x:Key="Log.Background" Color="#33000000"/>
     <SolidColorBrush x:Key="Log.Border" Color="#14FFFFFF"/>
-    <SolidColorBrush x:Key="Log.Info" Color="#60CDFF"/>
-    <SolidColorBrush x:Key="Log.Warn" Color="#FFD60A"/>
-    <SolidColorBrush x:Key="Log.Error" Color="#FF453A"/>
 
-    <!-- 日志级别 pill 的底色：级别色的 12% 透明度版本 -->
-    <SolidColorBrush x:Key="Log.InfoTint" Color="#1F60CDFF"/>
-    <SolidColorBrush x:Key="Log.WarnTint" Color="#1FFFD60A"/>
+    <!-- ==================================================================
+         【语义色区：禁止与强调色产生任何关联】
+
+         这四组颜色表达的是「状态含义」，不是「品牌/交互」。用户把强调色
+         换成紫色、橙色、绿色，日志里的警告必须还是黄的、错误必须还是红的
+         —— 否则「红色」不再意味着错误，界面语言就失效了。
+
+         施加强制约束：
+           · 本区色值一律硬编码，不得引用 AccentBrush / AccentSoftBrush。
+           · ThemeService.SetAccentBrushes 只允许写 Accent.xaml 里的 5 个键，
+             绝不触碰下面任何一个 Log.* 键（见该方法内的白名单校验）。
+           · 换主题时整册替换（SwapPalette），深浅两册各自定义同名键，
+             因此无需在运行时动态改写 —— 也就没有「被覆盖」的机会。
+
+         Log.Info 用中性灰蓝 #8B9BB4 而非任何强调色系：
+         默认强调色是 #38BDF8（亮青蓝），若日志信息级也用同色系，
+         用户会分不清「这是可点的东西」还是「这是一条普通日志」。
+         灰蓝的饱和度足够低，既保留「信息级偏冷」的语义习惯，
+         又不会在任何强调色主题下与之混淆。
+         ================================================================== -->
+    <SolidColorBrush x:Key="Log.Info" Color="#8B9BB4"/>
+    <SolidColorBrush x:Key="Log.Warn" Color="#F5D90A"/>
+    <SolidColorBrush x:Key="Log.Error" Color="#FF453A"/>
+    <SolidColorBrush x:Key="Log.Critical" Color="#C42B1C"/>
+
+    <!-- 日志级别 pill / 徽章的底色：对应级别色的 12% 透明度版本（0x1F = 31/255）。
+         必须与上面的色值同源，改一个就要改另一个。 -->
+    <SolidColorBrush x:Key="Log.InfoTint" Color="#1F8B9BB4"/>
+    <SolidColorBrush x:Key="Log.WarnTint" Color="#1FF5D90A"/>
     <SolidColorBrush x:Key="Log.ErrorTint" Color="#1FFF453A"/>
+    <SolidColorBrush x:Key="Log.CriticalTint" Color="#1FC42B1C"/>
 
     <SolidColorBrush x:Key="Scrollbar.Thumb" Color="#26FFFFFF"/>
     <SolidColorBrush x:Key="Scrollbar.ThumbHover" Color="#4DFFFFFF"/>
@@ -93,6 +117,11 @@
          导致这两色游离于主题之外，也无法参与后续主题扩展 -->
     <SolidColorBrush x:Key="CloseButton.Foreground" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="CloseButton.Pressed" Color="#A32218"/>
+
+    <!-- Toast 卡片：比窗口(#121214)亮、比卡片浮层更沉一点，配 1px 亮边
+         + 投影，保证压在任意页面背景上都能"浮"起来。 -->
+    <SolidColorBrush x:Key="Toast.Background" Color="#1E1E20"/>
+    <SolidColorBrush x:Key="Toast.Border" Color="#1FFFFFFF"/>
 
     <!-- 状态徽章底色：必须比所在卡片(Card.Background #252526)明亮一档。
          原先沿用 List.Header(#1E1E1E)，比卡片还暗，徽章看起来像在卡片上挖了个洞。 -->

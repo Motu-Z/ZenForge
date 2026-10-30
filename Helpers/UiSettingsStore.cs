@@ -19,8 +19,8 @@ namespace ZenForge.Helpers
         /// </summary>
         public bool FollowSystemAccent { get; set; } = true;
 
-        /// <summary>自定义强调色（十六进制，如 #00B4D8）。仅 FollowSystemAccent=false 时生效。</summary>
-        public string CustomAccentHex { get; set; } = "#00B4D8";
+        /// <summary>自定义强调色（十六进制，如 #38BDF8）。仅 FollowSystemAccent=false 时生效。</summary>
+        public string CustomAccentHex { get; set; } = "#38BDF8";
 
         /// <summary>配置文件里是否显式写过 followSystemAccent（旧配置迁移用，不参与序列化）。</summary>
         [JsonIgnore]

@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Security.Principal;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -138,6 +139,10 @@ namespace ZenForge
                 // 这条链上任何一步抛异常都不会再表现为「静默闪退」，
                 // 而是弹一个能看见的框 + 日志里留全栈。
                 DispatcherUnhandledException += OnDispatcherUnhandledException;
+
+                // 补上 UI 线程之外的两条通道（AppDomain / 未观察 Task）。
+                // 原先只有上面这一条，后台采样线程出事时日志里一片空白。
+                AttachGlobalExceptionHandlers();
 
                 base.OnStartup(e);
 
@@ -358,6 +363,9 @@ namespace ZenForge
 
             DispatcherUnhandledException += OnDispatcherUnhandledException;
 
+            // 补上 UI 线程之外的两条通道（AppDomain / 未观察 Task）。
+            AttachGlobalExceptionHandlers();
+
             // 日志服务在 UI 线程上下文中注册，后台线程写日志时自动封送回 UI 线程
             LogService.UiContext = SynchronizationContext.Current;
 
@@ -480,21 +488,105 @@ namespace ZenForge
             object? sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs args)
         {
             // 先把栈落到磁盘再弹框：UI 线程已经出事了，弹框本身也可能失败
-            LogService.Error($"未处理异常：{args.Exception}");
+            LogService.Critical($"未处理异常：{args.Exception}");
 
-            try
+            // 弹窗自身也可能抛（例如样式字典已损坏、Disposing 阶段窗口站被拆）。
+            // 用静态标志防止「弹窗抛 → 再次进 Dispatcher 异常 → 再弹窗」的递归，
+            // 递归下去会 StackOverflow，那是不可捕获的进程级崩溃。
+            if (Interlocked.Exchange(ref _dialogFailureGuard, 1) == 0)
             {
-                DarkDialog.ShowError(
-                    "发生了未预期的错误，详细信息已写入日志。\n\n" + args.Exception.Message,
-                    "未处理异常");
-            }
-            catch
-            {
-                // 弹框失败不能让异常继续往上冒
+                try
+                {
+                    DarkDialog.ShowError(
+                        "发生了未预期的错误，详细信息已写入日志。\n\n" + args.Exception.Message,
+                        "未处理异常");
+                }
+                catch (Exception dialogError)
+                {
+                    // 弹框失败不能让异常继续往上冒
+                    LogService.Critical($"异常提示框自身失败：{dialogError}");
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _dialogFailureGuard, 0);
+                }
             }
 
             args.Handled = true;
         }
+
+        /// <summary>
+        /// 弹窗失败递归闸门：0 = 空闲，1 = 正在弹。
+        /// 用 Interlocked 而不是 bool，因为多个 Dispatcher 帧可能交错进入。
+        /// </summary>
+        private static int _dialogFailureGuard;
+
+        /// <summary>
+        /// 非 UI 线程的未处理异常。
+        ///
+        /// 这条分支一旦进来，CLR 已经开始拆 AppDomain，进程必定终止 ——
+        /// 此时**任何 UI 操作都不安全**（Dispatcher 可能已停、消息泵已退），
+        /// 所以只做一件事：把异常落到日志。绝不能在这里弹框，那会把
+        /// 「一个可诊断的崩溃」变成「一个静默消失的进程」。
+        /// </summary>
+        private static void OnDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+        {
+            try
+            {
+                string stage = e.IsTerminating ? "进程即将终止" : "进程继续运行";
+                LogService.Critical($"Domain 未处理异常（{stage}）：{e.ExceptionObject}");
+
+                // 后台线程的异常往往发生在采样 / 监听循环里，
+                // 最后几条日志可能还在缓冲区，走之前强推一次。
+                LogService.Flush();
+            }
+            catch
+            {
+                // 崩溃路径上不允许再抛
+            }
+        }
+
+        /// <summary>
+        /// 未被 await / Wait 的 Task 异常。
+        ///
+        /// 这类异常在 .NET 4.5+ 默认不会杀进程，但会在 GC 回收 Task 时
+        /// 静默吞掉 —— 表现为「某个功能突然不工作了，日志里什么都没有」。
+        /// 标记 SetObserved 是明确表态「我已处理」，否则 UI 线程之外
+        /// 的这一跳可能被 CLR 升级成致命错误。
+        /// </summary>
+        private static void OnUnobservedTaskException(
+            object? sender, System.Threading.Tasks.UnobservedTaskExceptionEventArgs e)
+        {
+            try
+            {
+                LogService.Critical($"未观察的 Task 异常：{e.Exception}");
+            }
+            catch
+            {
+                // 同上
+            }
+
+            e.SetObserved();
+        }
+
+        /// <summary>
+        /// 挂上三条异常通道。两条启动路径（正常 / 从后台升级）都要调。
+        ///
+        /// DispatcherUnhandledException 只覆盖 UI 线程；后台采样线程、线程池、
+        /// Task 这三条路以前是裸奔的 —— 出事时日志里干干净净，用户只看到闪退。
+        /// 方法做成幂等，重复调用不会重复挂。
+        /// </summary>
+        private static void AttachGlobalExceptionHandlers()
+        {
+            if (Interlocked.Exchange(ref _handlersAttached, 1) != 0)
+                return;
+
+            AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
+            System.Threading.Tasks.TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+        }
+
+        /// <summary>异常通道是否已挂（1 = 已挂）。</summary>
+        private static int _handlersAttached;
 
         /// <summary>
         /// 停监听、停采样、收托盘。幂等，任何退出路径重复调用都安全。

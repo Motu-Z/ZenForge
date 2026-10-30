@@ -20,7 +20,7 @@
             <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#FFFFFF"/>
             <SolidColorBrush x:Key="{x:Static SystemColors.MenuBrushKey}" Color="#1E1E1E"/>
             <SolidColorBrush x:Key="{x:Static SystemColors.MenuTextBrushKey}" Color="#FFFFFF"/>
-            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#60CDFF"/>
+            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#38BDF8"/>
             <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#101010"/>
 
             <!-- 全局默认字体 -->
@@ -52,7 +52,7 @@
                  TextBox 深色样式（全局生效）
                  ==================================================================
                  背景 #1E1E1E / 文字 White / 边框 #3F3F46
-                 悬停边框 #5A5A62，获得焦点边框青色 #00B4D8
+                 悬停边框 #5A5A62，获得焦点边框跟随强调色(AccentBrush)
                  文字垂直居中，光标与选区用强调色
                  ================================================================== -->
             <Style x:Key="AppTextBoxStyle" TargetType="TextBox">
@@ -119,6 +119,41 @@
             </Style>
 
             <Style TargetType="TextBox" BasedOn="{StaticResource AppTextBoxStyle}"/>
+
+            <!-- ==================================================================
+                 页面级搜索框（日志页用）
+                 ==================================================================
+                 【为什么必须定义在 App.xaml，而不是 Themes/Controls.xaml】
+
+                 StaticResource 的查找范围是「本字典 → 本字典合并的字典」，
+                 它**不会向上查父字典**。App.xaml 的合并结构是：
+
+                     App.xaml
+                     ├── MergedDictionaries
+                     │   ├── Accent.xaml
+                     │   ├── Palette.Dark.xaml
+                     │   └── Controls.xaml        ← 兄弟
+                     └── 本地资源
+                         └── AppTextBoxStyle       ← 兄弟的兄弟
+
+                 三个字典互为兄弟，谁也看不见谁。把本样式放在 Controls.xaml 里写
+                 BasedOn="{StaticResource AppTextBoxStyle}"，运行期拿到 null，
+                 抛 XamlParseException——而且编译期完全不报错，要等日志页实例化
+                 才炸，表现为「点日志页即闪退」。（1.0.0-can2 的真实事故。）
+
+                 注意区分：View（Page / Window）自己的 Resources 位于**元素树**中，
+                 StaticResource 会沿元素树向上找到 App.Resources，所以
+                 TuningPage.xaml / MaskManagerWindow.xaml 里同样写法的 BasedOn
+                 是合法的、不会崩。只有写进独立 ResourceDictionary 的才会失效。
+
+                 结论：任何 BasedOn App.xaml 里样式的样式，都必须定义在 App.xaml。
+                 ================================================================== -->
+            <Style x:Key="SearchBoxStyle" TargetType="TextBox" BasedOn="{StaticResource AppTextBoxStyle}">
+                <Setter Property="Height" Value="38"/>
+                <!-- 左侧 32 留给放大镜图标：图标 13 宽 + 左边距 10，文字从 32 起，
+                     与图标右缘之间留 9px 呼吸。光标必须紧贴图标，不能从图标底下穿过。 -->
+                <Setter Property="Padding" Value="32,0,10,0"/>
+            </Style>
 
             <!-- ==================================================================
                  ComboBoxItem 深色样式（下拉列表项）

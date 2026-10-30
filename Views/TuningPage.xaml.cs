@@ -30,6 +30,19 @@ namespace ZenForge.Views
 
         private bool _busy; // 防止并发点击重复下发
 
+        /// <summary>
+        /// PBO 下拉框的「程序正在回填」闸门。
+        ///
+        /// 回填时 SelectIndex 会触发 SelectionChanged，如果不挡住，进页面就会
+        /// 把刚读到的值立刻再写回去一遍 —— 看似无害，实则每次切页都对电源方案
+        /// 做一次写操作并 PowerSetActiveScheme，还可能在读失败时把用户的设置
+        /// 覆写成 Auto。所有「代码改选中项」的地方都必须先置 true。
+        /// </summary>
+        private bool _suppressPboEvent;
+
+        /// <summary>PBO 当前的实际值（用户选择成功后才更新，用于失败时回滚 UI）。</summary>
+        private BoostPolicy _pboCurrent = BoostPolicy.Auto;
+
         public TuningPage()
         {
             InitializeComponent();
@@ -37,7 +50,14 @@ namespace ZenForge.Views
             // 核心输入框不在构造时生成：不同 CPU 的核心数 / CCD 数不同，
             // 必须等 SMU 只读探测拿到快照后，由 ApplySnapshot 按真实核心数
             // 调用 BuildCoreGrid 延迟构建（见 Z-2）。
-            Loaded += async (_, _) => await ProbeSmuAsync();
+            Loaded += async (_, _) =>
+            {
+                await ProbeSmuAsync();
+
+                // PBO 与 SMU 探测互不依赖：SMU 失败（非 AMD / 未装驱动）时
+                // 电源策略照样可读，所以单独一趟，不能塞进 ApplySnapshot。
+                LoadPboPolicy();
+            };
         }
 
         /// <summary>
@@ -261,6 +281,115 @@ namespace ZenForge.Views
                 box.IsEnabled = enabled;
         }
 
+        // ---------- PBO（Windows 电源策略层） ----------
+
+        /// <summary>
+        /// 读取当前电源方案的处理器性能提升模式并回填下拉框。
+        /// 读不到就把控件置灰并给出原因 —— 不做「假装能改」的开关。
+        /// </summary>
+        private void LoadPboPolicy()
+        {
+            if (!ProcessorPowerPolicy.TryRead(out BoostPolicy policy, out string error))
+            {
+                SetPboUnavailable(error);
+                return;
+            }
+
+            _pboCurrent = policy;
+            ApplyPboToUi(policy);
+
+            PboCombo.IsEnabled = true;
+            PboHint.Text = "调节 Windows 电源策略中的「处理器性能提升模式」，与 SMU 固件层 PBO 为两套机制。";
+        }
+
+        /// <summary>把策略值同步到下拉框，期间屏蔽 SelectionChanged。</summary>
+        private void ApplyPboToUi(BoostPolicy policy)
+        {
+            _suppressPboEvent = true;
+            try
+            {
+                PboCombo.SelectedIndex = policy switch
+                {
+                    BoostPolicy.Enabled => 1,
+                    BoostPolicy.Disabled => 2,
+                    _ => 0, // Auto
+                };
+            }
+            finally
+            {
+                _suppressPboEvent = false;
+            }
+        }
+
+        /// <summary>
+        /// 用户切换 PBO 策略。
+        ///
+        /// 写入失败必须回滚下拉框到实际值：不滚的话界面显示「已启用」而系统
+        /// 实际没变，用户下一次回来会看到一个自己没设过的状态。
+        /// </summary>
+        private void PboCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_suppressPboEvent)
+                return;
+
+            BoostPolicy target = PboCombo.SelectedIndex switch
+            {
+                1 => BoostPolicy.Enabled,
+                2 => BoostPolicy.Disabled,
+                _ => BoostPolicy.Auto,
+            };
+
+            if (target == _pboCurrent)
+                return;
+
+            string label = PboLabel(target);
+
+            if (!ProcessorPowerPolicy.TryWrite(target, out string error))
+            {
+                LogService.Warn($"PBO 策略写入失败（目标 {label}）：{error}");
+
+                // 回滚 UI 到系统真实值
+                ApplyPboToUi(_pboCurrent);
+
+                // 写入失败属于「需要用户处理」的场景（多为权限/策略锁定），
+                // 按规范保留模态弹窗，不降级成 Toast。
+                DarkDialog.ShowWarning(
+                    $"无法修改处理器性能提升模式。\n\n{error}",
+                    "PBO 策略");
+                return;
+            }
+
+            _pboCurrent = target;
+            LogService.Info($"PBO 策略已设为 {label}（Windows 电源策略 · 处理器性能提升模式）");
+
+            ToastService.Success($"处理器性能提升模式：{label}");
+        }
+
+        /// <summary>PBO 不可用时的统一降级：禁用控件 + 在说明行写清楚原因。</summary>
+        private void SetPboUnavailable(string reason)
+        {
+            _suppressPboEvent = true;
+            try
+            {
+                PboCombo.SelectedIndex = -1;
+            }
+            finally
+            {
+                _suppressPboEvent = false;
+            }
+
+            PboCombo.IsEnabled = false;
+            PboHint.Text = $"当前系统不支持读取该策略：{reason}";
+            LogService.Warn($"PBO 策略不可用：{reason}");
+        }
+
+        private static string PboLabel(BoostPolicy policy) => policy switch
+        {
+            BoostPolicy.Enabled => "Enabled",
+            BoostPolicy.Disabled => "Disabled",
+            _ => "Auto",
+        };
+
         // ---------- 控件交互 ----------
 
         /// <summary>
@@ -447,11 +576,11 @@ namespace ZenForge.Views
                 LogService.Info("调校已应用并保存到本地配置（tuning.json）");
 
                 SetSmuState(SmuUiState.Applied, "CO + FMax 已生效 · 已保存");
-                DarkDialog.ShowSuccess(
-                    $"应用成功。\n\n" +
-                    $"CO：{profile.CurveOptimizer.Length} 个核心写入并回读一致\n" +
-                    $"FMax：{fmax} MHz 回读一致",
-                    "应用成功");
+                // 普通反馈，改 Toast：用户刚点完「应用全部」，眼睛还在按钮上，
+                // 弹一个必须点确定的框纯属打断。回读结果写进提示正文，
+                // 用户扫一眼就知道 CO 核数与 FMax 都对上了。
+                ToastService.Success(
+                    $"已应用：CO {profile.CurveOptimizer.Length} 核 / FMax {fmax} MHz，回读一致");
 
                 _ = RefreshAfterWriteAsync();
             }
@@ -508,7 +637,9 @@ namespace ZenForge.Views
             TuningStore.Save(profile);
 
             LogService.Info("保存当前配置到本地（仅落盘，未写 SMU）");
-            DarkDialog.ShowSuccess("已保存当前配置到本地（未写入 SMU）。", "保存配置");
+            // 普通反馈 → Toast。注意文案里的「未写入 SMU」必须保留：
+            // 这是「保存」和「应用」唯一的行为区别，用户最容易混淆的一点。
+            ToastService.Success("已保存到本地配置（未写入 SMU）");
         }
 
         /// <summary>
@@ -532,7 +663,7 @@ namespace ZenForge.Views
             EnableTuningControls();
 
             LogService.Info("已加载本地配置并回填到界面（未写入 SMU）");
-            DarkDialog.Show("已加载本地配置并回填到界面（未写入 SMU）。", "加载配置");
+            ToastService.Info("已加载本地配置并回填（未写入 SMU）");
         }
 
         /// <summary>

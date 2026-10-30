@@ -3,10 +3,10 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="管理自定义掩码"
-        Width="730"
-        Height="560"
-        MinWidth="620"
-        MinHeight="460"
+        Width="780"
+        Height="540"
+        MinWidth="660"
+        MinHeight="440"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         Background="{DynamicResource Window.Background}"
@@ -15,12 +15,10 @@
         UseLayoutRounding="True"
         FocusVisualStyle="{x:Null}">
 
-    <!-- 窗口可自由缩放。
-         原先是 WindowStyle="None" + AllowsTransparency="True" + ResizeMode="NoResize"：
-         三层叠加把窗口锁成了固定尺寸，连边框都拖不动。
-         现改为与主窗口一致的 WindowChrome 方案 —— 系统负责缩放边框与投影，
-         我们只管内容，比自绘透明窗口稳（透明窗口在有缩放时容易糊、卡）。
-         CaptionHeight=0：标题栏由本文件自己画并处理 DragMove，不交给系统。 -->
+    <!-- 无边框 + 自绘标题栏。
+         CaptionHeight 必须为 0：只要非零，系统就把这一条当 HTCAPTION 吃掉
+         WM_NCLBUTTONDOWN，自绘标题栏上的 DragMove 永远不会触发。
+         ResizeBorderThickness=6 留出边缘拉伸热区，窗口仍可自由缩放。 -->
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="0"
                             CornerRadius="0"
@@ -30,128 +28,201 @@
 
     <Window.Resources>
         <!-- 行内改名输入框。
-             必须把样式自带的 Height=36 顶掉：列表行固定 30px 高，
-             36px 的框塞进去会把整行撑高，导致「编辑某一行时上下几行集体跳一下」。
-             也不吃 AppTextBoxStyle 的 Padding=10,0 —— 文字要跟只读态的
-             TextBlock 起始位置对齐，否则一进编辑态文字就向右蹿。 -->
+             必须把 AppTextBoxStyle 自带的 Height=36 顶掉：列表行固定 40px 高，
+             36px 的框塞进去会把整行撑高，表现为「编辑某一行时上下几行集体跳一下」。
+             Padding 也要改：文字必须与只读态 TextBlock 的起点对齐，
+             否则一进编辑态文字就向右蹿。 -->
         <Style x:Key="RowNameBoxStyle" TargetType="TextBox" BasedOn="{StaticResource AppTextBoxStyle}">
-            <Setter Property="Height" Value="24"/>
+            <Setter Property="Height" Value="26"/>
             <Setter Property="Padding" Value="6,0"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
+
+        <!-- ==================================================================
+             【核心勾选框：自绘深色方块】
+
+             不用系统 CheckBox 的两个原因：
+               1. 系统模板的方块是浅底 + 蓝色勾，在 #121214 的深色卡片上像贴了
+                  一块白补丁，而且那个蓝不跟随主题强调色。
+               2. 系统模板的命中区域只有方块本身（约 13×13），文字部分点不中。
+                  这类要连点几十次的批量选择，命中区小是纯粹的折磨。
+
+             这里保留 CheckBox 类型（只换 ControlTemplate）：
+             MaskManagerWindow.xaml.cs 里有 6 处 foreach (CheckBox box in _allBoxes)，
+             换成 ToggleButton 子类会让这些循环的隐式转换失败。保留类型 = 零侵入。
+
+             视觉规格：
+               方块 16×16 / 圆角 4 / 未选 1px 灰边透明底 / 选中 强调色实底 + 深色勾
+               勾用 Path 画（矢量），不用字体符号 —— 字体回退会出豆腐块。
+               整行可点：Border 包住 [方块 + 文字]，Padding 撑出命中区。
+             ================================================================== -->
+        <Style x:Key="CoreCheckBoxStyle" TargetType="CheckBox">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Border Background="Transparent" Padding="2,3">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <!-- 方块本体 -->
+                                <Border x:Name="Box"
+                                        Width="16" Height="16"
+                                        CornerRadius="4"
+                                        Background="Transparent"
+                                        BorderBrush="{DynamicResource Input.BorderHover}"
+                                        BorderThickness="1"
+                                        VerticalAlignment="Center"
+                                        SnapsToDevicePixels="True">
+                                    <Path x:Name="Tick"
+                                          Data="M 3,8.5 L 6.5,12 L 13,4"
+                                          Width="10" Height="8"
+                                          Stretch="Uniform"
+                                          Stroke="{DynamicResource AccentTextBrush}"
+                                          StrokeThickness="2"
+                                          StrokeStartLineCap="Round"
+                                          StrokeEndLineCap="Round"
+                                          StrokeLineJoin="Round"
+                                          Visibility="Collapsed"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
+                                </Border>
+
+                                <ContentPresenter x:Name="Label"
+                                                  Margin="8,0,0,0"
+                                                  VerticalAlignment="Center"
+                                                  RecognizesAccessKey="False"/>
+                            </StackPanel>
+                        </Border>
+
+                        <ControlTemplate.Triggers>
+                            <!-- 悬停：只提边框，不填底色。
+                                 预先填成浅强调色会让用户误以为「已经选中了」。 -->
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            </Trigger>
+
+                            <!-- 选中：强调色实底 + 深色勾 + 强调色边。
+                                 描边与填充同色，方块看起来是一个实心圆角块，
+                                 没有「双层边」的脏感。 -->
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Box" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                <Setter TargetName="Tick" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+
+                            <!-- 禁用：整体降透明度，不换色（换色会让人以为是另一种状态） -->
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
-    <!-- 【为什么不用 SizeToContent="Height"】
-         试过：高度跟着内容走，确实没有底部空带，但一旦用户拖宽窗口，
-         勾选区折行数变化 → 内容高度变化 → 窗口高度跟着变，
-         拖一下窗口自己在那儿反复伸缩，非常难受（实测就是这样）。
-         这里回到固定初值，只把 0.7.6 的 820×620 收窄收矮一点。
-         勾选区用 * 占满剩余高度，多出来的几个像素留在内容下方，
-         用户拖动时窗口不会再自己变尺寸。 -->
+    <!-- 根 Border 出圆角：WindowChrome 下窗口本体是直角，圆角只能由内容层给。
+         不用 AllowsTransparency（那会让整个窗口走软件渲染，缩放时发糊）。 -->
     <Border Background="{DynamicResource Window.Background}"
             BorderBrush="{DynamicResource Card.Border}"
-            BorderThickness="1">
+            BorderThickness="1"
+            CornerRadius="10"
+            ClipToBounds="True">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
-                <!-- 主体占据窗口剩余的全部高度（含按钮行）：
-                     按钮不再单独占一条通栏，而是挂在主体内部的底部对齐层。
-                     这样左列能一路「放下来」贴到窗口底边，
-                     不会在列表和按钮之间空出一条既没内容又显眼的带子。 -->
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <!-- ===== 标题栏（可拖动） ===== -->
+            <!-- ===================== 标题栏（可拖动） ===================== -->
             <Border Grid.Row="0"
                     Background="Transparent"
-                    CornerRadius="8,8,0,0"
-                    Padding="18,14,10,0"
+                    Padding="20,16,12,0"
                     MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid>
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Border Width="22" Height="22" CornerRadius="11"
-                                Background="{DynamicResource AccentBrush}"
-                                Margin="0,0,10,0" VerticalAlignment="Center">
-                            <TextBlock Text="&#x2699;"
-                                       FontSize="12" FontWeight="Bold"
-                                       Foreground="#101010"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
+                    <!-- 圆形图标：强调色 15% 淡底 + 强调色描边与图标。
+                         这是 v2 强调色方案的标准用法 —— 大面积用淡底，
+                         只有描边/文字用 100% 强调色，避免整块饱和色压过内容。 -->
+                    <Border Width="34" Height="34" CornerRadius="17"
+                            Background="{DynamicResource AccentSoftBrush}"
+                            BorderBrush="{DynamicResource AccentBrush}"
+                            BorderThickness="1"
+                            VerticalAlignment="Center">
+                        <!-- 齿轮：外圈 + 8 段齿，全部矢量，不依赖 Segoe MDL2 字形 -->
+                        <Viewbox Width="17" Height="17">
+                            <Canvas Width="24" Height="24">
+                                <Ellipse Canvas.Left="7" Canvas.Top="7" Width="10" Height="10"
+                                         Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.8"/>
+                                <Path Data="M12 2v3 M12 19v3 M2 12h3 M19 12h3 M4.9 4.9l2.1 2.1 M17 17l2.1 2.1 M19.1 4.9L17 7 M7 17l-2.1 2.1"
+                                      Stroke="{DynamicResource AccentBrush}"
+                                      StrokeThickness="1.8"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"/>
+                            </Canvas>
+                        </Viewbox>
+                    </Border>
+
+                    <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
                         <TextBlock Text="管理自定义掩码"
-                                   FontSize="14" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource Text.Primary}"
-                                   VerticalAlignment="Center"/>
+                                   FontSize="15" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Text.Primary}"/>
+                        <TextBlock x:Name="HeaderSubText"
+                                   Text="勾选要绑定的核心 / 线程，保存后可在调度页直接选用"
+                                   FontSize="12"
+                                   Margin="0,3,0,0"
+                                   Foreground="{DynamicResource Text.Secondary}"
+                                   TextTrimming="CharacterEllipsis"/>
                     </StackPanel>
 
-                    <Button Grid.Column="1" Width="30" Height="26"
-                            Content="&#x2715;" FontSize="12"
-                            Foreground="{DynamicResource Text.Secondary}"
-                            Background="Transparent" BorderThickness="0"
-                            Cursor="Hand" FocusVisualStyle="{x:Null}"
+                    <Button Grid.Column="2"
+                            Width="30" Height="28"
+                            Style="{StaticResource WindowButtonStyle}"
+                            ToolTip="关闭"
                             Click="Close_Click">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="4">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="Bd" Property="Background" Value="#C42B1C"/>
-                                        <Setter Property="Foreground" Value="#FFFFFF"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
+                        <Path Data="M 5,5 L 13,13 M 13,5 L 5,13"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                              StrokeThickness="1.4"
+                              StrokeStartLineCap="Round"
+                              StrokeEndLineCap="Round"
+                              Width="18" Height="18" Stretch="Uniform"/>
                     </Button>
                 </Grid>
             </Border>
 
-            <!-- ===== 主体：左列表 + 右编辑 =====
-                 主体行是 Height="*"，一直占满到窗口底边（含按钮行）。
-                 左列 Border 因此在垂直方向 Stretch 到底 —— 这就是「左列放下来」：
-                 列表容器自己负责填满剩余空间，而不是靠一条独立的底部通栏撑出视觉边界。 -->
-            <Grid Grid.Row="1" Margin="18,14,18,14">
+            <!-- ===================== 主体：左栏 220 / 右区自适应 ===================== -->
+            <Grid Grid.Row="1" Margin="20,16,20,20">
                 <Grid.ColumnDefinitions>
-                    <!-- 左栏宽度 160：按「典型最长名称」定，不为 12 个 W 的极端情况买单。
-                         实测（雅黑 UI 13px SemiBold）：
-                           · 6 个中文        ≈  78px → 框内 94
-                           · 12 个典型大写    ≈  94px → 框内 110
-                           · 12 个 W（极端） ≈ 144px → 框内 160
-                         160 能完整放下 6 个中文和 12 个常见大写；只有「12 个 M/W」
-                         这种组合才会出省略号，鼠标悬停有完整 ToolTip 兜底。
-                         固定宽度而非 Auto：Auto 列在测量阶段给子元素无限宽度，
-                         TextTrimming 因此不生效，长名称会冲出边框被硬切。 -->
-                    <ColumnDefinition Width="160"/>
+                    <ColumnDefinition Width="220"/>
                     <ColumnDefinition Width="16"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- 左：已保存掩码列表
-                     垂直 Stretch 到底：左列与右列等高，一直延伸到窗口底部。
-                     列表内部用 VerticalAlignment=Stretch 的行容器把可用高度分给各行，
-                     行高随窗口高度一起变 —— 这就是「放下来」+「名称框变高」：
-                     窗口高时行更高、更好点，不会在列表下半截留一块空板子。 -->
+                <!-- ===== 左栏：已保存掩码列表 ===== -->
                 <Border Grid.Column="0"
                         Background="{DynamicResource List.Background}"
                         BorderBrush="{DynamicResource Input.Border}"
-                        BorderThickness="1" CornerRadius="6"
-                        Margin="0,0,0,0">
+                        BorderThickness="1"
+                        CornerRadius="8">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <!-- 标题 + 套数计数。
-                             计数用「3 / 10」而非纯文字，用户一眼知道还能建几个。 -->
-                        <Grid Grid.Row="0" Margin="12,11,12,9">
+                        <!-- 标题 + 计数（「3 / 10」比纯文字更能表达还剩几个名额） -->
+                        <Grid Grid.Row="0" Margin="14,12,12,10">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
@@ -169,194 +240,151 @@
                                        VerticalAlignment="Center"/>
                         </Grid>
 
-                        <!-- 列表与「新建」按钮同处一个容器：新建按钮不再是底部那枚
-                             又宽又空的按钮，而是紧贴列表左栏的一条窄按钮，
-                             视觉上属于「列表区」而不是「表单区」。 -->
-                        <Grid Grid.Row="1">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="*"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
+                        <!-- 列表行：固定 40 高。
+                             不用 Stretch 平分高度 —— ListBoxItem 在
+                             VirtualizingStackPanel 里不会纵向拉伸，写了也无效。
+                             固定行高反而让「悬停/选中/改名」三种状态的行高完全一致。 -->
+                        <ListBox x:Name="MaskList"
+                                 Grid.Row="1"
+                                 ScrollViewer.CanContentScroll="True"
+                                 Background="Transparent" BorderThickness="0"
+                                 Foreground="{DynamicResource Text.Primary}"
+                                 VerticalContentAlignment="Stretch"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 FocusVisualStyle="{x:Null}"
+                                 SelectionChanged="MaskList_SelectionChanged"
+                                 PreviewMouseLeftButtonDown="MaskList_PreviewMouseLeftButtonDown">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="Margin" Value="6,0,6,1"/>
+                                    <Setter Property="Height" Value="40"/>
+                                    <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="ListBoxItem">
+                                                <Border x:Name="Bd"
+                                                        Background="Transparent"
+                                                        CornerRadius="6"
+                                                        Padding="10,0">
+                                                    <ContentPresenter VerticalAlignment="Center"
+                                                                      HorizontalAlignment="Stretch"/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="Bd" Property="Background"
+                                                                Value="{DynamicResource List.Hover}"/>
+                                                    </Trigger>
+                                                    <!-- 选中：降到底色，不刷强调色。
+                                                         左栏是导航性质，整行刷强调色会和右侧
+                                                         勾选框的强调色打架，看不出哪边才是「当前操作区」。 -->
+                                                    <Trigger Property="IsSelected" Value="True">
+                                                        <Setter TargetName="Bd" Property="Background"
+                                                                Value="{DynamicResource Nav.Button.Active}"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
 
-                            <!-- 列表铺满左列剩余高度（自身不写死高度）：
-                                 行高固定 46，10 条 = 460px，正好把这一段填得差不多。
-                                 窗口被拖得很矮时这里自动出纵向滚动条。 -->
-                            <ListBox x:Name="MaskList"
-                                     Grid.Row="0"
-                                     ScrollViewer.CanContentScroll="True"
-                                     Background="Transparent" BorderThickness="0"
-                                     Foreground="{DynamicResource Text.Primary}"
-                                     VerticalContentAlignment="Stretch"
-                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                     FocusVisualStyle="{x:Null}"
-                                     SelectionChanged="MaskList_SelectionChanged"
-                                     PreviewMouseLeftButtonDown="MaskList_PreviewMouseLeftButtonDown">
-                                <ListBox.ItemContainerStyle>
-                                    <Style TargetType="ListBoxItem">
-                                        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-                                        <Setter Property="Padding" Value="0"/>
-                                        <Setter Property="Margin" Value="5,0,5,1"/>
-                                        <!-- 行高 40：比最初的 30 宽裕（好点中），又不至于把
-                                             左列撑得比右列还高。固定值而非自适应：
-                                             ListBoxItem 在 VirtualizingStackPanel 里不会纵向
-                                             平分空间，靠 Stretch 拉开行距是无效的。
-                                             悬停 / 选中 / 改名都不改变行高。 -->
-                                        <Setter Property="Height" Value="40"/>
-                                        <Setter Property="VerticalContentAlignment" Value="Center"/>
-                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                        <Setter Property="Template">
-                                            <Setter.Value>
-                                                <ControlTemplate TargetType="ListBoxItem">
-                                                    <Border x:Name="Bd"
-                                                            Background="Transparent"
-                                                            CornerRadius="4"
-                                                            Padding="8,0">
-                                                        <ContentPresenter VerticalAlignment="Center"
-                                                                          HorizontalAlignment="Stretch"/>
-                                                    </Border>
-                                                    <ControlTemplate.Triggers>
-                                                        <Trigger Property="IsMouseOver" Value="True">
-                                                            <Setter TargetName="Bd" Property="Background"
-                                                                    Value="{DynamicResource List.Hover}"/>
-                                                        </Trigger>
-                                                        <Trigger Property="IsSelected" Value="True">
-                                                            <Setter TargetName="Bd" Property="Background"
-                                                                    Value="{DynamicResource Nav.Button.Active}"/>
-                                                        </Trigger>
-                                                    </ControlTemplate.Triggers>
-                                                </ControlTemplate>
-                                            </Setter.Value>
-                                        </Setter>
-                                    </Style>
-                                </ListBox.ItemContainerStyle>
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <!-- 名称就地编辑，像资源管理器里「新建文件夹」：
-                                             平时是一行文字，点一下就变成输入框，改完回车 / 失焦即确认。
-                                         所以右栏没有独立的「名称」输入区。点名称本身就是编辑。
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <!-- 名称就地编辑：平时是 TextBlock，点一下换成 TextBox，
+                                         回车 / 失焦即确认。所以右侧没有独立的「名称」输入框。 -->
+                                    <Grid VerticalAlignment="Center">
+                                        <TextBlock x:Name="RowNameText"
+                                                   Text="{Binding Name}"
+                                                   FontWeight="SemiBold"
+                                                   FontSize="13"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center"
+                                                   ToolTip="{Binding Name}"
+                                                   Cursor="IBeam"
+                                                   Foreground="{DynamicResource Text.Primary}"
+                                                   MouseLeftButtonUp="RowName_Click"/>
 
-                                         【删除按钮为什么改成叠层而不是占一列】
-                                           之前给删除按钮留了 26px 固定槽位，好处是悬停时文字
-                                           不会被挤窄；代价是每一行永远有 26px 白占着，
-                                           左列因此被迫做宽 187px 才能装下 12 个字母。
-                                           改成叠层后，名称独占整行宽度，删除按钮只在悬停时
-                                           浮在文字上方（带一层与行底色一致的不透明衬底，
-                                           遮住底下的字），宽度和高度都不参与布局计算 ——
-                                           悬停前后文字位置、行高一律不变。 -->
-                                        <!-- 行内不写死高度：交给外层 ListBoxItem 的固定 46 行高，
-                                             这里只负责垂直居中，避免文字被顶到行首。 -->
-                                        <Grid VerticalAlignment="Center">
-                                            <!-- 只读态：点击后切换成输入框。
-                                                 铺满整行，右侧不再为按钮让位。 -->
-                                            <TextBlock x:Name="RowNameText"
-                                                       Text="{Binding Name}"
-                                                       FontWeight="SemiBold"
-                                                       FontSize="13"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       VerticalAlignment="Center"
-                                                       ToolTip="{Binding Name}"
-                                                       Cursor="IBeam"
-                                                       Foreground="{DynamicResource Text.Primary}"
-                                                       MouseLeftButtonUp="RowName_Click"/>
+                                        <TextBox x:Name="RowNameBox"
+                                                 Style="{StaticResource RowNameBoxStyle}"
+                                                 Visibility="Collapsed"
+                                                 KeyDown="RowNameBox_KeyDown"
+                                                 TextChanged="RowNameBox_TextChanged"
+                                                 LostKeyboardFocus="RowNameBox_LostKeyboardFocus"/>
 
-                                            <!-- 编辑态：默认折叠，由代码在点击时展开并抢焦点 -->
-                                            <TextBox x:Name="RowNameBox"
-                                                     Style="{StaticResource RowNameBoxStyle}"
-                                                     Visibility="Collapsed"
-                                                     KeyDown="RowNameBox_KeyDown"
-                                                     TextChanged="RowNameBox_TextChanged"
-                                                     LostKeyboardFocus="RowNameBox_LostKeyboardFocus"/>
+                                        <!-- 删除按钮：叠在右侧，不占列宽。
+                                             行底色是 Transparent，直接叠会透出文字，
+                                             所以配一段左透明的渐变衬底（Row.FadeBrush）
+                                             把底下的字盖住，长名称被截断时也不会出现硬边。 -->
+                                        <Border x:Name="RowDeleteHost"
+                                                HorizontalAlignment="Right"
+                                                VerticalAlignment="Center"
+                                                Padding="12,0,0,0"
+                                                Background="{DynamicResource Row.FadeBrush}"
+                                                Visibility="Collapsed">
+                                            <Button x:Name="RowDeleteBtn"
+                                                    Style="{StaticResource IconDeleteButtonStyle}"
+                                                    ToolTip="删除"
+                                                    Click="RowDelete_Click">
+                                                <Path Data="M3,4 L13,4 M6,4 L6,2.5 A1,1 0 0 1 7,1.5 L9,1.5 A1,1 0 0 1 10,2.5 L10,4
+                                                           M4.5,4 L5.2,13.2 A1,1 0 0 0 6.2,14.2 L9.8,14.2 A1,1 0 0 0 10.8,13.2 L11.5,4
+                                                           M7,6.5 L7,11.8 M9,6.5 L9,11.8"
+                                                      Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                                      StrokeThickness="1.2"
+                                                      StrokeStartLineCap="Round"
+                                                      StrokeEndLineCap="Round"
+                                                      Width="16" Height="16"
+                                                      Stretch="None"
+                                                      HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center"/>
+                                            </Button>
+                                        </Border>
+                                    </Grid>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger
+                                            Binding="{Binding IsMouseOver,
+                                                      RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
+                                            Value="True">
+                                            <Setter TargetName="RowDeleteHost" Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
 
-                                            <!-- 删除按钮用矢量路径画，不再依赖 Segoe MDL2 字形。
-                                                 实测那套字体的垃圾桶字形在部分系统上是豆腐块，
-                                                 图标这种小东西没必要为字体可用性赌运气。
-
-                                                 【衬底为什么用列表底色而不是行背景】
-                                                 行本身的 Background 是 Transparent，真正上色的是
-                                                 ListBoxItem 模板里的 Bd —— 若直接绑行背景，拿到的是
-                                                 透明画刷，文字会透过图标。这里用不透明衬底把图标
-                                                 区域盖住，左边留 10px 渐变过渡，长名字被截断的地方
-                                                 不会出现一刀切的硬边。 -->
-                                            <Border x:Name="RowDeleteHost"
-                                                    HorizontalAlignment="Right"
-                                                    VerticalAlignment="Center"
-                                                    Padding="10,0,0,0"
-                                                    Background="{DynamicResource Row.FadeBrush}"
-                                                    Visibility="Collapsed">
-                                                <Button x:Name="RowDeleteBtn"
-                                                        Style="{StaticResource IconDeleteButtonStyle}"
-                                                        ToolTip="删除"
-                                                        Click="RowDelete_Click">
-                                                    <Path Data="M3,4 L13,4 M6,4 L6,2.5 A1,1 0 0 1 7,1.5 L9,1.5 A1,1 0 0 1 10,2.5 L10,4
-                                                               M4.5,4 L5.2,13.2 A1,1 0 0 0 6.2,14.2 L9.8,14.2 A1,1 0 0 0 10.8,13.2 L11.5,4
-                                                               M7,6.5 L7,11.8 M9,6.5 L9,11.8"
-                                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
-                                                          StrokeThickness="1.2"
-                                                          StrokeStartLineCap="Round"
-                                                          StrokeEndLineCap="Round"
-                                                          Width="16" Height="16"
-                                                          Stretch="None"
-                                                          HorizontalAlignment="Center"
-                                                          VerticalAlignment="Center"/>
-                                                </Button>
-                                            </Border>
-                                        </Grid>
-                                        <DataTemplate.Triggers>
-                                            <!-- 删除按钮只在悬停时出现，平时列表干净。
-                                                 显隐作用在外层 Border 上（按钮是它的子元素）。 -->
-                                            <DataTrigger
-                                                Binding="{Binding IsMouseOver,
-                                                          RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
-                                                Value="True">
-                                                <Setter TargetName="RowDeleteHost" Property="Visibility" Value="Visible"/>
-                                            </DataTrigger>
-                                        </DataTemplate.Triggers>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-
-                            <!-- 新建：贴在列表底部，与列表同宽。
-                                 高度与行高（30）同规格，视觉上就是「列表的最后一行」。
-                                 满 10 套后置灰并换提示文案（由代码控制）。 -->
-                            <Button x:Name="NewButton" Grid.Row="1"
-                                    Content="新建"
-                                    Style="{StaticResource SecondaryButtonStyle}"
-                                    HorizontalAlignment="Stretch"
-                                    MinWidth="0" Height="30"
-                                    Margin="5,6,5,6"
-                                    Padding="6,0"
-                                    FontSize="12"
-                                    ToolTip="新建一条自定义掩码（最多 10 套）"
-                                    Click="New_Click"/>
-                        </Grid>
+                        <!-- 新建：贴在列表底部，与列表同宽，视觉上就是「最后一行」 -->
+                        <Button x:Name="NewButton" Grid.Row="2"
+                                Content="新建"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                HorizontalAlignment="Stretch"
+                                MinWidth="0" Height="30"
+                                Margin="6,6,6,8"
+                                Padding="6,0"
+                                FontSize="12"
+                                ToolTip="新建一条自定义掩码（最多 10 套）"
+                                Click="New_Click"/>
                     </Grid>
                 </Border>
 
-                <!-- 右：核心勾选 + 底部按钮 -->
+                <!-- ===== 右区：选择核心 ===== -->
                 <Grid Grid.Column="2">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <!-- 勾选区占满剩余高度：窗口固定尺寸，多出来的高度
-                             归它，内容超高就在内部滚动。 -->
                         <RowDefinition Height="*"/>
-                        <!-- 按钮行放在右列内部而不是通栏：
-                             这样左列才能一路延伸到窗口底边（左列与按钮行底边齐平），
-                             视觉上是一整块高列表 + 右下角一对按钮，
-                             而不是「列表 → 空带 → 按钮」三段。 -->
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="选择核心 / 线程"
-                               Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,8"/>
+                               Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,10"/>
 
-                    <!-- 三个快捷按钮：等分铺满、允许收缩。
-                         原先用 MinWidth=156 + Left/Center/Right 对齐，窗口一窄
-                         三枚按钮保持最小宽度就会互相压住（实测截图里字都叠在一起）。
-                         改为 Stretch + 去掉最小宽度，窄窗口下一起等比缩小。
-                         Margin 必须显式写 0，覆盖样式默认的「0,0,10,0」。 -->
-                    <Grid Grid.Row="1" Margin="0,0,0,12">
+                    <!-- 三个快捷按钮：等分铺满。
+                         用 Stretch + MinWidth=0 而不是固定宽 —— 窗口窄时一起等比缩，
+                         不会出现「三枚按钮互相压住、文字叠在一起」。 -->
+                    <Grid Grid.Row="1" Margin="0,0,0,14">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="8"/>
@@ -375,8 +403,8 @@
                                 Click="Invert_Click"/>
                     </Grid>
 
-                    <!-- 勾选区：整块纵向滚动，横向不再出滚动条（内容会自己折行）。
-                         纵向滚动条留 12px 给内容，避免竖条压在最后一列的勾选框上。 -->
+                    <!-- 勾选区：整块纵向滚动，横向不滚（内容自己折行）。
+                         右侧留 12 给竖向滚动条，避免它压在最后一列勾选框上。 -->
                     <ScrollViewer x:Name="CoreScroll" Grid.Row="2"
                                   VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled"
@@ -385,20 +413,20 @@
                         <StackPanel x:Name="CorePanel"/>
                     </ScrollViewer>
 
-                    <!-- 取消 / 保存：右列底部，与左列底边齐平。
-                         左列本身已经延伸到窗口底部，这一行只是压在它旁边，
-                         不再像之前那样横贯整个窗口、在列表下方割出一条空带。 -->
+                    <!-- 取消 / 保存。
+                         保存用主按钮（v2 淡底 + 强调色边），因为它是这个窗口
+                         唯一的完成动作；取消保持次要按钮，两者重量差异明确。 -->
                     <StackPanel Grid.Row="3"
                                 Orientation="Horizontal"
                                 HorizontalAlignment="Right"
-                                Margin="0,10,0,0">
+                                Margin="0,14,0,0">
                         <Button Content="取消"
                                 Style="{StaticResource SecondaryButtonStyle}"
                                 MinWidth="96" Padding="18,0"
                                 Margin="0,0,10,0"
                                 Click="Close_Click"/>
                         <Button Content="保存"
-                                Style="{StaticResource SecondaryButtonStyle}"
+                                Style="{StaticResource PrimaryButtonStyle}"
                                 MinWidth="96" Padding="18,0"
                                 Margin="0"
                                 Click="Save_Click"/>

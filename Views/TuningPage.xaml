@@ -42,7 +42,14 @@
                 <TextBlock Text="调校" Style="{StaticResource PageTitleStyle}"/>
             </StackPanel>
 
-            <!-- ======= CPU 信息卡（v12：名字 18px/600 + 副行，右侧三按钮） ======= -->
+            <!-- ======= CPU 信息卡（v2：两列 Grid，左文字垂直居中 / 右四控件横排） =======
+                 布局要点：
+                   · 左列 1fr 吃掉剩余宽度，右列 Auto 紧贴内容。窗口拉窄时先压缩
+                     CPU 名（TextTrimming 兜底），四个按钮永远完整可见 —— 反过来
+                     让按钮先压缩的话，「应用全部」会被压成「应用全」再被截断。
+                   · 两行文字用垂直居中而非顶部对齐：卡片有上下 Padding，
+                     顶部对齐会在下方留一条空带，卡片看起来「上重下轻」。
+                   · 右列控件顺序按「读 → 写」的心智模型：加载 / 保存 / 重读 / 应用。 -->
             <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -53,7 +60,7 @@
                     <!-- 设备身份：左列。
                          初值不用任何具体型号：探测失败时写着「AMD Ryzen 9 9955HX」会误导用户
                          以为识别成功。「/」由探测结果覆盖为真实 CPU 名。 -->
-                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
                         <TextBlock x:Name="CpuNameText"
                                    Text="/"
                                    FontSize="18"
@@ -68,20 +75,52 @@
                                    TextTrimming="CharacterEllipsis"/>
                     </StackPanel>
 
-                    <!-- 右侧三个按钮。v12 只有「保存 / 加载 / 应用全部」，
-                         「刷新」移到副行做文字链 —— 四个按钮并排会把 CPU 名挤没。 -->
+                    <!-- 右列四控件：加载 / 保存 / 重读 / 应用全部。
+                         间距统一 8，由每个按钮的 Margin="0,0,8,0" 承担；
+                         最后一个按钮 Margin 归零，否则卡片右侧会多出 8px 幽灵内缩。 -->
                     <StackPanel Grid.Column="1"
                                 Orientation="Horizontal"
-                                VerticalAlignment="Center"
-                                Margin="16,0,0,0">
-                        <Button x:Name="SaveConfigButton" Content="保存"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                Margin="0,0,8,0"
-                                Click="SaveConfigButton_Click"/>
+                                VerticalAlignment="Center">
                         <Button x:Name="LoadConfigButton" Content="加载"
                                 Style="{StaticResource SecondaryButtonStyle}"
                                 Margin="0,0,8,0"
                                 Click="LoadConfigButton_Click"/>
+                        <Button x:Name="SaveConfigButton" Content="保存"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Margin="0,0,8,0"
+                                Click="SaveConfigButton_Click"/>
+
+                        <!-- SMU 重读：撤销原来的页脚文字链，改为图标按钮。
+                             图标是「圆圈箭头」，24×24 viewBox 内的 2px 描边路径：
+                               弧线 M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8
+                               箭头 M21 3v5h-5
+                             用 Viewbox 缩放到 15×15 —— 直接改 Path 的 Width/Height
+                             不会缩放笔画，只会裁切。 -->
+                        <Button x:Name="RefreshButton"
+                                Style="{StaticResource IconButtonStyle}"
+                                Margin="0,0,8,0"
+                                IsEnabled="False"
+                                ToolTip="从 SMU 重新读取当前值"
+                                Click="RefreshButton_Click">
+                            <Viewbox Width="15" Height="15">
+                                <Canvas Width="24" Height="24">
+                                    <Path Data="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"
+                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                          StrokeThickness="2.2"
+                                          StrokeStartLineCap="Round"
+                                          StrokeEndLineCap="Round"
+                                          Fill="Transparent"/>
+                                    <Path Data="M21 3v5h-5"
+                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                          StrokeThickness="2.2"
+                                          StrokeStartLineCap="Round"
+                                          StrokeEndLineCap="Round"
+                                          StrokeLineJoin="Round"
+                                          Fill="Transparent"/>
+                                </Canvas>
+                            </Viewbox>
+                        </Button>
+
                         <Button x:Name="ApplyAllButton" Content="应用全部"
                                 Style="{StaticResource PrimaryButtonStyle}"
                                 Margin="0"
@@ -138,45 +177,59 @@
                 </Grid>
             </Border>
 
-            <!-- ======= 动态 PBO 策略 =======
-                 蓝图标注：各代 SMU 的 PBO 消息号与载荷差异大，写错可能直接黑屏，
-                 必须先做能力探测；读不到就整个功能不显示，不做「猜测式写入」。
-                 探测（ProbePbo）尚未实现，所以整卡恒为 Collapsed —— 占位而非假开关。 -->
-            <Border x:Name="PboCard"
-                    Style="{StaticResource CardBorderStyle}"
-                    Visibility="Collapsed">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
+            <!-- ======= PBO 策略（放在 FMax 下方） =======
+                 【这里能做什么、不能做什么】
 
-                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                        <TextBlock Text="动态 PBO 策略" Style="{StaticResource CardRowLabelStyle}"/>
-                        <TextBlock Text="控制 Precision Boost Overdrive 行为"
-                                   Style="{StaticResource CardRowDescStyle}"/>
-                    </StackPanel>
+                 不能做：AMD SMU 固件层的 PBO（功耗墙 / 曲线优化 / Boost 上限）。
+                 那一层没有公开 API，只有主板 BIOS 与 AMD 驱动能碰，硬发 SMU 消息
+                 属于拿用户机器赌博（消息号或载荷错一位就是黑屏 + 清 CMOS）。
 
-                    <ComboBox Grid.Column="1" x:Name="PboCombo"
-                              Width="140" HorizontalAlignment="Right"
-                              VerticalAlignment="Center">
-                        <ComboBoxItem Content="Enabled"/>
-                        <ComboBoxItem Content="Disabled"/>
-                        <ComboBoxItem Content="Auto"/>
-                    </ComboBox>
-                </Grid>
+                 能做：Windows 电源策略层里的「处理器性能提升模式」
+                 （GUID_PROCESSOR_PERF_BOOST_MODE）。它同样决定处理器能否超出
+                 标称频率运行，可读可写、有错误码、可一键还原，失败最多是
+                 「设置没生效」。两者是两套机制 —— 说明行必须讲清楚，
+                 不能让用户以为改了 SMU。
+
+                 取值映射：
+                   Auto     → 清除该子组索引，交回 Windows 默认
+                   Enabled  → 处理器性能提升模式 = 已启用
+                   Disabled → 处理器性能提升模式 = 已停用 -->
+            <Border x:Name="PboCard" Style="{StaticResource CardBorderStyle}">
+                <StackPanel>
+                    <Grid Style="{StaticResource CardRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                            <TextBlock Text="PBO 策略 (Precision Boost Overdrive)"
+                                       Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock Text="控制处理器的自动超频与功耗策略"
+                                       Style="{StaticResource CardRowDescStyle}"/>
+                        </StackPanel>
+
+                        <!-- 初值 IsEnabled=False：策略是读出来才知道的，
+                             读完前不能按（否则用户点了一个「我以为能改」的控件）。 -->
+                        <ComboBox Grid.Column="1" x:Name="PboCombo"
+                                  Width="150" Height="32"
+                                  VerticalAlignment="Center"
+                                  IsEnabled="False"
+                                  SelectionChanged="PboCombo_SelectionChanged">
+                            <ComboBoxItem Content="Auto"/>
+                            <ComboBoxItem Content="Enabled"/>
+                            <ComboBoxItem Content="Disabled"/>
+                        </ComboBox>
+                    </Grid>
+
+                    <!-- 分层说明。12px 次要色，不抢正文。
+                         这一行是「不骗用户」的底线：写明改的是 OS 策略层。 -->
+                    <TextBlock x:Name="PboHint"
+                               Text="调节 Windows 电源策略中的「处理器性能提升模式」，与 SMU 固件层 PBO 为两套机制。"
+                               Style="{StaticResource HintTextStyle}"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
             </Border>
-
-            <!-- ======= 刷新入口 =======
-                 v12 没有独立的「刷新」按钮，但「SMU 现值 → 界面」这个动作不能丢。
-                 放在页脚做成一条低调的文字链，既保留功能又不占卡片版式。 -->
-            <StackPanel Orientation="Horizontal" Margin="4,4,0,0">
-                <Button x:Name="RefreshButton"
-                        Content="从 SMU 重新读取当前值"
-                        Style="{StaticResource LinkButtonStyle}"
-                        IsEnabled="False"
-                        Click="RefreshButton_Click"/>
-            </StackPanel>
         </StackPanel>
     </ScrollViewer>
 </Page>

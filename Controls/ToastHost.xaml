@@ -1,0 +1,14 @@
+<UserControl x:Class="ZenForge.Controls.ToastHost"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Focusable="False"
+             IsTabStop="False">
+
+    <!-- 纵向堆叠，多条 Toast 依次向下排。
+         用 StackPanel 而非固定单条：连续点两次「保存」时，第二条要能排在第一条下方，
+         而不是把第一条顶掉 —— 顶掉会让用户来不及看清前一条。 -->
+    <StackPanel x:Name="Items"
+                Orientation="Vertical"
+                Margin="0,16,0,0"
+                MaxWidth="460"/>
+</UserControl>

@@ -909,7 +909,8 @@ namespace ZenForge.Views
                     : $"规则已保存：{group.Name} → {label}。当前该进程没有正在运行的实例，下次启动后会自动生效。";
 
                 LogService.Info(msg);
-                DarkDialog.ShowSuccess(msg, "规则已保存");
+                // 普通反馈 → Toast（规则已保存，用户不需要做任何决定）
+                ToastService.Success(msg);
             }
 
             UpsertRule(group.Name, target, maskId, mask, group.Path);
@@ -1018,7 +1019,8 @@ namespace ZenForge.Views
                 ? $"已对所有正在运行的目标进程应用绑定（共 {bound} 个）。"
                 : "规则已全部就绪，但当前没有正在运行的目标进程。进程启动后会自动应用绑定。";
             LogService.Info(msg);
-            DarkDialog.ShowSuccess(msg, "应用完成");
+            // 普通反馈 → Toast
+            ToastService.Success(msg);
         }
 
         /// <summary>按界面当前选择，对运行中的实例重新下发绑核（跳过已停用的规则）。</summary>
@@ -1047,7 +1049,9 @@ namespace ZenForge.Views
         {
             if (BindingStore.Profile.Rules.Count == 0)
             {
-                DarkDialog.Show("当前没有可清空的规则。", "清空规则");
+                // 空状态提示：用户点了个什么都不会发生的按钮，
+                // 属于「知道了就行」，不需要模态拦一道。
+                ToastService.Info("当前没有可清空的规则");
                 return;
             }
 
@@ -1196,7 +1200,7 @@ namespace ZenForge.Views
                 : $"规则已就绪：{row.Name} → {rule.Label}。当前该进程没有正在运行的实例，启动后会自动生效。";
 
             LogService.Info(msg);
-            DarkDialog.ShowSuccess(msg, "应用规则");
+            ToastService.Success(msg);
         }
 
         /// <summary>规则行选了「不绑定」：删掉这条规则，并把界面上的下拉框复位。</summary>
@@ -1254,11 +1258,12 @@ namespace ZenForge.Views
             row.NotifyEnabledChanged();    // 刷新按钮文案与提示
 
             // 按钮显示的是"点了会发生什么"：已启用时显示「禁用」。
-            DarkDialog.ShowSuccess(
+            // 启用/禁用的结果提示：纯状态回执，改 Toast。
+            // 真正的破坏性动作（删除规则、清空全部）仍走 Confirm 模态。
+            ToastService.Success(
                 row.Enabled
-                    ? $"已启用规则：{row.Name} → {row.Label}。"
-                    : $"已禁用规则：{row.Name}。记录保留，随时可以重新启用。",
-                row.Enabled ? "启用规则" : "禁用规则");
+                    ? $"已启用规则：{row.Name} → {row.Label}"
+                    : $"已禁用规则：{row.Name}（记录保留）");
         }
 
         /// <summary>规则开关变化：写回 bindings.json，并让监听立即按新状态重扫。</summary>

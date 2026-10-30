@@ -13,7 +13,7 @@ namespace ZenForge.Helpers
     {
         private const string PaletteDark = "Themes/Palette.Dark.xaml";
         private const string PaletteLight = "Themes/Palette.Light.xaml";
-        private const string DefaultAccentHex = "#60CDFF";
+        private const string DefaultAccentHex = "#38BDF8";
         private const string FallbackSystemAccentHex = "#0078D4";
 
         private static ResourceDictionary? _accentDictionary;
@@ -268,6 +268,44 @@ namespace ZenForge.Helpers
             return (Color)ColorConverter.ConvertFromString(FallbackSystemAccentHex);
         }
 
+        /// <summary>
+        /// 允许被强调色动态改写的资源键**白名单**。
+        ///
+        /// 【为什么需要白名单】
+        /// 强调色是「交互语义」：按钮、滑块、选中高亮、焦点边框。
+        /// 语义色是「状态语义」：Log.Info / Log.Warn / Log.Error / Log.Critical、
+        /// State.*、Danger —— 它们表达「这条日志有多严重」，与用户喜欢什么颜色无关。
+        ///
+        /// 用户把强调色改成红色，错误日志必须还是红的；改成黄色，警告必须还是黄的。
+        /// 一旦语义色被强调色覆盖，界面语言就崩了：红色不再等于出错。
+        ///
+        /// 因此本方法只、且只能写下面这 5 个键（全部位于 Accent.xaml），
+        /// 任何新增的改写点都必须先加进白名单，否则 GuardResourceKey 会抛异常
+        /// —— 让「手滑改了语义色」在开发期就炸掉，而不是发布后让用户看见
+        /// 一堆跟着主题变色的告警。
+        /// </summary>
+        private static readonly string[] AccentOwnedKeys =
+        {
+            "AccentBrush",
+            "AccentHoverBrush",
+            "AccentPressedBrush",
+            "AccentSoftBrush",
+            "AccentTextBrush",
+        };
+
+        /// <summary>
+        /// 语义色键：这些键**任何情况下**都不许被 SetAccentBrushes 触碰。
+        /// 与白名单互为双保险 —— 白名单负责「只允许这些」，
+        /// 这里负责在日志里大喊「有人动了不该动的东西」。
+        /// </summary>
+        private static readonly string[] SemanticColorKeys =
+        {
+            "Log.Info", "Log.Warn", "Log.Error", "Log.Critical",
+            "Log.InfoTint", "Log.WarnTint", "Log.ErrorTint", "Log.CriticalTint",
+            "State.Info", "State.Success", "State.Warning", "State.Danger",
+            "Danger", "DangerSoft",
+        };
+
         private static void SetAccentBrushes(Color color)
         {
             if (_accentDictionary == null)
@@ -276,12 +314,47 @@ namespace ZenForge.Helpers
             // 强调色前景原本固定 White：青色系强调色上白字对比度仅约 2.2:1，明显发虚，
             // 而列表选中态却在用近黑色，同一强调色出现两套前景。
             // 改为按感知亮度自动择黑白，亮色强调配黑字、深色强调配白字。
-            _accentDictionary["AccentBrush"] = Frozen(color);
-            _accentDictionary["AccentHoverBrush"] = Frozen(Adjust(color, 1.12f));
-            _accentDictionary["AccentPressedBrush"] = Frozen(Adjust(color, 0.88f));
-            _accentDictionary["AccentSoftBrush"] = Frozen(Color.FromArgb(0x2E, color.R, color.G, color.B));
-            _accentDictionary["AccentTextBrush"] = Frozen(NeedsDarkForeground(color) ? Colors.Black : Colors.White);
+            //
+            // 全部经由 WriteAccent 写入：它同时校验白名单与语义色黑名单，
+            // 保证这里永远不可能动到 Log.* / State.* / Danger*。
+            WriteAccent("AccentBrush", Frozen(color));
+            WriteAccent("AccentHoverBrush", Frozen(Adjust(color, 1.12f)));
+            WriteAccent("AccentPressedBrush", Frozen(Adjust(color, 0.88f)));
+            // 15% Alpha（0x26 = 38/255 ≈ 14.9%）：v2 强调色方案里，淡底只做「极轻的
+            // 区域标记」，压得太深会和实底强调色抢视觉重量。深色册与浅色册共用此算法。
+            WriteAccent("AccentSoftBrush", Frozen(Color.FromArgb(0x26, color.R, color.G, color.B)));
+            WriteAccent("AccentTextBrush", Frozen(NeedsDarkForeground(color) ? Colors.Black : Colors.White));
         }
+
+        /// <summary>
+        /// 向强调色字典写入单个键，写入前做双重校验。
+        ///
+        /// 这是「色彩解耦」的执行点：强调色体系与语义色体系在此处分道扬镳，
+        /// 任何试图把语义色塞进强调色刷新流程的改动都会在这里被拦下。
+        /// </summary>
+        private static void WriteAccent(string key, SolidColorBrush brush)
+        {
+            // 第一道：语义色黑名单。先查这个，因为它的错误性质更严重。
+            if (Array.IndexOf(SemanticColorKeys, key) >= 0)
+            {
+                throw new InvalidOperationException(
+                    $"禁止用强调色覆盖语义色 \"{key}\"：语义色必须固定，不随主题变化。");
+            }
+
+            // 第二道：白名单。不在名单里的键一律拒绝，防止将来新增键时绕过规则。
+            if (Array.IndexOf(AccentOwnedKeys, key) < 0)
+            {
+                throw new InvalidOperationException(
+                    $"\"{key}\" 不在强调色白名单内。新增强调色键请先更新 AccentOwnedKeys。");
+            }
+
+            _accentDictionary![key] = brush;
+        }
+
+        /// <summary>
+        /// 供设置页 / 诊断使用：某个资源键是否属于语义色（不随强调色变化）。
+        /// </summary>
+        public static bool IsSemanticColorKey(string key) => Array.IndexOf(SemanticColorKeys, key) >= 0;
 
         // 强调色之上该配深色前景还是浅色前景。
         // 按 WCAG 相对亮度判断：内置候选色中 青/橙/绿 → 黑字，蓝/紫/红 → 白字。

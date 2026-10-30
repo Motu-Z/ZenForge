@@ -25,7 +25,7 @@ namespace ZenForge.Views
     /// </summary>
     public partial class SettingsPage : Page
     {
-        private const string DefaultAccent = "#60CDFF";
+        private const string DefaultAccent = "#38BDF8";
 
         private bool _suppress;
         private bool _initialized;
@@ -780,7 +780,10 @@ namespace ZenForge.Views
 
             LogService.Info($"SMU 自检完成，报告：{path}");
             RevealInExplorer(path);
-            DarkDialog.ShowSuccess($"自检完成，报告已生成：\n{path}", "SMU 自检");
+            // 自检完成是「做成了」类反馈，改 Toast。
+            // 报告路径同时也已 RevealInExplorer 打开了所在目录，用户找得到，
+            // 不需要靠一个必须点确定的弹窗把路径念给他听。
+            ToastService.Success("SMU 自检完成，报告已生成并在资源管理器中打开");
         }
 
         /// <summary>打开所在目录并选中文件，省去用户自己找。</summary>

@@ -133,7 +133,7 @@
                      KeyDown="SearchBox_KeyDown"/>
             <TextBlock x:Name="SearchPlaceholder"
                        Text="按文本、字段或来源筛选"
-                       Margin="17,0,0,0"
+                       Margin="34,0,0,0"
                        VerticalAlignment="Center"
                        IsHitTestVisible="False"
                        FontSize="12"
@@ -209,11 +209,15 @@
                         </Border>
 
                         <DataTemplate.Triggers>
-                            <!-- 级别配色：只染左边竖条 + 徽章底色 + 徽章文字 -->
+                            <!-- 级别配色：只染左边竖条 + 徽章底色 + 徽章文字。
+                                 全部走 Palette 里的语义色键，不在模板里写死十六进制：
+                                 写死的话深浅两册无法各自取值，换主题后徽章底色会变成
+                                 「深色册的 18% 透明度压在浅色卡片上」的脏色。 -->
                             <DataTrigger Binding="{Binding Level}" Value="Debug">
                                 <Setter TargetName="Card" Property="BorderBrush"
                                         Value="{DynamicResource Text.Disabled}"/>
-                                <Setter TargetName="Badge" Property="Background" Value="#1FFFFFFF"/>
+                                <Setter TargetName="Badge" Property="Background"
+                                        Value="{DynamicResource Input.Background}"/>
                                 <Setter TargetName="BadgeText" Property="Foreground"
                                         Value="{DynamicResource Text.Disabled}"/>
                             </DataTrigger>
@@ -221,7 +225,8 @@
                             <DataTrigger Binding="{Binding Level}" Value="Warn">
                                 <Setter TargetName="Card" Property="BorderBrush"
                                         Value="{DynamicResource Log.Warn}"/>
-                                <Setter TargetName="Badge" Property="Background" Value="#2EFFD60A"/>
+                                <Setter TargetName="Badge" Property="Background"
+                                        Value="{DynamicResource Log.WarnTint}"/>
                                 <Setter TargetName="BadgeText" Property="Foreground"
                                         Value="{DynamicResource Log.Warn}"/>
                             </DataTrigger>
@@ -229,9 +234,22 @@
                             <DataTrigger Binding="{Binding Level}" Value="Error">
                                 <Setter TargetName="Card" Property="BorderBrush"
                                         Value="{DynamicResource Log.Error}"/>
-                                <Setter TargetName="Badge" Property="Background" Value="#2EFF453A"/>
+                                <Setter TargetName="Badge" Property="Background"
+                                        Value="{DynamicResource Log.ErrorTint}"/>
                                 <Setter TargetName="BadgeText" Property="Foreground"
                                         Value="{DynamicResource Log.Error}"/>
+                            </DataTrigger>
+
+                            <!-- 致命：深红竖条 + 深红徽章字。
+                                 放在 Error 之后声明，同优先级下后声明者生效，
+                                 确保 Critical 拿到的是 #C42B1C 而不是 Error 的 #FF453A。 -->
+                            <DataTrigger Binding="{Binding Level}" Value="Critical">
+                                <Setter TargetName="Card" Property="BorderBrush"
+                                        Value="{DynamicResource Log.Critical}"/>
+                                <Setter TargetName="Badge" Property="Background"
+                                        Value="{DynamicResource Log.CriticalTint}"/>
+                                <Setter TargetName="BadgeText" Property="Foreground"
+                                        Value="{DynamicResource Log.Critical}"/>
                             </DataTrigger>
                         </DataTemplate.Triggers>
                     </DataTemplate>

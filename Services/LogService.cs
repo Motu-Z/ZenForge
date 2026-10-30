@@ -16,7 +16,18 @@ namespace ZenForge.Services
         Debug,
         Info,
         Warn,
-        Error
+        Error,
+
+        /// <summary>
+        /// 致命错误：进程已无法继续正常工作（异常兜底、关键服务启动失败）。
+        ///
+        /// 与 Error 的区别不是「更严重一点」，而是**要不要用户动手**：
+        /// Error 是「这次操作失败了，重试或换个参数」；
+        /// Critical 是「程序坏了，请把日志发我」。
+        /// 单独成级是为了让它有独立的固定色（Log.Critical 深红），
+        /// 在日志列表里一眼就能从一片 Error 里挑出来。
+        /// </summary>
+        Critical
     }
 
     public sealed class LogEntry
@@ -30,6 +41,7 @@ namespace ZenForge.Services
             LogLevel.Debug => "DEBUG",
             LogLevel.Warn => "WARN",
             LogLevel.Error => "ERROR",
+            LogLevel.Critical => "FATAL",
             _ => "INFO"
         };
     }
@@ -144,6 +156,16 @@ namespace ZenForge.Services
         public static void Warn(string message) => Write(LogLevel.Warn, message);
 
         public static void Error(string message) => Write(LogLevel.Error, message);
+
+        /// <summary>
+        /// 致命错误：进程即将或已经无法继续。异常兜底走这条。
+        /// 同时会立刻冲一次盘 —— 走到这里时进程可能下一行就没了。
+        /// </summary>
+        public static void Critical(string message)
+        {
+            Write(LogLevel.Critical, message);
+            try { Flush(); } catch { }
+        }
 
         /// <summary>
         /// 清空日志：内存集合 + 待写队列 + 磁盘文件。

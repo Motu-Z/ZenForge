@@ -186,28 +186,48 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ToggleButton">
+                    <!-- 圆角只留右侧（0,6,6,0）：NavPanel 左边距已归零，
+                         选中背景块的左缘紧贴侧栏边界。若仍用四角 6px 圆角，
+                         左侧会出现两个「被边界切掉的圆角缺口」，看起来像
+                         一块被裁坏的矩形。右侧圆角保留，与内容区方向呼应。 -->
                     <Border x:Name="Bd"
                             Background="{TemplateBinding Background}"
-                            CornerRadius="6"
+                            CornerRadius="0,6,6,0"
                             SnapsToDevicePixels="True">
+                        <!-- 【指示条贴边】
+                             竖条必须落在侧栏的最左边缘（x = 0），不能有任何左边距。
+                             历史问题有两层内缩叠加：NavPanel 的 Margin 左 12px
+                             ＋ 模板里 Bar 的 Margin 左 6px = 距边 18px，看起来像
+                             「一条浮在文字左边的装饰线」，而不是「贴着边界的选中标记」。
+
+                             现在：
+                               · 0 列宽 3、Bar 零边距 → 竖条左缘正好压在外框内侧；
+                               · 文字的起始位置由 Txt 的 Margin 单独控制（15px），
+                                 选中与否都不变 —— 原来是选中时文字右移 8px 给竖条让位，
+                                 那才是「挤占左边距」的观感来源。
+                               · Bar 用 VerticalAlignment=Stretch 并留纵向 Margin，
+                                 得到一条比文字稍短的圆头竖条，而不是顶满整行。 -->
                         <Grid>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="3"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
 
-                            <!-- 选中竖条：默认不占位也不可见，选中时露出 -->
+                            <!-- 选中竖条：始终占位（避免选中/取消时文字横向抖动），
+                                 只切可见性 -->
                             <Rectangle x:Name="Bar"
                                        Grid.Column="0"
                                        Width="3" Height="14"
                                        RadiusX="1.5" RadiusY="1.5"
-                                       Margin="6,0,0,0"
+                                       Margin="0"
+                                       HorizontalAlignment="Left"
+                                       VerticalAlignment="Center"
                                        Fill="{DynamicResource AccentBrush}"
                                        Visibility="Collapsed"/>
 
                             <ContentPresenter x:Name="Txt"
                                               Grid.Column="1"
-                                              Margin="16,0,10,0"
+                                              Margin="15,0,10,0"
                                               HorizontalAlignment="Left"
                                               VerticalAlignment="Center"/>
                         </Grid>
@@ -220,8 +240,9 @@
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Nav.Button.Active}"/>
                             <Setter TargetName="Bar" Property="Visibility" Value="Visible"/>
-                            <!-- 竖条出现后文字右移 8px，正好让位给竖条宽度 + 间距 -->
-                            <Setter TargetName="Txt" Property="Margin" Value="24,0,10,0"/>
+                            <!-- 不再改 Txt 的 Margin。原来选中时文字右移 8px，
+                                 视觉上像整行被「推」了一下，而且让竖条看起来是
+                                 文字的一部分。现在文字位置恒定，竖条独立贴在左边缘。 -->
                             <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
                             <Setter Property="FontWeight" Value="SemiBold"/>
                         </Trigger>
@@ -651,7 +672,7 @@
 
     <!-- ===================== 列表视图（深色；具名 + 隐式双份） =====================
          背景 #252526 / 边框 #3F3F46 / 表头 #1E1E1E / hover #333333 /
-         选中 AccentBrush（默认 #00B4D8 青色，跟随系统强调色）+ 黑字。
+         选中 AccentBrush（默认 #38BDF8，跟随系统强调色）+ 深色字。
          注意：ListView 默认模板不渲染 Background 属性，必须重写 Template 铺底色。 -->
     <Style x:Key="DarkListViewStyle" TargetType="ListView">
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -898,31 +919,55 @@
 
     <!-- ===================== 0.10.0：v12 版式所需的组合样式 ===================== -->
 
-    <!-- 主按钮：强调色实底 + 深色字。v12 的 .btn.primary -->
+    <!-- 主按钮：v2 方案 —— 15% 淡底 + 强调色字 + 强调色 1px 边，悬停反转为实底。
+         与旧方案（实底强调色 + 深色字）的取舍：
+           · 实底强调色在页面上是最重的一块色，v12 的卡片风格里一眼就把视线
+             从 CPU 名称拽到「应用全部」按钮上，喧宾夺主。
+           · 淡底方案让主按钮「看得出是主按钮，但不抢戏」；悬停反转成实底，
+             交互反馈反而比原来更明显（原来实底悬停只是亮度微调）。 -->
     <Style x:Key="PrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
-        <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
-        <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
+        <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
-        <Setter Property="BorderBrush" Value="Transparent"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
+                    <!-- 基类的模板里 Border 没有绑 BorderBrush / BorderThickness，
+                         v2 方案需要那条 1px 强调色边，所以这里必须补上 TemplateBinding，
+                         否则边框永远不显示（BorderBrush 设了也白设）。 -->
                     <Border x:Name="Bd"
                             Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
                             CornerRadius="6"
                             Padding="{TemplateBinding Padding}"
                             SnapsToDevicePixels="True">
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <ContentPresenter x:Name="Cp"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
                     </Border>
                     <ControlTemplate.Triggers>
+                        <!-- 悬停：反转为实底强调色 + 深色字。
+                             Foreground 必须用 TargetName=Cp 改，控件级 Setter 在
+                             模板触发器里改不动 ContentPresenter 已经继承到的值。 -->
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            <Setter TargetName="Cp" Property="TextElement.Foreground"
+                                    Value="{DynamicResource AccentTextBrush}"/>
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentPressedBrush}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentPressedBrush}"/>
+                            <Setter TargetName="Cp" Property="TextElement.Foreground"
+                                    Value="{DynamicResource AccentTextBrush}"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
+                            <Setter Property="Foreground" Value="{DynamicResource Disabled.Foreground}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Input.Border}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -1026,6 +1071,60 @@
     </Style>
 
     <!-- 文字链按钮：无底无边，hover 变强调色。用于「从 SMU 重新读取」这类次要入口 -->
+    <!-- 图标按钮：32×32 方形，无文字，内容是一个 Path / Viewbox。
+         用于「从 SMU 重读」这类动作 —— 原先做成页脚文字链（LinkButtonStyle），
+         功能在但位置不对：用户的注意力在 CPU 卡片上，读不到页脚那条小字。
+         视觉规格与 SecondaryButtonStyle 对齐（同高 32、同圆角 6、同边框色），
+         只是宽度收窄到正方形，这样四个控件并排时基线完全齐平。
+         内边距为 0：Path 由 Viewbox 自己居中，多余 Padding 会让图标偏下。 -->
+    <Style x:Key="IconButtonStyle" TargetType="Button">
+        <Setter Property="Width" Value="32"/>
+        <Setter Property="Height" Value="32"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="MinWidth" Value="0"/>
+        <Setter Property="Margin" Value="0"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
+        <Setter Property="Background" Value="{DynamicResource Button.Neutral.Background}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Button.Neutral.Border}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="6"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Button.Neutral.Hover}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Input.BorderHover}"/>
+                            <!-- 悬停时图标跟着亮成强调色，给出「这个能按」的暗示 -->
+                            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Button.Neutral.Pressed}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Input.Border}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
+                            <Setter Property="Foreground" Value="{DynamicResource Disabled.Foreground}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style x:Key="LinkButtonStyle" TargetType="Button">
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{DynamicResource Text.Secondary}"/>
@@ -1055,11 +1154,12 @@
         </Setter>
     </Style>
 
-    <!-- 页面级搜索框：高 38，与 pill 组、日志卡片同宽 -->
-    <Style x:Key="SearchBoxStyle" TargetType="TextBox" BasedOn="{StaticResource AppTextBoxStyle}">
-        <Setter Property="Height" Value="38"/>
-        <Setter Property="Padding" Value="16,0"/>
-    </Style>
+    <!-- 页面级搜索框（SearchBoxStyle）已挪到 App.xaml。
+         原因：它需要 BasedOn="{StaticResource AppTextBoxStyle}"，而 StaticResource
+         只查「本字典 → 本字典合并的字典」，不向上查父字典。本文件是被 App.xaml
+         Merge 进来的兄弟字典，看不到 App.xaml 本地资源里的键，运行期会拿到 null
+         并抛 XamlParseException（编译期无警告，点日志页即闪退）。
+         以后凡是 BasedOn App.xaml 里样式的样式，一律定义在 App.xaml。 -->
 
     <!-- 分隔线颜色也写死在默认模板里，同样要重写，否则会拖出一条亮灰线 -->
     <Style x:Key="DarkMenuSeparatorStyle" TargetType="Separator">
