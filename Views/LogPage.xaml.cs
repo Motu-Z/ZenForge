@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -30,7 +30,7 @@ namespace ZenForge.Views
     /// 而日志页常常一次冲进来几十条（绑核一次就是几十行），
     /// 独立集合可以按批处理，一次重建完再统一刷新。
     /// </summary>
-    public partial class LogPage : Page, IPageLifecycle, IDisposable
+    public partial class LogPage : UserControl, IPageLifecycle, IDisposable
     {
         /// <summary>本页在路由中的 key，与 MainWindow 侧栏的 Tag 一致。</summary>
         public const string PageKey = "logs";

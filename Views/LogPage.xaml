@@ -1,9 +1,8 @@
-﻿<Page x:Class="ZenForge.Views.LogPage"
+<UserControl x:Class="ZenForge.Views.LogPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:local="clr-namespace:ZenForge.Views"
       xmlns:ctl="clr-namespace:ZenForge.Controls"
-      Title="日志"
       Focusable="False"
       FocusVisualStyle="{x:Null}">
 
@@ -28,7 +27,7 @@
         同时生效，列表里两者仍用各自的竖条颜色区分。
     -->
 
-    <Page.Resources>
+    <UserControl.Resources>
         <!-- 时间戳：L6 元数据 + 等宽。等宽是为了让每一行的毫秒位对齐，
              一行 12:00:01.233、下一行 12:00:01.9 时列不会左右错开。
              固定 80 宽（参考图 .log-time 的 min-width:80px），
@@ -62,7 +61,7 @@
             <Setter Property="TextWrapping" Value="Wrap"/>
             <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
         </Style>
-    </Page.Resources>
+    </UserControl.Resources>
 
     <Grid Margin="28,6,28,24">
         <Grid.RowDefinitions>
@@ -299,4 +298,4 @@
                    IsHitTestVisible="False"
                    Style="{StaticResource HintTextStyle}"/>
     </Grid>
-</Page>
+</UserControl>

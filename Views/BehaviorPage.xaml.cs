@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -20,7 +20,7 @@ namespace ZenForge.Views
     /// 反向会出事：给 ComboBox / ToggleButton 赋值同样会触发 Changed / Click，
     /// 于是「打开页面」这个动作自己就把用户的设置改回默认值了。
     /// </summary>
-    public partial class BehaviorPage : Page, IPageLifecycle
+    public partial class BehaviorPage : UserControl, IPageLifecycle
     {
         public const string PageKey = "behavior";
 

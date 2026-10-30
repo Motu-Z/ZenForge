@@ -1,9 +1,8 @@
-﻿<Page x:Class="ZenForge.Views.ProcessBindingPage"
+<UserControl x:Class="ZenForge.Views.ProcessBindingPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:local="clr-namespace:ZenForge.Views"
       xmlns:ctl="clr-namespace:ZenForge.Controls"
-      Title="进程"
       FontFamily="{StaticResource AppFontFamily}"
       FontSize="13"
       TextOptions.TextFormattingMode="Display"
@@ -42,7 +41,7 @@
              不再单独写 FontSize=16 绕开层级 —— 那样标题会比别的页大一号。
     -->
 
-    <Page.Resources>
+    <UserControl.Resources>
         <!-- 行间距：2px 让相邻两行的圆角 hover 底之间留一条缝，读起来不粘成一块 -->
         <Style x:Key="ProcRowGridStyle" TargetType="Grid">
             <Setter Property="Margin" Value="0,0,0,2"/>
@@ -81,7 +80,7 @@
             <Setter Property="Padding" Value="0"/>
             <Setter Property="Margin" Value="0,0,8,0"/>
         </Style>
-    </Page.Resources>
+    </UserControl.Resources>
 
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="28,6,28,24">
@@ -552,4 +551,4 @@
 
         </StackPanel>
     </ScrollViewer>
-</Page>
+</UserControl>

@@ -519,6 +519,38 @@ namespace ZenForge
         /// <summary>同一签名异常的弹框次数上限。超了改走 Toast。</summary>
         private const int SameSignatureDialogLimit = 1;
 
+        /// <summary>
+        /// 同签名异常每累计这么多次，补一行计数日志。
+        ///
+        /// 500 是折中：一次真实风暴动辄上千次，报告「第 500 / 1000 / 1500 次」
+        /// 足够让人判断规模；再密就回到写盘把 UI 线程拖死的老路上。
+        /// </summary>
+        private const int LogEveryNSameSignature = 500;
+
+        /// <summary>同签名异常的累计次数（不随「是否连续」清零，用于日志限流）。</summary>
+        private static readonly Dictionary<string, int> _signatureTotal = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// 累加某个签名的出现次数。
+        ///
+        /// 加锁而不是用 Interlocked：字典本身不是线程安全的，而 Dispatcher 异常
+        /// 与后台线程异常（AppDomain 通道）可能同时进来。
+        /// 上限 256 个签名后整表清空 —— 这个表只服务于限流，清空最多让某些
+        /// 罕见的签名重新享受「前 3 次写完整堆栈」的待遇，不影响正确性。
+        /// </summary>
+        private static int BumpSignatureTotal(string signature)
+        {
+            lock (_signatureTotal)
+            {
+                if (_signatureTotal.Count > 256)
+                    _signatureTotal.Clear();
+
+                _signatureTotal.TryGetValue(signature, out int total);
+                _signatureTotal[signature] = ++total;
+                return total;
+            }
+        }
+
         private static string _lastExceptionSignature = string.Empty;
         private static int _repeatedCount;
         private static long _lastDialogTick;
@@ -548,21 +580,12 @@ namespace ZenForge
         /// </summary>
         private static void HandleUiException(Exception exception)
         {
-            // ---------- 1. 先落盘 ----------
-            // UI 线程已经出事了，后面任何动作都可能失败；日志是唯一必须成功的动作。
-            try
-            {
-                LogService.Critical($"未处理异常：{exception}");
-            }
-            catch
-            {
-                // 连日志都写不了，只能放弃记录，但仍要继续尝试提示
-            }
-
-            // ---------- 2. 识别「同一个异常在刷屏」 ----------
-            // 只看类型 + 最内层消息：持续性 bug（模板找不到资源、布局死循环）
-            // 的特征就是这两者恒定不变，而栈每帧都不同。
+            // ---------- 1. 识别「同一个异常在刷屏」 ----------
+            // 只看类型 + 最内层消息：持续性 bug（模板找不到资源、布局死循环、
+            // 父级类型不对）的特征就是这两者恒定不变，而栈每帧都不同。
             string signature = exception.GetType().FullName + "|" + InnermostMessage(exception);
+            int total = BumpSignatureTotal(signature);
+
             int seen;
             if (signature == _lastExceptionSignature)
             {
@@ -572,6 +595,27 @@ namespace ZenForge
             {
                 _lastExceptionSignature = signature;
                 seen = _repeatedCount = 1;
+            }
+
+            // ---------- 2. 落盘（按签名限流）----------
+            // 【为什么不能无条件写完整堆栈】
+            // 一次布局风暴一秒能抛上千次：单条 FATAL 带堆栈约 4KB，一秒就是几兆，
+            // 而写盘本身就发生在 UI 线程上 —— 日志从几兆涨到几百兆的速度
+            // 会超过界面自救的速度（1.0.2 实测「几秒 500MB + 整机卡死」）。
+            //
+            // 现在：同签名前 3 次写完整堆栈（第一次的栈就是根因，信息量不丢），
+            // 之后每 500 次补一行计数。磁盘占用被锁在一个常数级，
+            // 而「发生了多少万次」这个事实仍然留在日志里。
+            try
+            {
+                if (total <= RepeatedExceptionLimit)
+                    LogService.Critical($"未处理异常（第 {total} 次）：{exception}");
+                else if (total % LogEveryNSameSignature == 0)
+                    LogService.Critical($"未处理异常持续发生（同签名累计 {total} 次，已省略堆栈）");
+            }
+            catch
+            {
+                // 连日志都写不了，只能放弃记录，但仍要继续尝试提示
             }
 
             if (seen > RepeatedExceptionLimit)
@@ -701,7 +745,18 @@ namespace ZenForge
             try
             {
                 string stage = e.IsTerminating ? "进程即将终止" : "进程继续运行";
-                LogService.Critical($"Domain 未处理异常（{stage}）：{e.ExceptionObject}");
+
+                // 与 UI 线程同一套限流：后台循环里的一次风暴同样能在几秒内
+                // 把日志写到几百兆，而那时候磁盘写入又会拖慢整个进程。
+                Exception? ex = e.ExceptionObject as Exception;
+                string signature = "Domain|" + (ex?.GetType().FullName ?? "unknown")
+                                   + "|" + (ex != null ? InnermostMessage(ex) : string.Empty);
+                int total = BumpSignatureTotal(signature);
+
+                if (total <= RepeatedExceptionLimit)
+                    LogService.Critical($"Domain 未处理异常（{stage}）：{e.ExceptionObject}");
+                else if (total % LogEveryNSameSignature == 0)
+                    LogService.Critical($"Domain 未处理异常持续发生（{stage}，同签名累计 {total} 次，已省略堆栈）");
 
                 // 后台线程的异常往往发生在采样 / 监听循环里，
                 // 最后几条日志可能还在缓冲区，走之前强推一次。
@@ -726,7 +781,14 @@ namespace ZenForge
         {
             try
             {
-                LogService.Critical($"未观察的 Task 异常：{e.Exception}");
+                string signature = "Task|" + e.Exception.GetType().FullName
+                                   + "|" + InnermostMessage(e.Exception);
+                int total = BumpSignatureTotal(signature);
+
+                if (total <= RepeatedExceptionLimit)
+                    LogService.Critical($"未观察的 Task 异常：{e.Exception}");
+                else if (total % LogEveryNSameSignature == 0)
+                    LogService.Critical($"未观察的 Task 异常持续发生（同签名累计 {total} 次，已省略堆栈）");
             }
             catch
             {

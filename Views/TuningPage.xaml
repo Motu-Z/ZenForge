@@ -1,11 +1,10 @@
-﻿<Page x:Class="ZenForge.Views.TuningPage"
+<UserControl x:Class="ZenForge.Views.TuningPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      Title="调校"
       Focusable="False"
       FocusVisualStyle="{x:Null}">
 
-    <Page.Resources>
+    <UserControl.Resources>
         <!-- 调校页数字输入框：与全局 TextBox 同高同圆角（32 / 6），
              只多两件事 —— 内容居中、内缩归零。
              居中是因为这些框里只有 1–4 个字符，左对齐会让一列数字看起来
@@ -36,7 +35,7 @@
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Margin" Value="0,0,10,0"/>
         </Style>
-    </Page.Resources>
+    </UserControl.Resources>
 
     <!-- ======= 页头 =======
          PageTitleStyle 自带下 20 的边距，这里不再叠一层 StackPanel Margin。 -->
@@ -422,4 +421,4 @@
 
         </StackPanel>
     </ScrollViewer>
-</Page>
+</UserControl>

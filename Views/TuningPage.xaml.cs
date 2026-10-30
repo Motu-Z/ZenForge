@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows;
@@ -22,7 +22,7 @@ namespace ZenForge.Views
     /// 就会出现「CO 生效了但 FMax 还是旧的」这种半套状态，配置与硬件对不上。
     /// CO 允许 [-50, +50]（负值降压 / 正值加压），仅校验整数合法性，不做安全拦截。
     /// </summary>
-    public partial class TuningPage : Page
+    public partial class TuningPage : UserControl
     {
         /// <summary>本页在路由中的 key，与 MainWindow 侧栏的 Tag 一致。</summary>
         public const string PageKey = "tuning";

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -24,7 +24,7 @@ namespace ZenForge.Views
     ///
     /// 这一页不持有任何硬件状态，只读写 ui.json 并通过 <see cref="ThemeService"/> 下发。
     /// </summary>
-    public partial class GeneralPage : Page
+    public partial class GeneralPage : UserControl
     {
         public const string PageKey = "general";
 

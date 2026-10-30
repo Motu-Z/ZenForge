@@ -1,7 +1,6 @@
-﻿<Page x:Class="ZenForge.Views.BehaviorPage"
+<UserControl x:Class="ZenForge.Views.BehaviorPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      Title="行为"
       Focusable="False"
       FocusVisualStyle="{x:Null}">
 
@@ -19,7 +18,7 @@
         「这一项存在、只是暂时点不了」的误导。
     -->
 
-    <Page.Resources>
+    <UserControl.Resources>
         <Style x:Key="BehaviorRowStyle" TargetType="Grid" BasedOn="{StaticResource CardRowStyle}"/>
 
         <Style x:Key="BehaviorRowLastStyle" TargetType="Grid" BasedOn="{StaticResource CardRowStyle}">
@@ -35,7 +34,7 @@
             <Setter Property="BorderThickness" Value="1,0,0,0"/>
             <Setter Property="SnapsToDevicePixels" Value="True"/>
         </Style>
-    </Page.Resources>
+    </UserControl.Resources>
 
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="28,6,28,24">
@@ -189,4 +188,4 @@
             </Border>
         </StackPanel>
     </ScrollViewer>
-</Page>
+</UserControl>

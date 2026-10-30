@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -393,7 +393,7 @@ namespace ZenForge.Views
     /// 进程绑定页：按进程名合并列表，选择目标即绑定该名称下所有 PID，
     /// 规则按「进程名 → 目标」持久化；自定义掩码由独立窗口管理并动态进入下拉框。
     /// </summary>
-    public partial class ProcessBindingPage : Page
+    public partial class ProcessBindingPage : UserControl
     {
         /// <summary>本页在路由中的 key，与 MainWindow 侧栏的 Tag 一致。</summary>
         public const string PageKey = "process";

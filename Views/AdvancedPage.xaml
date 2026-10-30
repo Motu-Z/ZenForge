@@ -1,7 +1,6 @@
-﻿<Page x:Class="ZenForge.Views.AdvancedPage"
+<UserControl x:Class="ZenForge.Views.AdvancedPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      Title="高级"
       Focusable="False"
       FocusVisualStyle="{x:Null}">
 
@@ -20,13 +19,13 @@
         不能关的两项用 ToolTip 交代原因（鼠标悬停才出现，不占版面）。
     -->
 
-    <Page.Resources>
+    <UserControl.Resources>
         <Style x:Key="AdvancedRowStyle" TargetType="Grid" BasedOn="{StaticResource CardRowStyle}"/>
 
         <Style x:Key="AdvancedRowLastStyle" TargetType="Grid" BasedOn="{StaticResource CardRowStyle}">
             <Setter Property="Margin" Value="0"/>
         </Style>
-    </Page.Resources>
+    </UserControl.Resources>
 
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="28,6,28,24">
@@ -128,4 +127,4 @@
             </Border>
         </StackPanel>
     </ScrollViewer>
-</Page>
+</UserControl>

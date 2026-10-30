@@ -16,7 +16,7 @@ namespace ZenForge.Views
     /// 这两处都属于结构性改动，放在 v1.1.x 一并做。
     /// 那时只需接上数据源与 IsEnabled，本页版式一行不用改。
     /// </summary>
-    public partial class ProfilePage : Page
+    public partial class ProfilePage : UserControl
     {
         public const string PageKey = "config";
 

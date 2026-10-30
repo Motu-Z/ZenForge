@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -13,7 +13,7 @@ namespace ZenForge.Views
     /// 这一页只做「确认 + 调用 + 汇报」，全部动作在 <see cref="FactoryResetService"/> 里。
     /// 破坏性操作保留模态确认：Toast 是单向通知，承载不了「确认 / 取消」。
     /// </summary>
-    public partial class AdvancedPage : Page
+    public partial class AdvancedPage : UserControl
     {
         public const string PageKey = "advanced";
 

@@ -28,12 +28,19 @@ namespace ZenForge.Views
     /// 页面路由。整个程序只有这一个地方能切换页面。
     ///
     /// 【为什么不用 Frame】
-    /// Frame 自带导航日志（journal），每个条目强引用一个已经卸载的 Page；
+    /// Frame 自带导航日志（journal），每个条目强引用一个已经卸载的页面；
     /// 页面里有几百行模板时，来回切几次就是好几份旧视觉树留在内存里。
     /// 它还有 NavigationService、前进后退栈、页面缓存模式这一整套我们
     /// 完全用不到的语义 —— 每一样都能成为新的 bug 来源。
     ///
-    /// 这里用最朴素的方式：一个 ContentControl + 一份页面实例字典。
+    /// 【页面必须是 UserControl，不能是 Page】
+    /// Page 是「被 Window 或 Frame 宿主」的导航单元：它重写了
+    /// OnVisualParentChanged，一旦发现视觉父级不是 Window / Frame 就直接抛
+    /// InvalidOperationException（"Page 只能具有 Window 或 Frame 父级"）。
+    /// 也就是说 ContentControl 根本装不下 Page —— 1.0.2 第一版就是这么崩的：
+    /// 每次布局重试都抛一次，一秒上千条堆栈，日志几秒涨到几百兆，界面直接卡死。
+    /// 这里约定：路由里的页面一律是 UserControl，不实现导航语义。
+    ///
     /// 页面按需创建、创建后复用，切换时调用 OnDeactivated / OnActivated，
     /// 定时器由 <see cref="PageTimerManager"/> 统一挂起与恢复。
     /// </summary>
