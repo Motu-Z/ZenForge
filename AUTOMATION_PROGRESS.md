@@ -12,8 +12,15 @@
 |---|------|------|
 | 源码导入 + git 初始化 | ✅ | 基线 `chore: 导入 v1.0.3 基线源码与规范归档` |
 | 规范文档阅读 | ✅ | 全局交接文档 / 项目规范与开发手册 / UI-设计规范 / CHANGELOG |
-| .NET 10 SDK（Linux 编译验证） | 🔄 | 沙箱预装仅 .NET 6，正在后台安装 .NET 10 SDK |
-| 编译验证方式 | ⏳ | `dotnet build -c Release -p:EnableWindowsTargeting=true`（文档 §5 指定路径） |
+| .NET 10 SDK（Linux 编译验证） | ✅ | 已装 10.0.403（原为 6.0.301） |
+| 编译验证方式 | ✅ | `dotnet build -c Release -p:EnableWindowsTargeting=true` —— 基线 **0 警告 0 错误** |
+| git 远程 | ✅ | `origin` = Motu-Z/ZenForge，工作树已嫁接到远程 `main`(f228eb0)，非强推 |
+
+## 提交与 Tag 流水
+
+| Tag | Commit | 内容 |
+|-----|--------|------|
+| `v1.0.4-can1` | 待填 | 进程列表平滑排序过渡（SmoothSortPanel） |
 
 ---
 

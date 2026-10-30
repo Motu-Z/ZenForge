@@ -10,6 +10,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using ZenForge.Controls;
 using ZenForge.Helpers;
 using ZenForge.Services;
 
@@ -1151,6 +1152,10 @@ namespace ZenForge.Views
             }
 
             UpdateSortHeaders();
+
+            // 刚滚过列表时面板会短暂抑制过渡（否则行会追着滚动条跑）。
+            // 点列头是明确的用户意图，优先级更高，这里把抑制窗口清掉。
+            SmoothSortPanel.RequestSmooth(ProcessListView);
 
             // 用户主动排序，立即生效：不走「正在操作就先推迟」的让位逻辑。
             ApplyFilter(true);

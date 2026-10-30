@@ -290,9 +290,14 @@
                                     </ScrollViewer>
                                 </ControlTemplate>
                             </ItemsControl.Template>
+                            <!-- 【ItemsPanel 换成 SmoothSortPanel】
+                                 它继承 VirtualizingStackPanel，虚拟化与 Recycling 一律照旧，
+                                 只是多做了「重排时把渲染位置拉回旧位置再动画归零」这一件事。
+                                 占用列的值每抖一下行就换一次位，没有过渡时那一下是硬切：
+                                 用户盯着的行会在两次刷新之间瞬移。 -->
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <VirtualizingStackPanel/>
+                                    <ctl:SmoothSortPanel/>
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
