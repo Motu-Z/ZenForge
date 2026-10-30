@@ -1,0 +1,324 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.IO;
+using System.Linq;
+using ZenForge.Helpers;
+
+namespace ZenForge.Services
+{
+    /// <summary>
+    /// 一份「方案」的完整快照：调校（CO / FMax）+ 调度（绑核规则 + 优先级）。
+    ///
+    /// 【为什么是一份快照，而不是三个 store 各自多套值】
+    /// 用户心里的「游戏方案」是一整套东西：负压 -20、锁 4800MHz、把游戏绑到 CCD0。
+    /// 切换方案时他要的是**整套一起换**，不是分别去调三个地方。
+    /// 如果让 TuningStore / BindingStore 各自存 N 套，切换就得保证两次写盘原子性 ——
+    /// 中途崩一次就是「负压是新方案的、绑核还是旧方案的」，这种半套状态最难排查。
+    /// 所以方案 = 一份完整快照，切换 = 一次性把三个 store 写回成快照里的值。
+    ///
+    /// 【刻意不进快照的三项（v1.1.x 后半段的扩展点）】
+    /// 电源策略、升频模式、核心停放目前由 ProcessorPowerPolicy / ProcessorPowerTuning
+    /// 直接读写电源方案与注册表，它们的「读回来做快照」语义还没定
+    /// （电源方案是 GUID、升频模式是位域、核心停放是百分比，回滚时要不要先读旧值？）。
+    /// 现在把字段定死，等于逼着 v1.1.x 为了兼容这些字段去改写那两个已经稳定的类。
+    /// 这里留空，等那两个类提供 CurrentValue 快照接口后再加。
+    /// </summary>
+    public sealed class ProfileSnapshot
+    {
+        /// <summary>方案 Id（32 位无横线 GUID）。改名不改 Id —— 场景规则引用的是 Id。</summary>
+        public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+        public string Name { get; set; } = string.Empty;
+
+        /// <summary>配置页列表里的那行描述。留空即不显示（界面不摆「无描述」占位）。</summary>
+        public string Note { get; set; } = string.Empty;
+
+        public string CreatedAt { get; set; } = DateTime.Now.ToString("o");
+
+        public string UpdatedAt { get; set; } = DateTime.Now.ToString("o");
+
+        /// <summary>每核 CO 值。空数组表示「这一套不碰 CO」（切换时不清零，保持现状）。</summary>
+        public int[] CurveOptimizer { get; set; } = Array.Empty<int>();
+
+        /// <summary>FMax 上限（MHz）。0 = 这一套不碰 FMax。</summary>
+        public uint FMaxMHz { get; set; }
+
+        /// <summary>
+        /// 调度规则快照。存的是 <see cref="BindingRule"/> 的副本，
+        /// 不是引用 —— 方案保存之后用户继续改进程页的规则，不能把已存的方案也改了。
+        /// </summary>
+        public List<BindingRule> BindingRules { get; set; } = new();
+    }
+
+    /// <summary>profiles.json 的根对象。</summary>
+    public sealed class ProfileFile
+    {
+        public List<ProfileSnapshot> Profiles { get; set; } = new();
+
+        /// <summary>当前生效方案的 Id。场景自动切换每次命中后也写这里。</summary>
+        public string? ActiveId { get; set; }
+    }
+
+    /// <summary>
+    /// 多方案的保存、切换、删除（v1.1.x 骨架）。
+    ///
+    /// 【这一层只做决策与落盘，硬件动作用现成的服务】
+    /// 调校下发走 <see cref="TuningApplyService"/>（它已经封装了「写 SMU + 回读校验」），
+    /// 绑核下发交给后台的 ProcessWatcher 按规则自然生效。
+    /// 本类不碰任何 SMU / 注册表调用 —— 那是那两个服务的事，重复实现只会长出两套行为。
+    /// </summary>
+    public static class ProfileService
+    {
+        private static readonly string FilePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZenForge", "profiles.json");
+
+        private static readonly object Sync = new();
+
+        /// <summary>界面绑定的集合。方案数量是个位数到几十，不需要虚拟化，但更新仍走增量。</summary>
+        public static ObservableCollection<ProfileSnapshot> Items { get; } = new();
+
+        /// <summary>方案集合发生变化（增删改、切换生效）时触发，界面据此刷新。</summary>
+        public static event Action? Changed;
+
+        /// <summary>当前生效方案的 Id；没有（启动后未切换过任何方案）时为 null。</summary>
+        public static string? ActiveId { get; private set; }
+
+        /// <summary>程序启动、或 store 被别处改动后重新读盘。</summary>
+        public static void Load()
+        {
+            lock (Sync)
+            {
+                ProfileFile? file = null;
+                try
+                {
+                    file = JsonFile.Read<ProfileFile>(FilePath);
+                }
+                catch (Exception ex)
+                {
+                    LogService.Error($"读取方案列表失败: {ex.Message}");
+                }
+
+                List<ProfileSnapshot> loaded = file?.Profiles ?? new List<ProfileSnapshot>();
+                ActiveId = file?.ActiveId;
+
+                // 增量对齐而不是 Clear() 重建：Clear 会让列表重建全部可视容器，
+                // 表现为一次闪烁 + 滚动弹回顶部（v1.0.3 在日志列表上修过同一个问题）。
+                MergeInto(loaded);
+            }
+
+            Changed?.Invoke();
+        }
+
+        /// <summary>按 Id 查方案。</summary>
+        public static ProfileSnapshot? FindById(string id)
+        {
+            lock (Sync)
+                return Items.FirstOrDefault(p => p.Id == id);
+        }
+
+        /// <summary>
+        /// 把「当前生效的设置」抓成一份新方案。
+        ///
+        /// 抓的是 store 里的值而不是界面上的临时输入：store 里存的是
+        /// 「已成功下发并回读校验通过」的设定（见 TuningStore 的类注释），
+        /// 界面上还没点应用的输入不配成为一份方案。
+        /// </summary>
+        public static ProfileSnapshot CaptureCurrent(string name, string note = "")
+        {
+            TuningProfile tuning = TuningStore.Profile;
+
+            return new ProfileSnapshot
+            {
+                Name = name,
+                Note = note,
+                CurveOptimizer = (int[])tuning.CurveOptimizer.Clone(),
+                FMaxMHz = tuning.FMaxMHz,
+
+                // 规则也要克隆：BindingRule 是引用类型，直接塞列表会让方案
+                // 与当前规则集共享同一批对象，之后改进程页等于改方案。
+                BindingRules = BindingStore.Profile.Rules
+                    .Select(Clone)
+                    .ToList()
+            };
+        }
+
+        /// <summary>保存（新增或按 Id 覆盖）一份方案。</summary>
+        public static void Save(ProfileSnapshot snapshot)
+        {
+            snapshot.UpdatedAt = DateTime.Now.ToString("o");
+
+            lock (Sync)
+            {
+                int index = Items.ToList().FindIndex(p => p.Id == snapshot.Id);
+                if (index >= 0)
+                    Items[index] = snapshot;
+                else
+                    Items.Add(snapshot);
+
+                Persist();
+            }
+
+            LogService.Info($"方案已保存: {snapshot.Name}");
+            Changed?.Invoke();
+        }
+
+        /// <summary>删除一份方案。删的正好是生效中方案时只清标记，不动当前硬件设置。</summary>
+        public static bool Delete(string id)
+        {
+            lock (Sync)
+            {
+                ProfileSnapshot? target = Items.FirstOrDefault(p => p.Id == id);
+                if (target == null)
+                    return false;
+
+                Items.Remove(target);
+
+                // 刻意不回滚硬件：删掉一份方案只是不再留着这张卡片，
+                // 用户没说「把机器恢复原样」—— 那是「清除全部数据」的职责。
+                if (ActiveId == id)
+                    ActiveId = null;
+
+                Persist();
+            }
+
+            Changed?.Invoke();
+            return true;
+        }
+
+        /// <summary>
+        /// 切换（应用）一份方案：把快照写回三个 store，再让现有服务下发。
+        ///
+        /// 【v1.1.x 的两处待补】
+        /// 1. 现存进程的立即绑核：规则写回后只有**新启动**的进程会被 ProcessWatcher 命中，
+        ///    已经在跑的进程要等下一次重启才生效。v1.1.x 需要给 ProcessWatcher 加一个
+        ///    「按当前规则全量重扫一次」的入口，本方法在写回后调用它。
+        /// 2. 失败回滚：调校下发失败时（TuningApplyOutcome.Success == false），
+        ///    理想做法是恢复上一份方案。现在只记录日志，因为「部分写成功」的
+        ///    回滚顺序（先 FMax 后 CO）还没有实测依据，不猜。
+        /// </summary>
+        public static bool Apply(string id)
+        {
+            ProfileSnapshot? snapshot = FindById(id);
+            if (snapshot == null)
+                return false;
+
+            // FMax 基线不进快照：它是这台机器的出厂值，属于硬件属性，
+            // 不是方案属性 —— 换方案不该把基线也换掉。
+            TuningStore.Save(new TuningProfile
+            {
+                CurveOptimizer = (int[])snapshot.CurveOptimizer.Clone(),
+                FMaxMHz = snapshot.FMaxMHz,
+                FMaxBaselineMHz = TuningStore.Profile.FMaxBaselineMHz
+            });
+
+            BindingStore.Save(snapshot.BindingRules.Select(Clone));
+
+            TuningApplyOutcome? outcome = TuningApplyService.ApplyFromStore();
+            if (outcome != null && !outcome.Success)
+                LogService.Warn($"方案「{snapshot.Name}」的调校部分未完全生效: {outcome.Summary}");
+
+            lock (Sync)
+            {
+                ActiveId = snapshot.Id;
+                Persist();
+            }
+
+            LogService.Info($"已切换方案: {snapshot.Name}");
+            Changed?.Invoke();
+            return true;
+        }
+
+        /// <summary>
+        /// 当前设置与给定方案是否一致。界面用它给「生效中」的那一张卡片打标，
+        /// 而不是让用户记自己最后点的是哪一张。
+        /// </summary>
+        public static bool IsCurrentEqualTo(string id)
+        {
+            ProfileSnapshot? snapshot = FindById(id);
+            if (snapshot == null)
+                return false;
+
+            TuningProfile tuning = TuningStore.Profile;
+            if (!snapshot.CurveOptimizer.SequenceEqual(tuning.CurveOptimizer))
+                return false;
+
+            if (snapshot.FMaxMHz != tuning.FMaxMHz)
+                return false;
+
+            List<BindingRule> current = BindingStore.Profile.Rules;
+            if (current.Count != snapshot.BindingRules.Count)
+                return false;
+
+            // 只比「进程名 → 目标 + 优先级」三元组：Enabled 与 Mask 快照属于运行时状态，
+            // 它们不一致不代表方案没生效（掩码被改名、规则被临时关掉都会造成差异）。
+            return !current.Where((rule, i) =>
+                !string.Equals(rule.Name, snapshot.BindingRules[i].Name, StringComparison.OrdinalIgnoreCase) ||
+                rule.Target != snapshot.BindingRules[i].Target ||
+                !string.Equals(rule.Priority, snapshot.BindingRules[i].Priority, StringComparison.Ordinal))
+                .Any();
+        }
+
+        /// <summary>
+        /// 把给定列表增量对齐到 <see cref="Items"/>。
+        ///
+        /// 【为什么不用 Clear + Add】
+        /// Clear 会发一次 Reset 通知，列表重建全部可视容器：闪一下、滚动位置丢。
+        /// 这里是配置页，方案只有几条，但规矩就是规矩 —— 顺手的地方最容易破例，
+        /// 破了例下次在进程列表上也会这么写。
+        /// </summary>
+        private static void MergeInto(List<ProfileSnapshot> desired)
+        {
+            for (int i = Items.Count - 1; i >= 0; i--)
+            {
+                if (!desired.Any(p => p.Id == Items[i].Id))
+                    Items.RemoveAt(i);
+            }
+
+            for (int i = 0; i < desired.Count; i++)
+            {
+                int index = IndexOfId(desired[i].Id);
+                if (index == -1)
+                    Items.Insert(i, desired[i]);
+                else if (index != i)
+                    Items.Move(index, i);
+            }
+        }
+
+        private static int IndexOfId(string id)
+        {
+            for (int i = 0; i < Items.Count; i++)
+                if (Items[i].Id == id)
+                    return i;
+            return -1;
+        }
+
+        private static void Persist()
+        {
+            try
+            {
+                JsonFile.Write(FilePath, new ProfileFile
+                {
+                    Profiles = Items.ToList(),
+                    ActiveId = ActiveId
+                });
+            }
+            catch (Exception ex)
+            {
+                LogService.Error($"保存方案列表失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>规则浅拷贝：方案里的规则必须与当前规则集是两批对象。</summary>
+        private static BindingRule Clone(BindingRule rule) => new()
+        {
+            Name = rule.Name,
+            Target = rule.Target,
+            MaskId = rule.MaskId,
+            Mask = rule.Mask,
+            Path = rule.Path,
+            Priority = rule.Priority,
+            Enabled = rule.Enabled
+        };
+    }
+}
