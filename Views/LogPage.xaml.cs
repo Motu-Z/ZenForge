@@ -113,6 +113,12 @@ namespace ZenForge.Views
         ///
         /// 用代码生成而不是 XAML 写死四份：四个 pill 的结构完全相同，
         /// 差别只有颜色和级别枚举，写四份模板会让「加一级」变成改五处。
+        ///
+        /// 【版式对齐】
+        /// 高度 28 与右侧三个工具按钮严格一致（LogToolButtonStyle 也是 28），
+        /// 两者都 VerticalAlignment=Center，落在同一条水平线上。
+        /// 旧版 pill 26 / 按钮 32，胶囊上下各悬空 3px，读起来像
+        /// 「四个胶囊飘在一条更粗的带子里」而不是一行工具栏。
         /// </summary>
         private void BuildPills()
         {
@@ -122,9 +128,9 @@ namespace ZenForge.Views
             {
                 Border pill = new()
                 {
-                    Height = 26,
-                    CornerRadius = new CornerRadius(13),
-                    Padding = new Thickness(14, 0, 14, 0),
+                    Height = 28,
+                    CornerRadius = new CornerRadius(14),
+                    Padding = new Thickness(12, 0, 12, 0),
                     BorderThickness = new Thickness(1),
                     Margin = new Thickness(0, 0, 8, 0),
                     Cursor = Cursors.Hand,
@@ -139,19 +145,22 @@ namespace ZenForge.Views
 
                 StackPanel inner = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
 
-                // 6px 圆点
+                // 7px 级别色点：比旧版 6px 略大，因为 pill 本身抬高了 2px，
+                // 圆点不跟着长会显得「缩在胶囊里」。左边距 0、右边 7，
+                // 文字与圆点靠得比文字与胶囊边缘更近，读起来是一个整体。
                 inner.Children.Add(new System.Windows.Shapes.Ellipse
                 {
-                    Width = 6,
-                    Height = 6,
+                    Width = 7,
+                    Height = 7,
                     Fill = Res(dotKey, Brushes.Gray),
                     VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(0, 0, 8, 0),
+                    Margin = new Thickness(0, 0, 7, 0),
                 });
 
                 TextBlock text = new()
                 {
                     FontSize = 12,
+                    FontWeight = FontWeights.Normal,
                     Foreground = Res(dotKey, Brushes.Gray),
                     VerticalAlignment = VerticalAlignment.Center,
                 };
@@ -196,10 +205,28 @@ namespace ZenForge.Views
                 text.Text = $"{label} {counts[i]}";
 
                 bool active = _levelFilter == level;
-                // 未选中时降到 55% 不透明度，四枚里只有一枚是"亮的"
-                pill.Opacity = active || _levelFilter == null ? 1.0 : 0.55;
-                pill.BorderThickness = new Thickness(active ? 2 : 1);
-                pill.BorderBrush = Res(tintKey != null ? dotKey : "Input.Border", Brushes.Transparent);
+                bool dimmed = _levelFilter != null && !active;
+
+                // 【选中态只改「填充」，不改边框粗细】
+                // 旧版选中时把 BorderThickness 从 1 改成 2 —— 边框内缩 1px，
+                // 胶囊里的文字跟着左右各抖 1px，点一下四个 pill 都在微跳。
+                // 现在粗细恒定 1，靠底色从 tint(12%) 换成实心级别色来表达选中，
+                // 尺寸完全不动。
+                pill.Opacity = dimmed ? 0.45 : 1.0;
+
+                Brush levelBrush = Res(dotKey, Brushes.Gray);
+                Brush tintBrush = Res(tintKey ?? "Input.Background", Brushes.Transparent);
+
+                // 选中时文字与圆点转深色：实心黄底 / 红底上用同级色写字等于消失。
+                Brush onLevelBrush = active ? Brushes.Black : levelBrush;
+
+                pill.Background = active ? levelBrush : tintBrush;
+                pill.BorderBrush = levelBrush;
+
+                if (inner.Children[0] is System.Windows.Shapes.Ellipse dot)
+                    dot.Fill = onLevelBrush;
+
+                text.Foreground = onLevelBrush;
             }
 
             // 副行：条数 + 暂停状态。

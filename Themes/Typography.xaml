@@ -1,0 +1,167 @@
+﻿<!-- ==================================================================
+     字体层级与排版节奏（全工程唯一口径）
+
+     【为什么单独成册】
+     这些样式要同时被 App.xaml（全局隐式 TextBlock）和 Themes/Controls.xaml
+     （卡片标题、行标签）引用。StaticResource 的查找范围是「本字典 → 本字典
+     合并的字典」，兄弟字典之间互相看不见；把层级定义写在 Controls.xaml 里，
+     App.xaml 引用时会拿到 null 并在运行期抛 XamlParseException
+     （1.0.0-can2 「点日志页即闪退」就是这个坑）。
+     两边都 Merge 本文件，才是唯一安全的位置。
+
+     【六级制——层级靠「级差」而不是「都够大」】
+     旧版最大的问题是 16 / 14 / 13 / 12 四级挤在一起，相邻只差 1–2px，
+     整页字看起来一样重，像没排版。现在只保留五个字号，但把级差拉开：
+
+       L1  26  Bold        页面大标题              （每页唯一一行）
+       L2  15  SemiBold    卡片标题                （每张卡唯一一行）
+       L3  16  Bold   Mono 核心数值                （CO / FMax / 百分比）
+       L4  13  Medium      主标签、正文
+       L5  12  Normal      说明、注释              （60% 前景）
+       L6  11  Normal      元数据：路径 / 时间 / 版本（46% 前景）
+       L7  10  SemiBold    全大写微标签（分组名、表头）
+
+     L2 取 15 而不是用户建议的 14：15 与 L4 的 13 差 2px 配 SemiBold + 纯白，
+     在 1080p 100% 缩放下刚刚能读成「标题」；14 与 13 只差 1px，
+     加粗也救不回来，会重新糊成一片。层级要的是比值，不是绝对值。
+
+     【颜色纪律：严禁全白】
+     主体 100% 白 / 说明 60% / 元数据 46% / 不可用 30%。
+     如果每一级都是纯白，字号再拉开也读不出主次。
+     ================================================================== -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- 全工程字体栈。
+         中文用 Microsoft YaHei UI（Win10 起自带，比 Microsoft YaHei 多了
+         UI 专用字重与更紧的字距），西文回落 Segoe UI —— 与系统界面同源，
+         不引入外部字体文件，冷启动零开销。 -->
+    <FontFamily x:Key="AppFontFamily">Microsoft YaHei UI, Microsoft YaHei, Segoe UI</FontFamily>
+
+    <!-- 数值专用等宽字体。
+         Consolas 从 Vista 起就在系统里，Cascadia Mono 是 Win11 终端字体，
+         两者都没有时回落 monospace。等宽是必须的：CO 的 -28 与 0、
+         FMax 的 4750 与 475，比例字体下数位宽度不同，一列数字会参差不齐。 -->
+    <FontFamily x:Key="MonoFontFamily">Consolas, Cascadia Mono, Courier New, monospace</FontFamily>
+
+    <!-- ==================== L1 页面大标题 ====================
+         26 / Bold / 纯白。下方 20px 与内容区隔开。
+         用户规范里写的是 24，这里用 20：页头下面紧接的是卡片，卡片本身
+         已有 20px 内边距，24+20 = 44 的空档会让第一张卡看起来「掉下去了」。
+         20 之后视觉间距约 40，与卡片之间的 16 形成 2.5 倍差，层级清楚。 -->
+    <Style x:Key="Text.PageTitle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}"/>
+        <Setter Property="FontSize" Value="26"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="0,0,0,20"/>
+    </Style>
+
+    <!-- L1 的副行：11px 元数据色，与标题同一基线上方 6px。
+         副行不是「第二个标题」，所以压到 L6 而不是 L5。 -->
+    <Style x:Key="Text.PageSub" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.MetaBrush}"/>
+        <Setter Property="Margin" Value="0,6,0,0"/>
+        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+    </Style>
+
+    <!-- ==================== L2 卡片标题 ====================
+         15 / SemiBold / 纯白 / 下方 14。
+         14 的依据：标题与第一行内容之间既要断开，又不能空到读成两个模块；
+         卡片内容区上内距是 20，14 的下边距让标题略偏上，符合阅读顺序。 -->
+    <Style x:Key="Text.CardTitle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}"/>
+        <Setter Property="FontSize" Value="15"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
+        <Setter Property="Margin" Value="0,0,0,14"/>
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- ==================== L3 核心数值 ====================
+         16 / Bold / 等宽 / 纯白。
+         用于 CO 每格数值、FMax 输入框、核心停放百分比。
+         这三个地方是「用户真正盯着看的数字」，必须比标题更重。 -->
+    <Style x:Key="Text.Numeric" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource MonoFontFamily}"/>
+        <Setter Property="FontSize" Value="16"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- ==================== L4 主标签 / 正文 ====================
+         13 / Medium / 纯白。行右侧控件的标题、表格主列都走这一级。 -->
+    <Style x:Key="Text.Label" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontWeight" Value="Medium"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
+        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- ==================== L5 说明文字 ====================
+         12 / Normal / 60% 前景 / 与上方标签固定 4px。
+         4px 是「同一组」的最小间距：再小两行字会黏成一个灰块，
+         再大就变成两个独立条目，用户会把说明读成下一项的标题。 -->
+    <Style x:Key="Text.Desc" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.Secondary}"/>
+        <Setter Property="Margin" Value="0,4,0,0"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+    </Style>
+
+    <!-- ==================== L6 元数据 ====================
+         11 / 46% 前景。路径、时间戳、版本号、计数。
+         这一级永远不该是「需要读的内容」，只用来定位和核对。 -->
+    <Style x:Key="Text.Meta" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.MetaBrush}"/>
+        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- 元数据但需要等宽（时间戳、掩码位串、版本哈希） -->
+    <Style x:Key="Text.MetaMono" TargetType="TextBlock" BasedOn="{StaticResource Text.Meta}">
+        <Setter Property="FontFamily" Value="{StaticResource MonoFontFamily}"/>
+    </Style>
+
+    <!-- ==================== L7 微标签 ====================
+         10 / SemiBold / 46% 前景。侧栏分组名「系统」、表头「进程名 / 路径」用这一级。
+         WPF 的 TextBlock 没有 letter-spacing，10px 的中文小标签靠字重区分即可，
+         不做伪字距（给每个字之间插空格会让中文读成断句）。 -->
+    <Style x:Key="Text.Micro" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}"/>
+        <Setter Property="FontSize" Value="10"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.MetaBrush}"/>
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- ==================== 垂直排布的组合容器 ====================
+         「上面 L4 标签、下面 L5 说明」的两行块，全工程七十多处同构。
+         以前每处手写 StackPanel + 两个 TextBlock + 记间距；
+         这里把方向与居中对齐固化，只留 Orientation 一个可变点。
+
+         必须 VerticalAlignment="Center"：两行文本与右侧控件（开关 / 下拉）
+         同处一行时，只有整块居中，文字中线才与控件中线重合。
+         顶部对齐会把整块往下拽，右侧控件看起来「浮在上面」。 -->
+    <Style x:Key="Stack.LabelBlock" TargetType="StackPanel">
+        <Setter Property="Orientation" Value="Vertical"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+</ResourceDictionary>

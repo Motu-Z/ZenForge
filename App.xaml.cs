@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
@@ -467,14 +467,10 @@ namespace ZenForge
                         return;
                     }
 
-                    DarkDialog.ShowWarning(
-                        "系统 WMI 服务不可用，进程自动绑核已降级为定时轮询模式。\n\n" +
-                        "定时模式能正常工作，但会持续占用少量 CPU，且新进程的绑定会\n" +
-                        "延迟几秒才生效。\n\n" +
-                        "常见原因是系统精简版删除了 Windows Management Instrumentation\n" +
-                        "（Winmgmt）服务。若希望恢复零开销的事件模式，可在「服务」中\n" +
-                        "启用该服务后重启 ZenForge。",
-                        "绑定监听降级");
+                    LogService.Warn(
+                        "系统 WMI 服务不可用，进程绑核已降级为定时轮询（会持续占用少量 CPU，新进程绑定延迟数秒）");
+                    ToastService.Warning(
+                        "WMI 服务不可用，进程绑核已降级为定时轮询（新进程绑定会延迟数秒，详见日志页）");
                 }));
         }
 
@@ -655,9 +651,11 @@ namespace ZenForge
                 : outcome.Summary;
 
             LogService.Error("启动应用调校失败：" + message);
-            ShowWhenMainWindowReady("启动时自动应用调校失败：\n\n" + message +
-                                    "\n\n已保存的配置没有被改动，可以在调校页手动点「应用」重试。",
-                                    "启动应用调校失败");
+            // 失败原因写进日志，Toast 只给一句能看懂的话 + 下一步动作，
+            // 不把整段 outcome.Summary 塞进一行气泡里。
+            ShowWhenMainWindowReady(
+                "启动时自动应用调校失败，配置未被改动，可在调校页手动重试",
+                "启动应用调校失败：" + message);
         }
 
         /// <summary>
@@ -680,7 +678,10 @@ namespace ZenForge
 
                 if (main != null && main.IsLoaded)
                 {
-                    Views.DarkDialog.ShowWarning(message, title);
+                    // 标题只用来进日志，气泡里只放一句话 —— 长文本塞进 Toast
+                    // 会被截断，而这里的内容本来就该在日志里查。
+                    LogService.Warn($"{title}");
+                    Services.ToastService.Warning(message);
                     return;
                 }
 

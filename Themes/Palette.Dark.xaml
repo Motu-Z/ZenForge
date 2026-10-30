@@ -1,4 +1,4 @@
-<!-- 深色调色板 -->
+﻿<!-- 深色调色板 -->
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
@@ -19,6 +19,26 @@
     <SolidColorBrush x:Key="Text.Primary" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="Text.Secondary" Color="#9AFFFFFF"/>
     <SolidColorBrush x:Key="Text.Disabled" Color="#4DFFFFFF"/>
+
+    <!-- ==================================================================
+         【第三级文字：L6 元数据专用】
+
+         Text.Disabled（30% 白）原本身兼两职：既表示「这个控件不可用」，
+         又拿来写路径、时间戳、版本号这类元数据。两者语义完全不同，
+         混用导致元数据永远偏灰、在 1080p 上几乎读不出来（对比度约 2.6:1）。
+
+         这里拆出 Text.Meta（46% 白）：足够弱，但仍在 WCAG 小字可读区间；
+         不可用状态继续走 Text.Disabled，元数据一律走 Text.Meta。
+         ================================================================== -->
+    <SolidColorBrush x:Key="Text.MetaBrush" Color="#75FFFFFF"/>
+
+    <!-- 输入框的静态底色。
+         Input.Background（20% 黑）叠在窗口底 #121214 上，等效 #0E0E10 ——
+         比卡片还暗，所以输入框看起来像在卡片上挖了个洞，
+         和亮蓝色的滑杆凑在一起就是「一半是控件、一半是空洞」的割裂感。
+         控件底应当比卡片**亮**一档（可交互 = 浮起），这里给 6% 白。 -->
+    <SolidColorBrush x:Key="Control.Background" Color="#0FFFFFFF"/>
+    <SolidColorBrush x:Key="Control.BackgroundHover" Color="#17FFFFFF"/>
 
     <SolidColorBrush x:Key="Input.Background" Color="#33000000"/>
     <SolidColorBrush x:Key="Input.Foreground" Color="#FFFFFF"/>
@@ -98,13 +118,17 @@
     <!-- 警告横幅 / 危险操作的淡底（Danger 的低透明度版本，深浅两册各自取值） -->
     <SolidColorBrush x:Key="DangerSoft" Color="#26E5534B"/>
 
-    <!-- 中性单色按钮（不跟随主题强调色，低调深灰） -->
-    <SolidColorBrush x:Key="Button.Neutral.Background" Color="#4E4E54"/>
-    <SolidColorBrush x:Key="Button.Neutral.Hover" Color="#5C5C63"/>
-    <SolidColorBrush x:Key="Button.Neutral.Pressed" Color="#3C3C41"/>
+    <!-- 中性单色按钮（不跟随主题强调色，低调深灰）。
+         底色从 #4E4E54 收到 #2A2A2D：原来的灰比卡片亮太多，
+         一排四个按钮就是四个发亮的方块，把 CPU 名压下去了。
+         次要按钮的定位是「看得见、点得到、但不抢视线」，
+         靠 1px 边框和 hover 时的提亮来表达可交互，而不是靠底色。 -->
+    <SolidColorBrush x:Key="Button.Neutral.Background" Color="#2A2A2D"/>
+    <SolidColorBrush x:Key="Button.Neutral.Hover" Color="#38383D"/>
+    <SolidColorBrush x:Key="Button.Neutral.Pressed" Color="#212124"/>
     <SolidColorBrush x:Key="Button.Neutral.Foreground" Color="#F0F0F0"/>
-    <SolidColorBrush x:Key="Button.Neutral.Border" Color="#5A5A62"/>
-    <SolidColorBrush x:Key="Button.Quiet.Background" Color="#2F2F32"/>
+    <SolidColorBrush x:Key="Button.Neutral.Border" Color="#33FFFFFF"/>
+    <SolidColorBrush x:Key="Button.Quiet.Background" Color="#1C1C1F"/>
 
     <!-- ToolTip 全局配色：深色深底白字 -->
     <SolidColorBrush x:Key="ToolTip.Background" Color="#2D2D30"/>

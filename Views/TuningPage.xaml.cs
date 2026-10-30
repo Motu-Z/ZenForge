@@ -3,6 +3,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using ZenForge.Helpers;
 using ZenForge.Services;
 
@@ -86,6 +87,12 @@ namespace ZenForge.Views
             // 只赋 Style，不设局部 Background/Foreground/BorderBrush（局部值会压掉「聚焦青边」触发器）。
             Style? coreBoxStyle = TryFindResource("TuningBoxStyle") as Style;
 
+            // L3 数值字体（等宽 / 16 / Bold）。走资源而不是写字面量：
+            // 将来换字体栈只改 Themes/Typography.xaml 一处。
+            // 等宽不是审美选择 —— CO 值有 -50 到 +50，比例字体下 "-28" 与 "0"
+            // 的宽度差近一倍，八列并排时数字会左右乱跳，读不出一列对齐的读数。
+            FontFamily? monoFont = TryFindResource("MonoFontFamily") as FontFamily;
+
             const int Columns = 8;   // 必须与 XAML 里 UniformGrid.Columns 一致
 
             for (int core = 0; core < totalCores; core++)
@@ -104,6 +111,14 @@ namespace ZenForge.Views
                     Margin = new Thickness(0, 0, lastCol ? 0 : 6, lastRow ? 0 : 8),
                     ToolTip = $"核心 {core}（CCD{core / coresPerCcd}）"
                 };
+
+                if (monoFont != null)
+                    box.FontFamily = monoFont;
+
+                // 字号与字重：全局 TextBox 是 13 / Normal，CO 数值要按 L3 处理。
+                // 局部覆盖是安全的 —— 模板用的是 TemplateBinding，会读到这里的值。
+                box.FontSize = 16;
+                box.FontWeight = FontWeights.Bold;
 
                 CoreBoxes.Add(box);
                 CoreGrid.Children.Add(box);
@@ -190,9 +205,12 @@ namespace ZenForge.Views
             string reason = snapshot?.Error ?? fallbackError ?? "未知原因";
             LogService.Error($"{logPrefix}：{reason}");
             SetSmuState(SmuUiState.Failed, reason);
-            DarkDialog.ShowWarning(
-                $"{dialogLead}，请确认已安装 PawnIO 驱动并以管理员身份运行。\n\n详细信息已写入日志（设置 → 日志）。",
-                dialogTitle);
+
+            // 【为什么从弹窗改成 Toast】
+            // 这是"第一层失败提示"，用户在切页的瞬间就会看到，没有需要他现场做的决定
+            // （要么装驱动重启，要么本来就不是 AMD 平台）。弹窗只会逼他先关掉它，
+            // 才能去看日志。完整的排查指引仍然写进 ToolTip 与日志，需要的人随时能看。
+            ToastService.Error($"{dialogLead}：{reason}。请确认已安装 PawnIO 驱动并以管理员身份运行");
             return false;
         }
 
@@ -704,12 +722,21 @@ namespace ZenForge.Views
             if (!ProcessorPowerTuning.TryReadCoreParking(out uint percent, out string error))
             {
                 _parkingCurrent = null;
-                ParkingSlider.IsEnabled = false;
-                ParkingBox.IsEnabled = false;
-                ParkingHint.Text = $"当前系统无法读取核心停放：{error}";
+
+                // 【读不到就把控件整块收起来，只留一句原因】
+                // 旧版把滑杆和输入框灰着摆在那儿 —— 用户看到控件就一定会去拖，
+                // 拖完发现数字弹回去，而唯一的解释挤在另一行灰字里。
+                // 既然这项在本机根本不可写，它就不该以「一个控件」的形态存在。
+                ParkingEditablePanel.Visibility = Visibility.Collapsed;
+                ParkingUnavailablePanel.Visibility = Visibility.Visible;
+                ParkingUnavailableText.Text = DescribeParkingUnavailable(error);
+
                 LogService.Warn($"核心停放不可用：{error}");
                 return;
             }
+
+            ParkingEditablePanel.Visibility = Visibility.Visible;
+            ParkingUnavailablePanel.Visibility = Visibility.Collapsed;
 
             _parkingCurrent = percent;
 
@@ -727,6 +754,32 @@ namespace ZenForge.Views
             ParkingSlider.IsEnabled = true;
             ParkingBox.IsEnabled = true;
             ParkingHint.Text = ProcessorPowerTuning.ParkingHint(percent);
+        }
+
+        /// <summary>
+        /// 把底层错误翻成一句用户能懂的话。
+        ///
+        /// 原始的 powrprof 错误串是「索引不存在 / 无权限 / 方案未暴露此项」的混合体，
+        /// 直接贴出来等于把实现细节丢给用户。这里按关键字分流成三种说法，
+        /// 每种都带上「所以你现在什么都做不了，以及为什么」。
+        /// </summary>
+        private static string DescribeParkingUnavailable(string error)
+        {
+            if (error.Contains("拒绝", StringComparison.Ordinal) ||
+                error.Contains("权限", StringComparison.Ordinal) ||
+                error.Contains("Access", StringComparison.OrdinalIgnoreCase))
+            {
+                return "需要管理员权限才能读取核心停放设置。以管理员身份重新运行后可开启此项。";
+            }
+
+            if (error.Contains("不存在", StringComparison.Ordinal) ||
+                error.Contains("未找到", StringComparison.Ordinal) ||
+                error.Contains("NotFound", StringComparison.OrdinalIgnoreCase))
+            {
+                return "当前电源方案未暴露核心停放设置，此项在本机上不可用。可在「控制面板 → 电源选项」中换成「平衡」方案后重试。";
+            }
+
+            return $"当前系统无法读取核心停放设置（{error}），此项已停用。";
         }
 
         /// <summary>
@@ -908,14 +961,19 @@ namespace ZenForge.Views
         }
 
         /// <summary>
-        /// 读取并校验 FMax 输入；失败返回 null（已弹窗）。
+        /// 读取并校验 FMax 输入；失败返回 null（已提示）。
         /// 越界时不再拦截，而是自动收敛到边界值（信息提示，非警告拦截）后继续。
         /// </summary>
         private uint? CollectFMax()
         {
             if (!uint.TryParse(FMaxBox.Text, out uint fmax))
             {
-                DarkDialog.ShowWarning($"FMax“{FMaxBox.Text}”不是有效的频率值。", "ZenForge · FMax 输入非法");
+                // 输入非法 = 用户刚打完字、焦点还在框里。用 Toast 提示而不是弹窗：
+                // 弹窗会抢走焦点，用户连"我刚才输的是什么"都看不到就得先关掉它。
+                ToastService.Warning($"FMax「{FMaxBox.Text}」不是有效的频率值");
+                LogService.Warn($"FMax 输入非法：\"{FMaxBox.Text}\"");
+                FMaxBox.Focus();
+                FMaxBox.SelectAll();
                 return null;
             }
 
@@ -923,13 +981,13 @@ namespace ZenForge.Views
             {
                 fmax = FMaxMax;
                 FMaxBox.Text = fmax.ToString();
-                DarkDialog.Show($"FMax 已自动调整为 {FMaxMax} MHz（超出上限）", "ZenForge · FMax 收敛");
+                ToastService.Info($"FMax 已自动调整为 {FMaxMax} MHz（超出上限）");
             }
             else if (fmax < FMaxMin)
             {
                 fmax = FMaxMin;
                 FMaxBox.Text = fmax.ToString();
-                DarkDialog.Show($"FMax 已自动调整为 {FMaxMin} MHz（低于下限）", "ZenForge · FMax 收敛");
+                ToastService.Info($"FMax 已自动调整为 {FMaxMin} MHz（低于下限）");
             }
 
             return fmax;
@@ -964,7 +1022,9 @@ namespace ZenForge.Views
             margins = CollectCoreMargins(out string? coReject);
             if (coReject != null)
             {
-                DarkDialog.ShowWarning(coReject, "ZenForge · CO 输入非法");
+                // 逐条列出是哪几个核心错了。Toast 承载不了多行，所以这里保留弹窗 ——
+                // 但只在「确实有多个字段要用户逐个改」时才用，不是所有失败都弹。
+                DarkDialog.ShowWarning(coReject, "CO 输入非法");
                 return false;
             }
 
@@ -996,9 +1056,8 @@ namespace ZenForge.Views
             catch (Exception ex)
             {
                 LogService.Error($"写入线程异常: {ex}");
-                DarkDialog.ShowError(
-                    $"写入过程中发生异常：{ex.Message}\n\n详细信息已写入日志。",
-                    "写入异常");
+                SetSmuState(SmuUiState.Failed, ex.Message);
+                ToastService.Error($"写入过程中发生异常：{ex.Message}（详见日志）");
                 return;
             }
             finally
@@ -1061,21 +1120,33 @@ namespace ZenForge.Views
             else
             {
                 SetSmuState(SmuUiState.Failed, "写入存在失败");
-                System.Text.StringBuilder msg = new("部分写入失败，未保存配置。详细如下：\n\n");
+
+                // 【部分失败：用一条摘要 Toast + 完整明细进日志】
+                // 这里原本是弹窗，正文是多行清单（哪个核心被拒、回读不一致）。
+                // 但用户此刻要做的决定只有一个 —— "要不要重试"，
+                // 而这个决定不需要读完 16 个核心的明细才能做。
+                // 明细一字不少地写进日志，需要的人点开"日志"就能看到。
+                System.Text.StringBuilder detail = new();
                 if (!coOk)
                 {
-                    if (!string.IsNullOrEmpty(co.Fatal)) msg.AppendLine($"· {co.Fatal}");
-                    if (co.WriteFailed.Count > 0) msg.AppendLine($"· CO 被拒核心：{string.Join(", ", co.WriteFailed)}");
-                    if (co.VerifyFailed.Count > 0) msg.AppendLine($"· CO 回读不一致核心：{string.Join(", ", co.VerifyFailed)}");
+                    if (!string.IsNullOrEmpty(co.Fatal)) detail.AppendLine($"· {co.Fatal}");
+                    if (co.WriteFailed.Count > 0) detail.AppendLine($"· CO 被拒核心：{string.Join(", ", co.WriteFailed)}");
+                    if (co.VerifyFailed.Count > 0) detail.AppendLine($"· CO 回读不一致核心：{string.Join(", ", co.VerifyFailed)}");
                 }
                 if (!fmOk)
                 {
-                    msg.AppendLine(fm.Fatal != null
+                    detail.AppendLine(fm.Fatal != null
                         ? $"· FMax：{fm.Fatal}"
                         : $"· FMax：回读不一致（请求 {fm.Requested}，回读 {fm.ReadBack}）");
                 }
-                msg.AppendLine("\n已写入成功的部分仍生效（SMU 实时生效），但未落盘以免配置不一致。");
-                DarkDialog.ShowError(msg.ToString(), "写入失败");
+
+                LogService.Error("部分写入失败，未保存配置：\n" + detail);
+
+                string summary = !coOk && !fmOk ? "CO 与 FMax 均未完全生效"
+                    : !coOk ? "部分核心的 CO 未生效"
+                    : "FMax 未生效";
+
+                ToastService.Error($"{summary}（已写入的部分仍生效，配置未落盘；明细见日志）");
             }
         }
 

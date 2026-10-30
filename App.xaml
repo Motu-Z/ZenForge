@@ -9,6 +9,9 @@
                 <ResourceDictionary Source="Themes/Accent.xaml"/>
                 <!-- 调色板（ThemeService 在深/浅色之间整册替换） -->
                 <ResourceDictionary Source="Themes/Palette.Dark.xaml"/>
+                <!-- 字体层级。必须排在 Controls.xaml 之前：Controls 里的卡片标题、
+                     行标签都 BasedOn 这里的键，StaticResource 要求先定义后引用。 -->
+                <ResourceDictionary Source="Themes/Typography.xaml"/>
                 <!-- 控件样式 -->
                 <ResourceDictionary Source="Themes/Controls.xaml"/>
             </ResourceDictionary.MergedDictionaries>
@@ -23,11 +26,19 @@
             <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#38BDF8"/>
             <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#101010"/>
 
-            <!-- 全局默认字体 -->
+            <!-- 全局默认字体。
+                 TextFormattingMode=Display 是关键：ideal 模式按字形设计轮廓做亚像素
+                 定位，13px 中文字在 100% 缩放下会「发虚、边缘发灰」；
+                 Display 模式按整数像素对齐字形，同样的字立刻变清脆。
+                 TextRenderingMode=ClearType 打开子像素渲染（系统设置里若关了
+                 字体平滑，这里也尊重系统）。两者都放在隐式 TextBlock 样式上，
+                 全工程每个 TextBlock 自动继承，不需要逐处写。 -->
             <Style TargetType="TextBlock">
-                <Setter Property="FontFamily" Value="Microsoft YaHei UI, Microsoft YaHei, Segoe UI"/>
+                <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}"/>
                 <Setter Property="FontSize" Value="13"/>
                 <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
+                <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+                <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
             </Style>
 
             <!-- ==================================================================
@@ -51,16 +62,20 @@
             <!-- ==================================================================
                  TextBox 深色样式（全局生效）
                  ==================================================================
-                 背景 #1E1E1E / 文字 White / 边框 #3F3F46
-                 悬停边框 #5A5A62，获得焦点边框跟随强调色(AccentBrush)
-                 文字垂直居中，光标与选区用强调色
+                 尺寸：高 32 / 圆角 6 / 内缩 10 —— 全工程唯一口径。
+                 以前这里写 36，而进程页的搜索框与掩码窗口又各自覆盖成 32 / 30，
+                 同一屏并排时高低不齐。现在默认就是 32，任何地方都不该再写 Height。
+
+                 底色走 Control.Background（比卡片亮一档）而不是 Input.Background
+                 （比卡片暗）：输入框是「可交互」的元素，视觉上应当浮起；
+                 比卡片更暗会读成「在卡上挖了个洞」，与旁边的滑杆、开关割裂。
                  ================================================================== -->
             <Style x:Key="AppTextBoxStyle" TargetType="TextBox">
-                <Setter Property="FontFamily" Value="Microsoft YaHei UI, Microsoft YaHei, Segoe UI"/>
+                <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}"/>
                 <Setter Property="FontSize" Value="13"/>
-                <Setter Property="Height" Value="36"/>
+                <Setter Property="Height" Value="32"/>
                 <Setter Property="Padding" Value="10,0"/>
-                <Setter Property="Background" Value="{DynamicResource Input.Background}"/>
+                <Setter Property="Background" Value="{DynamicResource Control.Background}"/>
                 <Setter Property="Foreground" Value="{DynamicResource Input.Foreground}"/>
                 <Setter Property="BorderBrush" Value="{DynamicResource Input.Border}"/>
                 <Setter Property="BorderThickness" Value="1"/>
@@ -71,6 +86,9 @@
                 <Setter Property="VerticalContentAlignment" Value="Center"/>
                 <Setter Property="HorizontalContentAlignment" Value="Left"/>
                 <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+                <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
+
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="TextBox">
@@ -149,10 +167,11 @@
                  结论：任何 BasedOn App.xaml 里样式的样式，都必须定义在 App.xaml。
                  ================================================================== -->
             <Style x:Key="SearchBoxStyle" TargetType="TextBox" BasedOn="{StaticResource AppTextBoxStyle}">
-                <Setter Property="Height" Value="38"/>
-                <!-- 左侧 32 留给放大镜图标：图标 13 宽 + 左边距 10，文字从 32 起，
-                     与图标右缘之间留 9px 呼吸。光标必须紧贴图标，不能从图标底下穿过。 -->
-                <Setter Property="Padding" Value="32,0,10,0"/>
+                <!-- 与其它输入框同高 32：搜索框不是特殊的控件类别，
+                     它只是"带图标"的输入框，没理由高出一截。
+                     左侧 30 留给放大镜：图标 13 宽 + 左边距 9，文字从 30 起。 -->
+                <Setter Property="Height" Value="32"/>
+                <Setter Property="Padding" Value="30,0,10,0"/>
             </Style>
 
             <!-- ==================================================================
@@ -172,6 +191,8 @@
                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                 <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
                 <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="ComboBoxItem">
@@ -218,11 +239,13 @@
                  Popup 背景 #252526、圆角 6px、带投影、最大高度 280
                  ================================================================== -->
             <Style x:Key="AppComboBoxStyle" TargetType="ComboBox">
-                <Setter Property="FontFamily" Value="Microsoft YaHei UI, Microsoft YaHei, Segoe UI"/>
+                <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}"/>
                 <Setter Property="FontSize" Value="13"/>
-                <Setter Property="Height" Value="36"/>
+                <!-- 与 TextBox 完全同高同圆角（32 / 6）：任何一行里输入框和下拉框
+                     并排时都必须齐平，否则界面立刻显出手工拼凑的痕迹。 -->
+                <Setter Property="Height" Value="32"/>
                 <Setter Property="Padding" Value="10,0"/>
-                <Setter Property="Background" Value="{DynamicResource List.Background}"/>
+                <Setter Property="Background" Value="{DynamicResource Control.Background}"/>
                 <Setter Property="Foreground" Value="{DynamicResource Input.Foreground}"/>
                 <Setter Property="BorderBrush" Value="{DynamicResource Input.Border}"/>
                 <Setter Property="BorderThickness" Value="1"/>
@@ -230,7 +253,10 @@
                 <Setter Property="VerticalContentAlignment" Value="Center"/>
                 <Setter Property="HorizontalContentAlignment" Value="Left"/>
                 <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+                <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
                 <Setter Property="ItemContainerStyle" Value="{StaticResource AppComboBoxItemStyle}"/>
+
 
                 <!-- 显式声明条目面板：默认 VirtualizingStackPanel 在 Popup 里
                      会把条目拉伸/测高异常，导致 6 个选项占满整屏。

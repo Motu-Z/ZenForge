@@ -23,39 +23,55 @@
     -->
 
     <Page.Resources>
-        <!-- 日志行容器：灰底 + 1px 边 + 左侧 3px 级别色条。v12 的 .log-item -->
+        <!-- 日志行：无边框，靠 1px 底色分层与左侧 2px 级别色条区分。
+             旧版每行都是一张带边框的小卡片，一屏十条就是十个方框，
+             读完「级别」还要再读一遍「边框」——边框没有任何信息量。
+             改成无边框 + 极淡底色后，只有级别色条和徽章在着色，
+             眼睛可以顺着色条从上往下扫。 -->
         <Style x:Key="LogItemBorderStyle" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource Input.Background}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource Card.Border}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="Padding" Value="12,10,16,10"/>
-            <Setter Property="Margin" Value="0,0,0,10"/>
+            <Setter Property="Padding" Value="12,9"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
             <Setter Property="SnapsToDevicePixels" Value="True"/>
         </Style>
 
-        <!-- 时间列：等宽字体、次要色、固定 84 宽保证各行对齐 -->
+        <!-- 时间戳：L6 元数据 + 等宽。等宽是为了让每一行的毫秒位对齐，
+             一行 12:00:01.233、下一行 12:00:01.9 时列不会左右错开。 -->
         <Style x:Key="LogTimeTextStyle" TargetType="TextBlock">
-            <Setter Property="FontFamily" Value="Consolas, Cascadia Mono, monospace"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Foreground" Value="{DynamicResource Text.Disabled}"/>
-            <Setter Property="VerticalAlignment" Value="Top"/>
-            <!-- 徽章基线比正文高 1px（徽章内有 2px padding），时间跟它对齐 -->
-            <Setter Property="Margin" Value="0,3,0,0"/>
+            <Setter Property="FontFamily" Value="{StaticResource MonoFontFamily}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="{DynamicResource Text.MetaBrush}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
         </Style>
 
-        <!-- 级别徽章：2,6 内边距 + 圆角 4 + 12% 级别色底。底色由触发器按级别切换 -->
+        <!-- 级别徽章：12% 级别色底 + 圆角 4。底色由 DataTrigger 按级别切换。 -->
         <Style x:Key="LogBadgeBorderStyle" TargetType="Border">
             <Setter Property="CornerRadius" Value="4"/>
             <Setter Property="Padding" Value="6,2"/>
-            <Setter Property="VerticalAlignment" Value="Top"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="SnapsToDevicePixels" Value="True"/>
         </Style>
 
         <Style x:Key="LogBadgeTextStyle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}"/>
+            <Setter Property="FontSize" Value="10"/>
             <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="Foreground" Value="{DynamicResource Log.Info}"/>
+            <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+        </Style>
+
+        <!-- 日志页工具按钮：28 高，与 pill 严格等高。
+             由 SecondaryButtonStyle 派生，只压高度与内缩 ——
+             底色、圆角、hover 规则全部继承，不另起一套视觉。 -->
+        <Style x:Key="LogToolButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
         </Style>
     </Page.Resources>
 
@@ -77,7 +93,7 @@
            Row 2  搜索框
            Row 3  日志列表（占满剩余高度）
          ================================================================== -->
-    <Grid Margin="24,24,32,24">
+    <Grid Margin="28,6,28,24">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>   <!-- 页头 -->
             <RowDefinition Height="Auto"/>   <!-- 级别 pill -->
@@ -94,32 +110,30 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
+            <!-- VerticalAlignment="Bottom"：标题 26 + 副行 11 组成的块，
+                 与右侧 32 高的按钮组底边对齐 —— 顶部对齐会让按钮看起来
+                 「挂在标题上方」。 -->
             <StackPanel Grid.Column="0" VerticalAlignment="Bottom">
-                <TextBlock Text="日志" Style="{StaticResource PageTitleStyle}"/>
-                <!-- PageSubStyle 自带 Margin="0,6,0,0"，这里不再叠加 -->
+                <TextBlock Text="日志" Style="{StaticResource PageTitleStyle}" Margin="0"/>
                 <TextBlock x:Name="LogSubText"
                            Text="本次会话暂无记录"
                            Style="{StaticResource PageSubStyle}"/>
             </StackPanel>
-
-            <!-- 【页头右侧现在什么都不放】
-                 三个工具按钮下移到 pill 行（Row 1）右侧。原来的位置是页头右端，
-                 和「本次会话共 N 条」同一水平线 —— 但那行主要信息是"标题 + 条数"，
-                 按钮悬在最右边孤零零的，视线要走一个来回。
-                 挪到 pill 行之后，「筛什么 / 看多少 / 怎么操作」三件事在一行里解决，
-                 高度也天然对齐（见下面 Row 1 的说明）。 -->
         </Grid>
 
         <!-- ======= Row 1：级别 pill + 工具按钮 =======
-             左 pill / 右按钮，同一个 Grid 里的两个格子 —— 这是"等高"最省事的写法：
-             行高由两者中较高的那个决定，两列各自 VerticalAlignment=Center，
-             不需要给任何一方写死高度去凑。
+             【一行五件事，全部 28 高】
+             左：信息 / 警告 / 错误 / 致命 四枚 pill（WrapPanel，窄窗口时整体
+             换行但仍是同一组）；右：暂停 / 目录 / 清空 三个按钮。
 
-             【按钮为什么不再写 Height】
-             三个按钮走 SecondaryButtonStyle，那个样式给的是 Height=32；
-             pill 是 26 高。32 与 26 放在同一行，行高取 32，pill 垂直居中 ——
-             视觉上是 pill 悬浮在一条 32 高的带子里，上下各留 3px，读起来是"对齐的"。
-             反过来把按钮压到 26 会把文字挤到贴边，得不偿失。 -->
+             三等高的实现：pill 与按钮都写死 28，且都 VerticalAlignment="Center"。
+             旧版 pill 26 / 按钮 32，行高取 32，pill 上下各悬空 3px —— 肉眼看是
+             「四个胶囊飘在一条更粗的带子里」。统一到 28 之后它们的上下边缘
+             严格重合，读起来才是一整行工具栏。
+
+             按钮降到 28 而不是把 pill 抬到 32：pill 是筛选器（轻），按钮是动作（重），
+             让胶囊更高会喧宾夺主；28 也正好是 TitleBarButton 与徽章的高度，
+             全工程的「小控件」从此只有这一个尺寸。 -->
         <Grid Grid.Row="1" Margin="0,0,0,12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
@@ -136,39 +150,45 @@
                         VerticalAlignment="Center"
                         Margin="16,0,0,0">
                 <Button x:Name="PauseButton" Content="暂停日志记录"
-                        Style="{StaticResource SecondaryButtonStyle}"
-                        Margin="0,0,8,0"
+                        Style="{StaticResource LogToolButtonStyle}"
                         Click="PauseButton_Click"
                         ToolTip="暂停后会丢弃新产生的日志：既不进界面，也不写文件"/>
                 <Button Content="目录"
-                        Style="{StaticResource SecondaryButtonStyle}"
-                        Margin="0,0,8,0"
+                        Style="{StaticResource LogToolButtonStyle}"
                         Click="OpenLogFolderButton_Click"
                         ToolTip="在资源管理器中打开日志目录"/>
                 <Button Content="清空文件和内存"
-                        Style="{StaticResource SecondaryButtonStyle}"
+                        Style="{StaticResource LogToolButtonStyle}"
                         Margin="0"
                         Click="ClearLogButton_Click"
                         ToolTip="删除全部日志文件，并清空当前界面上的记录"/>
             </StackPanel>
         </Grid>
 
-        <!-- ======= Row 2：搜索 =======
-             同样去掉 VerticalAlignment="Bottom"。 -->
-        <Grid Grid.Row="2" Margin="0,0,0,16">
+        <!-- ======= Row 2：搜索 ======= -->
+        <Grid Grid.Row="2" Margin="0,0,0,14">
             <TextBox x:Name="SearchBox"
                      Style="{StaticResource SearchBoxStyle}"
                      TextChanged="SearchBox_TextChanged"
                      GotFocus="SearchBox_GotFocus"
                      LostFocus="SearchBox_LostFocus"
                      KeyDown="SearchBox_KeyDown"/>
+            <!-- 放大镜：与文字同色但更弱，位置和 Padding 左 30 对齐 -->
+            <Path x:Name="SearchIcon"
+                  HorizontalAlignment="Left" VerticalAlignment="Center"
+                  Margin="9,0,0,0" IsHitTestVisible="False"
+                  Width="13" Height="13"
+                  Stroke="{DynamicResource Text.MetaBrush}"
+                  StrokeThickness="1.3"
+                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                  Data="M 5.5,1 A 4.5,4.5 0 1 1 5.49,1 M 9,9 L 12,12"/>
             <TextBlock x:Name="SearchPlaceholder"
                        Text="按文本、字段或来源筛选"
-                       Margin="34,0,0,0"
+                       Margin="30,0,0,0"
                        VerticalAlignment="Center"
                        IsHitTestVisible="False"
                        FontSize="12"
-                       Foreground="{DynamicResource Text.Disabled}"/>
+                       Foreground="{DynamicResource Text.MetaBrush}"/>
         </Grid>
 
         <!-- ======= Row 3：日志列表（占满剩余高度） ======= -->
@@ -209,60 +229,74 @@
 
                 <ListBox.ItemTemplate>
                     <DataTemplate>
-                        <Border x:Name="Card" Style="{StaticResource LogItemBorderStyle}">
-                            <!-- 【列序：级别 → 时间 → 正文】
-                                 以前是「时间 → 级别 → 正文」，时间占住最左边的 84px，
-                                 级别徽章被推到右边 —— 于是每一行的"这是什么级别"都要
-                                 先跳过一段时间才能看到，扫视时眼睛没有落点。
-                                 级别是这一行最需要一眼分辨的信息（尤其在看警告的时候），
-                                 必须贴在最左侧。
-                                 时间挪到级别后面，宽度收到 78（HH:mm:ss.fff 在 Consolas
-                                 12px 下实测 74px，留 4px 余量），比原来的 84 更紧凑。 -->
+                        <!-- 【行结构：2px 级别色条 + 徽章 + 时间 + 正文】
+                             色条用 Grid 第 0 列而不是叠在 Border 边上 ——
+                             叠上去会被 Border 的圆角切掉首尾，看起来像断成了三截。
+                             放在列里则随内容高度自然拉伸，永远是一条完整的竖线。 -->
+                        <Border x:Name="Card" Style="{StaticResource LogItemBorderStyle}" Padding="0">
                             <Grid>
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="2"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
 
-                                <Border x:Name="Badge" Grid.Column="0"
-                                        Style="{StaticResource LogBadgeBorderStyle}"
-                                        Margin="0,1,10,0">
-                                    <TextBlock x:Name="BadgeText"
-                                               Text="{Binding LevelText}"
-                                               Style="{StaticResource LogBadgeTextStyle}"/>
-                                </Border>
+                                <Border x:Name="Bar"
+                                        Grid.Column="0"
+                                        Background="{DynamicResource Log.Info}"
+                                        CornerRadius="2,0,0,2"
+                                        VerticalAlignment="Stretch"/>
 
-                                <TextBlock Grid.Column="1"
-                                           Text="{Binding Time, StringFormat='HH:mm:ss.fff'}"
-                                           Width="78"
-                                           Style="{StaticResource LogTimeTextStyle}"/>
+                                <Grid Grid.Column="1" Margin="12,9,12,9">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
 
-                                <TextBlock Grid.Column="2"
-                                           Text="{Binding Message}"
-                                           TextWrapping="Wrap"
-                                           FontSize="13"
-                                           LineHeight="21"
-                                           Foreground="{DynamicResource Text.Primary}"/>
+                                    <Border x:Name="Badge" Grid.Column="0"
+                                            Style="{StaticResource LogBadgeBorderStyle}"
+                                            Margin="0,2,10,0"
+                                            VerticalAlignment="Top">
+                                        <TextBlock x:Name="BadgeText"
+                                                   Text="{Binding LevelText}"
+                                                   Style="{StaticResource LogBadgeTextStyle}"/>
+                                    </Border>
+
+                                    <!-- 时间 11px 等宽：HH:mm:ss.fff 实测 62px，给 66 留 4px 余量 -->
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding Time, StringFormat='HH:mm:ss.fff'}"
+                                               Width="66"
+                                               Style="{StaticResource LogTimeTextStyle}"
+                                               VerticalAlignment="Top"
+                                               Margin="0,5,10,0"/>
+
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding Message}"
+                                               TextWrapping="Wrap"
+                                               FontSize="13"
+                                               LineHeight="20"
+                                               Foreground="{DynamicResource Text.Primary}"
+                                               TextOptions.TextFormattingMode="Display"/>
+                                </Grid>
                             </Grid>
                         </Border>
 
                         <DataTemplate.Triggers>
-                            <!-- 级别配色：只染左边竖条 + 徽章底色 + 徽章文字。
+                            <!-- 级别配色：只染左边色条 + 徽章底色 + 徽章文字。
                                  全部走 Palette 里的语义色键，不在模板里写死十六进制：
                                  写死的话深浅两册无法各自取值，换主题后徽章底色会变成
                                  「深色册的 18% 透明度压在浅色卡片上」的脏色。 -->
                             <DataTrigger Binding="{Binding Level}" Value="Debug">
-                                <Setter TargetName="Card" Property="BorderBrush"
+                                <Setter TargetName="Bar" Property="Background"
                                         Value="{DynamicResource Text.Disabled}"/>
                                 <Setter TargetName="Badge" Property="Background"
                                         Value="{DynamicResource Input.Background}"/>
                                 <Setter TargetName="BadgeText" Property="Foreground"
-                                        Value="{DynamicResource Text.Disabled}"/>
+                                        Value="{DynamicResource Text.MetaBrush}"/>
                             </DataTrigger>
 
                             <DataTrigger Binding="{Binding Level}" Value="Warn">
-                                <Setter TargetName="Card" Property="BorderBrush"
+                                <Setter TargetName="Bar" Property="Background"
                                         Value="{DynamicResource Log.Warn}"/>
                                 <Setter TargetName="Badge" Property="Background"
                                         Value="{DynamicResource Log.WarnTint}"/>
@@ -271,7 +305,7 @@
                             </DataTrigger>
 
                             <DataTrigger Binding="{Binding Level}" Value="Error">
-                                <Setter TargetName="Card" Property="BorderBrush"
+                                <Setter TargetName="Bar" Property="Background"
                                         Value="{DynamicResource Log.Error}"/>
                                 <Setter TargetName="Badge" Property="Background"
                                         Value="{DynamicResource Log.ErrorTint}"/>
@@ -283,7 +317,7 @@
                                  放在 Error 之后声明，同优先级下后声明者生效，
                                  确保 Critical 拿到的是 #C42B1C 而不是 Error 的 #FF453A。 -->
                             <DataTrigger Binding="{Binding Level}" Value="Critical">
-                                <Setter TargetName="Card" Property="BorderBrush"
+                                <Setter TargetName="Bar" Property="Background"
                                         Value="{DynamicResource Log.Critical}"/>
                                 <Setter TargetName="Badge" Property="Background"
                                         Value="{DynamicResource Log.CriticalTint}"/>

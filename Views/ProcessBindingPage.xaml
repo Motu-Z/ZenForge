@@ -3,85 +3,128 @@
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:local="clr-namespace:ZenForge.Views"
       Title="进程"
+      FontFamily="{StaticResource AppFontFamily}"
+      FontSize="13"
+      TextOptions.TextFormattingMode="Display"
+      TextOptions.TextRenderingMode="ClearType"
       Focusable="False"
       FocusVisualStyle="{x:Null}">
     <!--
         ============================================================
-        进程页版式规格（v12）
+        进程页版式规格（v13）
         ============================================================
         模块一「运行中进程」
-          card-header-with-actions：左 16px 标题 / 右 [搜索框 180] [管理掩码] [应用规则]
+          卡头：左 16px 标题 / 右 [搜索框 180×32] [管理掩码] [应用规则]
           自绘表头：5 列 —— 进程名 / 路径 / 占用 / 核心掩码 / 优先级
-          数据行：同一套列宽，hover 铺 6% 白、选中铺 12% 强调色
-          优先级列只读（理由见 ProcessGroupRow.PriorityText 注释）
+          数据行：同一套列宽，hover 铺 6% 白
 
         模块二「已保存规则」
-          表头：左「标题 + 弱化徽章」/ 右「清空所有规则」
-          自绘三列 —— 进程名（吃满）/ 核心掩码（固定）/ 操作（固定）
+          卡头：左「标题 + 徽章」/ 右「清空所有规则」
+          自绘四列 —— 进程名（吃满）/ 核心掩码 / 优先级 / 操作
 
-        为什么不用 ListView + GridView：
-          v12 的表头是「12px 次要色小字、无底无边、与数据行同列宽配比」，
-          GridView 的列头模板做不到 1.5fr / 2fr 这类弹性配比，
+        【为什么不用 ListView + GridView】
+          v12 的表头是「10px 微标签、无底无边、与数据行同列宽配比」，
+          GridView 的列头模板做不到 1* / 4* 这类弹性配比，
           还得额外写列宽同步代码（上一版 ApplyColumnWidths 就是干这个的）。
-          改用 ItemsControl + 共享 Grid 列定义之后，列宽天然一致，
-          宽度自适应交给 WPF 布局引擎，那段去抖代码可以整体删掉。
+          ItemsControl + 两套独立 Grid 列定义之后，配比一致即可对齐，
+          宽度自适应交给布局引擎，那段去抖代码整体删掉。
 
-        对齐约定：
-          表头与数据行都用 Padding="12,0" / "12,10"，
-          第一列左边缘永远对齐；列间靠列定义宽度自身的间隔，
-          不再给单元格加左右 Margin（加了就会与表头错开）。
+        【对齐约定（这次统一的三条）】
+          1. 表头与数据行 Padding 都是 12：第一列左缘永远对齐。
+             列间只靠列定义宽度自带的间隔，不再给单元格加左右 Margin
+             —— 加了必然与表头错开。
+          2. 行内控件高度唯一口径：搜索框 32、表格内下拉 28、行内按钮 28。
+             以前搜索框 32、下拉 28 是随意的，现在 28 的依据是「行高 48 - 上下各 10」，
+             下拉与行内按钮同高，一行里不会有三种高度。
+          3. 卡内标题一律 CardTitleStyle（15/SemiBold），
+             不再单独写 FontSize=16 绕开层级 —— 那样标题会比别的页大一号。
     -->
 
     <Page.Resources>
-        <!-- 五列配比：进程名 1* / 路径 4* / 占用 80 / 掩码 120 / 优先级 110。
-             进程名与路径的 1:4 是「20% / 80%」：
-               进程名极少超过 20 个字符（图片里最长的 HRInstMonitor.exe 也就 20 个），
-               给到 1.5* 会在名字后留下大片空白，而路径被挤到只剩一半可见 ——
-               比例反过来才是对的，路径才是需要宽度的那个。
-             表头与数据行各自复制一份 —— Grid.ColumnDefinitions 不能共享实例，
-             但数值保持一致即可，这是 WPF 里对齐两套独立 Grid 的标准做法。 -->
+        <!-- 行间距：2px 让相邻两行的圆角 hover 底之间留一条缝，读起来不粘成一块 -->
         <Style x:Key="ProcRowGridStyle" TargetType="Grid">
             <Setter Property="Margin" Value="0,0,0,2"/>
+        </Style>
+
+        <!-- 表格内下拉：28 高、字号 12、内边距 8。
+             以前每个 ComboBox 手抄一遍 Height/FontSize/Padding，
+             五处写五遍，改一处漏四处。 -->
+        <Style x:Key="TableCellComboStyle" TargetType="ComboBox">
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="8,0"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+        <!-- 规则行末尾的操作按钮：定宽 72、高 28，三个并排等距。
+             去掉 Padding：八个字符的按钮文字由内容居中即可，
+             留 16px 内边距会把 72 宽的按钮挤成两行。 -->
+        <Style x:Key="RuleActionButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+            <Setter Property="Width" Value="72"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
         </Style>
     </Page.Resources>
 
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Margin="24,24,32,24">
+        <StackPanel Margin="28,6,28,24">
 
             <!-- ======= 页头 ======= -->
-            <StackPanel Margin="0,0,0,20">
-                <TextBlock Text="进程" Style="{StaticResource PageTitleStyle}"/>
-            </StackPanel>
+            <TextBlock Text="进程" Style="{StaticResource PageTitleStyle}"/>
 
-            <!-- ======= CPU Sets 拓扑不可用警告（默认隐藏，读取失败时显示） ======= -->
+            <!-- ======= CPU Sets 拓扑不可用提示（默认隐藏，读取失败时显示） =======
+                 不用 ⚠️ emoji：Windows 上 emoji 走彩色字形，
+                 在同一行里与正文的字号/基线都对不齐，还会把整行撑高。
+                 改成一个三角图标 + 文字，颜色已经是危险色，图标只是加强辨识。 -->
             <Border x:Name="TopologyWarningBanner"
                     Visibility="Collapsed"
                     Background="{DynamicResource DangerSoft}"
                     BorderBrush="{DynamicResource Danger}"
                     BorderThickness="1"
-                    CornerRadius="6"
-                    Padding="12,10"
-                    Margin="0,0,0,12">
-                <StackPanel>
-                    <TextBlock Text="⚠️ 无法读取系统 CPU Sets 拓扑，无损调度不可用。该接口需要管理员权限。"
-                               Foreground="{DynamicResource Danger}"
-                               FontWeight="SemiBold"
-                               TextWrapping="Wrap"/>
-                    <TextBlock x:Name="TopologyWarningDetail"
-                               Foreground="{DynamicResource Danger}"
-                               FontSize="11"
-                               Margin="0,4,0,0"
-                               TextWrapping="Wrap"
-                               Opacity="0.85"/>
-                </StackPanel>
+                    CornerRadius="8"
+                    Padding="14,12"
+                    Margin="0,0,0,16">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Path Grid.Column="0"
+                          Width="14" Height="14"
+                          VerticalAlignment="Top"
+                          Margin="0,2,10,0"
+                          Stretch="Uniform"
+                          Stroke="{DynamicResource Danger}"
+                          StrokeThickness="1.4"
+                          StrokeLineJoin="Round"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          Data="M 8,1.5 L 15,14 L 1,14 Z M 8,6.2 L 8,10 M 8,11.8 L 8,12"/>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="无法读取系统 CPU Sets 拓扑，无损调度不可用"
+                                   Foreground="{DynamicResource Danger}"
+                                   FontSize="13"
+                                   FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <TextBlock x:Name="TopologyWarningDetail"
+                                   Foreground="{DynamicResource Danger}"
+                                   Opacity="0.75"
+                                   FontSize="11"
+                                   Margin="0,4,0,0"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Grid>
             </Border>
 
             <!-- ===== 模块一：运行中进程 ===== -->
             <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
                 <StackPanel>
 
-                    <!-- 表头行：底边一条分隔线，标题 16px（v12 的 card-header-with-actions 把
-                         标题从 14 放大到 16，因为这里承担的是模块级标题而不是卡内小标题） -->
+                    <!-- 卡头 -->
                     <Border Style="{StaticResource CardHeaderBorderStyle}">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -91,24 +134,22 @@
 
                             <TextBlock Grid.Column="0"
                                        Text="运行中进程"
-                                       FontSize="16"
-                                       FontWeight="SemiBold"
-                                       Foreground="{DynamicResource Text.Primary}"
+                                       Style="{StaticResource CardTitleStyle}"
                                        VerticalAlignment="Center"
-                                       TextTrimming="CharacterEllipsis"/>
+                                       Margin="0"/>
 
-                            <!-- 搜索框 + 两个按钮：间距统一 10 -->
+                            <!-- 搜索框 + 两个按钮：间距统一 8，与设置页的按钮间距一致 -->
                             <StackPanel Grid.Column="1"
                                         Orientation="Horizontal"
                                         VerticalAlignment="Center"
                                         Margin="16,0,0,0">
 
                                 <!-- 搜索框：框内左侧内嵌放大镜。占位提示只由 SearchPlaceholder
-                                     一个 TextBlock 负责，避免与内联提示叠出"重影"。 -->
-                                <Grid Width="180" Margin="0,0,10,0">
+                                     一个 TextBlock 负责，避免与内联提示叠出「重影」。
+                                     左内边距 28 = 图标 13 + 左距 8 + 图标与文字 7。 -->
+                                <Grid Width="180" Margin="0,0,8,0">
                                     <TextBox x:Name="SearchBox"
-                                             Height="32"
-                                             Padding="26,0,10,0"
+                                             Padding="28,0,10,0"
                                              TextAlignment="Left"
                                              HorizontalContentAlignment="Left"
                                              VerticalContentAlignment="Center"
@@ -119,22 +160,22 @@
                                              KeyDown="SearchBox_KeyDown"/>
                                     <Path x:Name="SearchIcon"
                                           HorizontalAlignment="Left" VerticalAlignment="Center"
-                                          Margin="8,0,0,0" IsHitTestVisible="False"
-                                          Width="13" Height="13"
-                                          Stroke="{DynamicResource Text.Secondary}"
+                                          Margin="9,0,0,0" IsHitTestVisible="False"
+                                          Width="12" Height="12"
+                                          Stroke="{DynamicResource Text.MetaBrush}"
                                           StrokeThickness="1.2"
                                           StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                           Data="M 5.5,1 A 4.5,4.5 0 1 1 5.49,1 M 9,9 L 12,12"/>
                                     <TextBlock x:Name="SearchPlaceholder" Text="搜索进程..."
                                                HorizontalAlignment="Left" VerticalAlignment="Center"
-                                               Margin="26,0,0,0" IsHitTestVisible="False"
-                                               Foreground="{DynamicResource Text.Disabled}"
+                                               Margin="28,0,0,0" IsHitTestVisible="False"
+                                               Foreground="{DynamicResource Text.MetaBrush}"
                                                FontSize="12" Visibility="Collapsed"/>
                                 </Grid>
 
                                 <Button Content="管理掩码"
                                         Style="{StaticResource SecondaryButtonStyle}"
-                                        Margin="0,0,10,0"
+                                        Margin="0,0,8,0"
                                         Click="ManageMasks_Click"/>
 
                                 <Button x:Name="ApplySavedButton" Content="应用规则"
@@ -145,8 +186,8 @@
                         </Grid>
                     </Border>
 
-                    <!-- 自绘表头 -->
-                    <Grid Margin="0,0,0,10">
+                    <!-- 自绘表头。Padding 12 与数据行一致，第一列左缘对齐。 -->
+                    <Grid Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="1*"/>
                             <ColumnDefinition Width="4*"/>
@@ -164,8 +205,8 @@
                                     <ColumnDefinition Width="110"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="进程名" Style="{StaticResource TableHeaderTextStyle}"/>
-                                <TextBlock Grid.Column="1" Text="路径"   Style="{StaticResource TableHeaderTextStyle}"/>
-                                <!-- 占用列头可点：切换排序方向（v12 里这是唯一的排序入口） -->
+                                <TextBlock Grid.Column="1" Text="路径"   Style="{StaticResource TableHeaderTextStyle}" Margin="0,0,16,0"/>
+                                <!-- 占用列头可点：切换排序方向 -->
                                 <TextBlock x:Name="CpuHeaderText"
                                            Grid.Column="2"
                                            Text="占用 ▼"
@@ -173,25 +214,23 @@
                                            Cursor="Hand"
                                            ToolTip="点击切换排序方向（当前：从高到低）"
                                            MouseLeftButtonUp="CpuHeader_MouseLeftButtonUp"/>
-                                <TextBlock Grid.Column="3" Text="核心掩码" Style="{StaticResource TableHeaderTextStyle}"/>
-                                <TextBlock Grid.Column="4" Text="优先级" Style="{StaticResource TableHeaderTextStyle}"/>
+                                <TextBlock Grid.Column="3" Text="核心掩码" Style="{StaticResource TableHeaderTextStyle}" Margin="0,0,10,0"/>
+                                <TextBlock Grid.Column="4" Text="优先级" Style="{StaticResource TableHeaderTextStyle}" Margin="0,0,10,0"/>
                             </Grid>
                         </Border>
                     </Grid>
 
-                    <!-- 数据行。MaxHeight 限高，超出滚动。
-                         注意 ScrollViewer 外层已经有页面级滚动条，这里再套一个内层滚动条
-                         是必要的：进程数量可能上百，不内滚会把整页撑成几千像素。 -->
+                    <!-- 数据区。固定高 320，超出内滚。
+                         外层 ScrollViewer 已经是页面级滚动，这里必须再套一个内层：
+                         进程可能上百，不内滚会把整页撑成几千像素。 -->
                     <Grid Height="320">
                         <!-- 【虚拟化三件套】
                              ScrollViewer.CanContentScroll=True + VirtualizingStackPanel.IsVirtualizing
-                             + VirtualizingPanel.VirtualizationMode=Recycling
-                             缺一不可：CanContentScroll 为 False 时（默认物理滚动），
-                             ItemsControl 会把每一项都实测一遍高度，虚拟化直接失效。
-                             开启后 200+ 进程只创建可见的那十几行容器，滚动时复用，
-                             切页与滚动不再每秒卡一下。
-                             Recycling 而不是 Standard：Standard 每次滚动都新建容器
-                             （下拉框 + 3 个 TextBlock），复用能把分配量降一个数量级。 -->
+                             + VirtualizationMode=Recycling，缺一不可：
+                             CanContentScroll 为 False（默认物理滚动）时，
+                             ItemsControl 会把每一项都实测高度，虚拟化直接失效。
+                             Recycling 而非 Standard：Standard 每次滚动都新建容器
+                             （下拉框 + 3 个 TextBlock），复用能降一个数量级的分配。 -->
                         <ScrollViewer VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled"
                                       CanContentScroll="True">
@@ -216,6 +255,8 @@
                                                            Style="{StaticResource TableCellMainStyle}"
                                                            ToolTip="{Binding DisplayName}"/>
 
+                                                <!-- 路径以 Margin 让出右侧 16：它与「占用」列之间没有别的间隔，
+                                                     不留给文字会紧贴数字。 -->
                                                 <TextBlock Grid.Column="1"
                                                            Text="{Binding Path}"
                                                            Style="{StaticResource TableCellSubStyle}"
@@ -226,18 +267,12 @@
                                                            Text="{Binding CpuText}"
                                                            Style="{StaticResource TableCellSubStyle}"/>
 
-                                                <!-- 掩码下拉框：选择即热绑定该名称下所有 PID 并落盘 -->
+                                                <!-- 掩码下拉：选择即热绑定该名称下所有 PID 并落盘 -->
                                                 <ComboBox Grid.Column="3"
                                                           ItemsSource="{Binding Source={x:Static local:ProcessBindingPage.TargetOptions}}"
                                                           SelectedItem="{Binding Selection, Mode=TwoWay}"
                                                           IsEnabled="{Binding CanBind}"
-                                                          Height="28"
-                                                          FontSize="12"
-                                                          Padding="8,0"
-                                                          MinWidth="0"
-                                                          Margin="0,0,10,0"
-                                                          HorizontalAlignment="Stretch"
-                                                          VerticalAlignment="Center"
+                                                          Style="{StaticResource TableCellComboStyle}"
                                                           ToolTip="{Binding Selection}"
                                                           DropDownOpened="TargetCombo_DropDownOpened"
                                                           DropDownClosed="TargetCombo_DropDownClosed"/>
@@ -245,32 +280,26 @@
                                                 <!-- 优先级：与掩码同款下拉。
                                                      【为什么以前只读、现在能改】
                                                      早期担心「把忙等型进程提到 High 会把桌面饿死」——
-                                                     那是 RealTime 才有的问题。下拉里最高只到
-                                                     High，且 Windows 自带的任务管理器本来就能改，
-                                                     拦着不给改只是让用户去任务管理器绕一圈。
+                                                     那是 RealTime 才有的问题。下拉最高只到 High，
+                                                     且 Windows 自带任务管理器本来就能改，
+                                                     拦着只是让用户绕一圈去任务管理器。
                                                      选项里刻意不给 RealTime：它高于系统输入线程，
-                                                     一旦给了就会有人去试，然后发现鼠标卡住。
+                                                     一旦给了就会有人试，然后鼠标卡住。
 
-                                                     选中即生效（不需要再按「应用」）——
-                                                     优先级只作用于进程当前实例，不落盘、不进规则，
-                                                     进程退出后自然回到默认，没有「半套状态」的风险。 -->
+                                                     选中即生效（不需要按「应用」）：
+                                                     优先级只作用于当前实例，不落盘、不进规则，
+                                                     进程退出自然回默认，没有「半套状态」风险。 -->
                                                 <ComboBox Grid.Column="4"
                                                           ItemsSource="{Binding Source={x:Static local:ProcessBindingPage.PriorityOptions}}"
                                                           SelectedItem="{Binding PrioritySelection, Mode=TwoWay}"
-                                                          Height="28"
-                                                          FontSize="12"
-                                                          Padding="8,0"
-                                                          MinWidth="0"
-                                                          Margin="0,0,10,0"
-                                                          HorizontalAlignment="Stretch"
-                                                          VerticalAlignment="Center"
+                                                          Style="{StaticResource TableCellComboStyle}"
                                                           ToolTip="{Binding PriorityHint}"
                                                           DropDownOpened="PriorityCombo_DropDownOpened"
                                                           DropDownClosed="PriorityCombo_DropDownClosed"/>
                                             </Grid>
                                         </Border>
                                         <DataTemplate.Triggers>
-                                            <!-- 绑定指令下发后的瞬时反馈：整行短暂闪青 -->
+                                            <!-- 指令下发后的瞬时反馈：整行短暂闪青 -->
                                             <DataTrigger Binding="{Binding Flash}" Value="True">
                                                 <Setter TargetName="Row" Property="Background"
                                                         Value="{DynamicResource AccentSoftBrush}"/>
@@ -296,7 +325,7 @@
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel>
 
-                    <!-- 表头行：左「标题 + 徽章」，右「清空所有规则」 -->
+                    <!-- 卡头：左「标题 + 徽章」，右「清空所有规则」 -->
                     <Border Style="{StaticResource CardHeaderBorderStyle}">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -304,12 +333,14 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
+                            <!-- 标题与徽章同为 28 高、垂直居中：
+                                 以前标题 16px 文字与 28 高的徽章靠 VerticalAlignment=Center
+                                 勉强对齐，但文字基线仍偏低 1px。现在两者放进 28 高的行里居中。 -->
                             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                                 <TextBlock Text="已保存规则"
-                                           FontSize="16"
-                                           FontWeight="SemiBold"
-                                           Foreground="{DynamicResource Text.Primary}"
-                                           VerticalAlignment="Center"/>
+                                           Style="{StaticResource CardTitleStyle}"
+                                           VerticalAlignment="Center"
+                                           Margin="0"/>
                                 <Border Style="{StaticResource StatusBadgeStyle}"
                                         HorizontalAlignment="Left"
                                         Margin="10,0,0,0"
@@ -328,27 +359,25 @@
                         </Grid>
                     </Border>
 
-                    <!-- 表头：三列 -->
-                    <Grid Margin="0,0,0,10">
+                    <!-- 表头：四列。Padding 12 与数据行一致。 -->
+                    <Grid Margin="0,0,0,8">
                         <Border Padding="12,0">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="176"/>
                                     <ColumnDefinition Width="150"/>
-                                    <ColumnDefinition Width="264"/>
+                                    <ColumnDefinition Width="248"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="进程名" Style="{StaticResource TableHeaderTextStyle}"/>
-                                <TextBlock Grid.Column="1" Text="核心掩码" Style="{StaticResource TableHeaderTextStyle}"/>
-                                <TextBlock Grid.Column="2" Text="优先级" Style="{StaticResource TableHeaderTextStyle}"/>
+                                <TextBlock Grid.Column="0" Text="进程名" Style="{StaticResource TableHeaderTextStyle}" Margin="0,0,16,0"/>
+                                <TextBlock Grid.Column="1" Text="核心掩码" Style="{StaticResource TableHeaderTextStyle}" Margin="0,0,10,0"/>
+                                <TextBlock Grid.Column="2" Text="优先级" Style="{StaticResource TableHeaderTextStyle}" Margin="0,0,10,0"/>
                                 <TextBlock Grid.Column="3" Text="操作" Style="{StaticResource TableHeaderTextStyle}"/>
                             </Grid>
                         </Border>
                     </Grid>
 
                     <Grid Height="300">
-                        <!-- 同上的虚拟化三件套。规则通常只有几条，
-                             但用户可能导入几十条，成本一致，没理由不做。 -->
                         <ScrollViewer VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled"
                                       CanContentScroll="True">
@@ -363,78 +392,59 @@
                                                     <ColumnDefinition Width="*"/>
                                                     <ColumnDefinition Width="176"/>
                                                     <ColumnDefinition Width="150"/>
-                                                    <ColumnDefinition Width="264"/>
+                                                    <ColumnDefinition Width="248"/>
                                                 </Grid.ColumnDefinitions>
 
+                                                <!-- 进程名 + 次要信息两行。外层必须 VerticalAlignment=Center：
+                                                     两行文字合计 26px，行高 48，居中才不会贴顶。 -->
                                                 <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
                                                     <TextBlock Text="{Binding Name}"
                                                                Style="{StaticResource TableCellMainStyle}"
                                                                ToolTip="{Binding ToolTipText}"/>
-                                                    <!-- 次要信息（路径 / 停用提示）压在进程名下方一行，
-                                                         这样三列结构不被第四列挤占。 -->
+                                                    <!-- 次要信息用 Text.Meta 而不是 Text.Disabled：
+                                                         Disabled（30% 白）是「不可用」的语义，
+                                                         拿来写路径对比度只有 2.6:1，读不出来。 -->
                                                     <TextBlock Text="{Binding SubText}"
-                                                               FontSize="11"
-                                                               Foreground="{DynamicResource Text.Disabled}"
-                                                               TextTrimming="CharacterEllipsis"
-                                                               Margin="0,2,0,0"
+                                                               Style="{StaticResource TableCellSubStyle}"
+                                                               Margin="0,3,0,0"
                                                                Visibility="{Binding SubTextVisibility}"/>
                                                 </StackPanel>
 
                                                 <ComboBox Grid.Column="1"
                                                           ItemsSource="{Binding Source={x:Static local:ProcessBindingPage.TargetOptions}}"
                                                           SelectedItem="{Binding Selection, Mode=TwoWay}"
-                                                          Height="28"
-                                                          FontSize="12"
-                                                          Padding="8,0"
-                                                          MinWidth="0"
-                                                          Margin="0,0,10,0"
-                                                          HorizontalAlignment="Stretch"
-                                                          VerticalAlignment="Center"
+                                                          Style="{StaticResource TableCellComboStyle}"
                                                           ToolTip="切换后点右侧「应用」才会生效"/>
 
-                                                <!-- 优先级：与运行中进程同款下拉，但这里是「保存的下次值」，
-                                                     改完要点右侧「应用」才落盘并下发 —— 与掩码的行为一致。 -->
+                                                <!-- 优先级：这里是「保存的下次值」，
+                                                     改完要点右侧「应用」才落盘并下发 —— 与掩码行为一致。 -->
                                                 <ComboBox Grid.Column="2"
                                                           ItemsSource="{Binding Source={x:Static local:ProcessBindingPage.PriorityOptions}}"
                                                           SelectedItem="{Binding PrioritySelection, Mode=TwoWay}"
-                                                          Height="28"
-                                                          FontSize="12"
-                                                          Padding="8,0"
-                                                          MinWidth="0"
-                                                          Margin="0,0,10,0"
-                                                          HorizontalAlignment="Stretch"
-                                                          VerticalAlignment="Center"
+                                                          Style="{StaticResource TableCellComboStyle}"
                                                           ToolTip="切换后点右侧「应用」才会生效"/>
 
-                                                <!-- 三个按钮等宽等高、间距均匀 -->
+                                                <!-- 三个按钮等宽等高、间距 8。最后一个 Margin 归零，行右缘与表头右缘对齐。 -->
                                                 <StackPanel Grid.Column="3"
                                                             Orientation="Horizontal"
                                                             VerticalAlignment="Center"
                                                             HorizontalAlignment="Left">
                                                     <Button Content="{Binding EnableLabel}"
-                                                            Style="{StaticResource SecondaryButtonStyle}"
-                                                            Width="72" Height="28" MinWidth="0"
-                                                            Padding="0" Margin="0,0,8,0"
-                                                            VerticalAlignment="Center"
-                                                            Click="ToggleRuleEnabled_Click"
+                                                            Style="{StaticResource RuleActionButtonStyle}"
                                                             Tag="{Binding}"
-                                                            ToolTip="{Binding EnableHint}"/>
+                                                            ToolTip="{Binding EnableHint}"
+                                                            Click="ToggleRuleEnabled_Click"/>
                                                     <Button Content="应用"
-                                                            Style="{StaticResource SecondaryButtonStyle}"
-                                                            Width="72" Height="28" MinWidth="0"
-                                                            Padding="0" Margin="0,0,8,0"
-                                                            VerticalAlignment="Center"
-                                                            Click="ApplySingleRule_Click"
+                                                            Style="{StaticResource RuleActionButtonStyle}"
                                                             Tag="{Binding}"
-                                                            ToolTip="把这条规则立即下发到正在运行的实例"/>
+                                                            ToolTip="把这条规则立即下发到正在运行的实例"
+                                                            Click="ApplySingleRule_Click"/>
                                                     <Button Content="删除"
-                                                            Style="{StaticResource SecondaryButtonStyle}"
-                                                            Width="72" Height="28" MinWidth="0"
-                                                            Padding="0" Margin="0"
-                                                            VerticalAlignment="Center"
-                                                            Click="DeleteSingleRule_Click"
+                                                            Style="{StaticResource RuleActionButtonStyle}"
+                                                            Margin="0"
                                                             Tag="{Binding}"
-                                                            ToolTip="只删除这一条规则"/>
+                                                            ToolTip="只删除这一条规则"
+                                                            Click="DeleteSingleRule_Click"/>
                                                 </StackPanel>
                                             </Grid>
                                         </Border>

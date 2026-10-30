@@ -381,7 +381,7 @@ namespace ZenForge.Views
             string raw = (AccentHexBox.Text ?? string.Empty).Trim();
             if (!TryNormalizeHex(raw, out string hex, out string err))
             {
-                DarkDialog.ShowWarning(err, "颜色格式不正确");
+                ToastService.Warning(err);
                 AccentHexBox.Focus();
                 AccentHexBox.SelectAll();
                 return;
@@ -491,18 +491,16 @@ namespace ZenForge.Views
                 {
                     SetToggle(AutoStartToggle, !enable);
 
-                    DarkDialog.ShowWarning(
-                        enable
-                            ? "创建计划任务失败。请确认已以管理员身份运行，然后重试。\n\n详细信息见日志页。"
-                            : "删除计划任务失败。请确认已以管理员身份运行，然后重试。\n\n详细信息见日志页。",
-                        "ZenForge · 开机自启");
+                    ToastService.Error(enable
+                        ? "创建计划任务失败，请确认已以管理员身份运行后重试（详细信息见日志页）"
+                        : "删除计划任务失败，请确认已以管理员身份运行后重试（详细信息见日志页）");
                 }
             }
             catch (Exception ex)
             {
                 LogService.Error($"切换开机自启失败：{ex.Message}");
                 SetToggle(AutoStartToggle, !enable);
-                DarkDialog.ShowError($"操作失败：{ex.Message}", "ZenForge · 开机自启");
+                ToastService.Error($"开机自启切换失败：{ex.Message}");
             }
             finally
             {
@@ -729,11 +727,8 @@ namespace ZenForge.Views
 
                 if (enabled && !actual)
                 {
-                    DarkDialog.ShowWarning(
-                        "后台调度监听未能启动。\n\n" +
-                        "常见原因是已有另一个 ZenForge 实例在监听，同一台机器只允许一个。\n" +
-                        "详细信息见日志页。",
-                        "后台常驻调度");
+                    ToastService.Warning(
+                        "后台调度监听未能启动：同一台机器只允许一个实例监听，请检查是否已有 ZenForge 在运行");
                 }
             }
             catch (Exception ex)
@@ -767,7 +762,7 @@ namespace ZenForge.Views
             catch (Exception ex)
             {
                 LogService.Error($"SMU 自检失败：{ex}");
-                DarkDialog.ShowError($"自检过程中出错：\n{ex.Message}", "自检失败");
+                ToastService.Error($"自检过程中出错：{ex.Message}");
                 return;
             }
             finally
@@ -778,7 +773,7 @@ namespace ZenForge.Views
 
             if (string.IsNullOrEmpty(path))
             {
-                DarkDialog.ShowWarning("自检未能生成报告文件。", "自检");
+                ToastService.Warning("自检未能生成报告文件");
                 return;
             }
 
@@ -846,8 +841,7 @@ namespace ZenForge.Views
             catch (Exception ex)
             {
                 LogService.Critical($"全局重置过程异常：{ex}");
-                DarkDialog.ShowError($"重置过程中出现异常：\n{ex.Message}\n\n请查看日志确认已完成的部分。",
-                                     "恢复出厂设置");
+                ToastService.Error($"重置过程中出现异常：{ex.Message}（请查看日志确认已完成的部分）");
             }
             finally
             {
@@ -872,14 +866,12 @@ namespace ZenForge.Views
                 return;
             }
 
-            // 有失败项：Toast 装不下细节，改用模态把失败清单念清楚。
-            // 成功的那部分照常生效，不需要用户再做什么。
-            ToastService.Warning($"已恢复出厂设置，但 {report.Failed.Count} 项未完成");
-            DarkDialog.ShowWarning(
-                "已恢复出厂设置，以下项目未能完成：\n\n" +
-                string.Join("\n", report.Failed.Select(f => "· " + f)) +
-                "\n\n其余项目均已生效。详细信息见日志页。",
-                "恢复出厂设置");
+            // 有失败项：成功的那部分照常生效，不需要用户再做什么，
+            // 所以走 Toast（一句摘要）而不是模态清单 ——
+            // 完整失败清单写进日志页，用户要追细节时去那儿看。
+            ToastService.Warning($"已恢复出厂设置，但 {report.Failed.Count} 项未完成，详见日志页");
+            foreach (string item in report.Failed)
+                LogService.Warn($"[恢复出厂] 未完成：{item}");
         }
 
         // ==================== 诊断：详细日志 ====================

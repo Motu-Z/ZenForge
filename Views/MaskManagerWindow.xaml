@@ -10,8 +10,10 @@
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         Background="{DynamicResource Window.Background}"
-        FontFamily="Microsoft YaHei UI, Microsoft YaHei, Segoe UI"
+        FontFamily="{StaticResource AppFontFamily}"
         FontSize="13"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType"
         UseLayoutRounding="True"
         FocusVisualStyle="{x:Null}">
 
@@ -142,7 +144,7 @@
             <!-- ===================== 标题栏（可拖动） ===================== -->
             <Border Grid.Row="0"
                     Background="Transparent"
-                    Padding="20,16,12,0"
+                    Padding="20,16,20,0"
                     MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -235,8 +237,8 @@
                             <TextBlock x:Name="MaskCountText"
                                        Grid.Column="1"
                                        FontSize="11"
-                                       Margin="6,0,0,0"
-                                       Foreground="{DynamicResource Text.Disabled}"
+                                       Margin="8,0,0,0"
+                                       Foreground="{DynamicResource Text.MetaBrush}"
                                        VerticalAlignment="Center"/>
                         </Grid>
 
@@ -360,8 +362,8 @@
                                 Content="新建"
                                 Style="{StaticResource SecondaryButtonStyle}"
                                 HorizontalAlignment="Stretch"
-                                MinWidth="0" Height="30"
-                                Margin="6,6,6,8"
+                                MinWidth="0"
+                                Margin="6,8,6,8"
                                 Padding="6,0"
                                 FontSize="12"
                                 ToolTip="新建一条自定义掩码（最多 10 套）"
@@ -393,13 +395,13 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Button Grid.Column="0" Content="全部核心" Style="{StaticResource SecondaryButtonStyle}"
-                                HorizontalAlignment="Stretch" MinWidth="0" Padding="6,0" Margin="0"
+                                HorizontalAlignment="Stretch" MinWidth="0" Padding="10,0" Margin="0"
                                 Click="SelectAll_Click"/>
                         <Button Grid.Column="2" Content="物理核心" Style="{StaticResource SecondaryButtonStyle}"
-                                HorizontalAlignment="Stretch" MinWidth="0" Padding="6,0" Margin="0"
+                                HorizontalAlignment="Stretch" MinWidth="0" Padding="10,0" Margin="0"
                                 Click="SelectPhysCore_Click"/>
                         <Button Grid.Column="4" Content="反向选择" Style="{StaticResource SecondaryButtonStyle}"
-                                HorizontalAlignment="Stretch" MinWidth="0" Padding="6,0" Margin="0"
+                                HorizontalAlignment="Stretch" MinWidth="0" Padding="10,0" Margin="0"
                                 Click="Invert_Click"/>
                     </Grid>
 
@@ -422,12 +424,12 @@
                                 Margin="0,14,0,0">
                         <Button Content="取消"
                                 Style="{StaticResource SecondaryButtonStyle}"
-                                MinWidth="96" Padding="18,0"
-                                Margin="0,0,10,0"
+                                MinWidth="96"
+                                Margin="0,0,8,0"
                                 Click="Close_Click"/>
                         <Button Content="保存"
                                 Style="{StaticResource PrimaryButtonStyle}"
-                                MinWidth="96" Padding="18,0"
+                                MinWidth="96"
                                 Margin="0"
                                 Click="Save_Click"/>
                     </StackPanel>

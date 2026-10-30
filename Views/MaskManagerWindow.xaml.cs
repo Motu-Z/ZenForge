@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -573,7 +573,7 @@ namespace ZenForge.Views
             if (!MaskNamePolicy.IsValid(name, MaskStore.NamesExceptId(mask.Id), out string error))
             {
                 if (!silent)
-                    DarkDialog.ShowWarning(error, "名称不可用");
+                    ToastService.Warning(error);
 
                 LogService.Debug($"[掩码窗口] 名称不可用，已回退：{error}");
                 return;
@@ -597,7 +597,7 @@ namespace ZenForge.Views
             if (!MaskStore.Upsert(mask, out MaskStore.UpsertError err))
             {
                 mask.Name = oldName;   // 写盘被拒，内存里也要回滚，否则界面与文件不一致
-                DarkDialog.ShowWarning(DescribeError(err), "改名失败");
+                ToastService.Warning(DescribeError(err));
                 RefreshList();
                 return;
             }
@@ -640,9 +640,7 @@ namespace ZenForge.Views
 
             if (MaskStore.IsFull)
             {
-                DarkDialog.ShowWarning(
-                    $"自定义掩码最多 {MaskStore.MaxCount} 套，当前已满。\n删除一条不用的掩码后即可新建。",
-                    "已达上限");
+                ToastService.Warning($"自定义掩码最多 {MaskStore.MaxCount} 套，当前已满。删除一条不用的掩码后即可新建。");
                 return;
             }
 
@@ -769,7 +767,7 @@ namespace ZenForge.Views
 
             if (row == null)
             {
-                DarkDialog.ShowWarning("请先点「新建」或从左侧选择一条掩码。", "没有可保存的掩码");
+                ToastService.Warning("请先点「新建」或从左侧选择一条掩码。");
                 return;
             }
 
@@ -780,14 +778,14 @@ namespace ZenForge.Views
             if (!MaskNamePolicy.IsValid(name, MaskStore.NamesExceptId(row.Id), out string error))
             {
                 // 保存是用户主动动作，这里必须明确告知原因
-                DarkDialog.ShowWarning(error, "名称不可用");
+                ToastService.Warning(error);
                 return;
             }
 
             CollectMask(out ulong mask);
             if (mask == 0)
             {
-                DarkDialog.ShowWarning("请至少勾选一个核心 / 线程。", "掩码为空");
+                ToastService.Warning("请至少勾选一个核心 / 线程。");
                 return;
             }
 
@@ -798,7 +796,7 @@ namespace ZenForge.Views
             if (!MaskStore.Upsert(row, out MaskStore.UpsertError err))
             {
                 row.Name = oldName;
-                DarkDialog.ShowWarning(DescribeError(err), "保存失败");
+                ToastService.Error(DescribeError(err));
                 return;
             }
 
@@ -812,7 +810,7 @@ namespace ZenForge.Views
 
             LogService.Info($"已保存自定义掩码「{row.Name}」（{row.CoreCount} 个线程）");
             LogService.Debug($"[掩码窗口] 保存：{(wasDraft ? "草稿→落盘" : "更新已有")}，mask=0x{mask:X}");
-            DarkDialog.ShowSuccess($"已保存掩码「{row.Name}」。", "保存成功");
+            ToastService.Success($"已保存掩码「{row.Name}」");
         }
 
         /// <summary>全部核心：所有逻辑处理器（含 T1）全勾。</summary>

@@ -9,9 +9,12 @@
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         Background="{DynamicResource Window.Background}"
-        FontFamily="Microsoft YaHei UI, Microsoft YaHei, Segoe UI"
+        FontFamily="{StaticResource AppFontFamily}"
         FontSize="13"
-        UseLayoutRounding="True">
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
 
     <!-- 无边框外壳。CaptionHeight 必须为 0：
          只要保留非零值，系统就把这块当 HTCAPTION 吃掉 WM_NCLBUTTONDOWN，
@@ -26,12 +29,12 @@
     </shell:WindowChrome.WindowChrome>
 
     <!-- =====================================================================
-         骨架（v13）：侧栏 200px + 右侧「拖拽栏 40px / 内容 *」
+         骨架（v14）：侧栏 208px（含 8px 外缩进的独立浮起面板）+ 右侧「拖拽栏 40px / 内容 *」
          =====================================================================
          为什么要多出这一条 40px 的拖拽栏：
            窗口按钮挪到右上角之后，侧栏不再是唯一的拖动来源。如果只把按钮移走、
            不给内容区一条能按住拖动、能双击最大化的横条，用户就只剩侧栏那一条
-           200px 宽的窄带可以拖窗口 —— 窗口拉宽以后，这个比例会越用越别扭。
+           窄带可以拖窗口 —— 窗口拉宽以后，这个比例会越用越别扭。
 
          关于 8px 窗口圆角：
            无边框窗口在系统层面仍是直角。CornerRadius=8 只是 GlassFrameThickness=0
@@ -45,56 +48,74 @@
          再在右列内部竖着分两行。 -->
     <Grid Background="{DynamicResource Window.Background}">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="200"/>
+            <ColumnDefinition Width="208"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
         <!-- ===================== 侧栏 =====================
+             【不再是「贴到窗口边缘的一条」】
+             整个侧栏缩进 8px 并给 12px 圆角，成为一块独立的浮起面板。
+             原先它从 x=0 一路顶到 y=0，与内容区共用同一个边界，
+             视觉上像「窗口左边被刷了一块深色」，而不是「有一块导航面板」。
+
+             缩进之后必须同时给四角圆角，否则圆角只在上方可见、下方
+             被窗口边缘切断 —— 那比直角更难看。
+
              侧栏仍然整块可拖（品牌区 + 导航下方空白），这样「想拖窗口」的
              老习惯不会因为按钮移走而失效。导航项在模板层拦掉了
-             MouseLeftButtonUp，所以点导航不会变成拖拽（详见 MainWindow.xaml.cs）。
+             MouseLeftButtonUp，所以点导航不会变成拖拽。
 
-             横向 Padding 必须为 0：SideNavItemStyle 的选中竖条要贴在
-             x=0 这条线上，侧栏 Border 只要带一点左右 Padding，竖条就会被推进来。
-             原来底部窗口按钮放在这里，那层 Border 的 Padding="12,8" 不参与
-             导航的布局，所以没暴露问题；现在导航项自己负责左右内边，
-             外框不需要任何横向内边。 -->
+             Padding="8,6,8,8"：左右各 8 内边，导航项的选中块这才有地方
+             显示它的 8px 圆角（详见 Controls.xaml 的侧栏导航注释）。 -->
         <Border Grid.Column="0"
+                Margin="8,8,0,8"
                 Background="{DynamicResource SideBar.Background}"
                 BorderBrush="{DynamicResource SideBar.Border}"
-                BorderThickness="0,0,1,0"
-                Padding="0"
+                BorderThickness="1"
+                CornerRadius="12"
+                Padding="8,6,8,8"
                 SnapsToDevicePixels="True"
                 MouseLeftButtonDown="Chrome_MouseLeftButtonDown">
             <Grid>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="56"/>   <!-- 品牌 -->
+                    <RowDefinition Height="52"/>   <!-- 品牌 -->
                     <RowDefinition Height="*"/>    <!-- 导航 -->
                     <RowDefinition Height="Auto"/> <!-- 版本号 -->
                 </Grid.RowDefinitions>
 
                 <!-- 品牌：全窗口唯一一处 ZenForge。
-                     18px / Bold。原来是 15px，和侧栏导航项（13px）只差 2px，
-                     读起来像「一个稍大一点的导航项」而不是品牌。 -->
-                <TextBlock Grid.Row="0"
-                           Text="ZenForge"
-                           Margin="18,0,16,0"
-                           VerticalAlignment="Center"
-                           FontSize="18"
-                           FontWeight="Bold"
-                           Foreground="{DynamicResource Text.Primary}"/>
+                     17px / Bold。与导航项（13 / Medium）拉开 4px 且加粗，
+                     读起来是「产品名」而不是「一个稍大的导航项」。
+                     左边距 8：与外层 Padding 8 相加得 16，正好等于导航项
+                     文字起点的视觉余量（导航项内缩 13 + 竖条列 3）。 -->
+                <StackPanel Grid.Row="0"
+                            Orientation="Horizontal"
+                            Margin="8,0,8,0"
+                            VerticalAlignment="Center">
+                    <!-- 品牌标记：一枚 6×6 的强调色圆点。
+                         不是装饰 —— 侧栏顶部需要一个「不是文字」的锚点，
+                         纯文字品牌在深色面板上容易被读成又一个导航项。 -->
+                    <Ellipse Width="6" Height="6"
+                             Margin="0,0,8,0"
+                             VerticalAlignment="Center"
+                             Fill="{DynamicResource AccentBrush}"/>
+                    <TextBlock Text="ZenForge"
+                               VerticalAlignment="Center"
+                               FontSize="17"
+                               FontWeight="Bold"
+                               Foreground="{DynamicResource Text.Primary}"/>
+                </StackPanel>
 
                 <!-- 导航。分组标题是 TextBlock 不是 ToggleButton ——
                      SetActiveNav 里 `if (child is ToggleButton)` 会自动跳过它，
                      选中逻辑一行不用改。
 
-                     【左边距必须是 0】SideNavItemStyle 的模板里竖条在 0 列、
-                     自身 Margin 也是 0，只要这里给一点左边距，竖条就永远
-                     贴不到侧栏边缘。右侧留 12：选中背景块不贴右边界，保留呼吸。 -->
+                     导航项自身 Margin=0：选中块的四角圆角要完整显示，
+                     任何额外外边距都会让它在视觉上「缩进不齐」。 -->
                 <StackPanel x:Name="NavPanel"
                             Grid.Row="1"
                             Orientation="Vertical"
-                            Margin="0,8,12,0">
+                            Margin="0,10,0,0">
                     <ToggleButton Style="{StaticResource SideNavItemStyle}"
                                   Content="调校"
                                   Tag="Views/TuningPage.xaml"
@@ -122,14 +143,13 @@
                                   Click="NavButton_Click"/>
                 </StackPanel>
 
-                <!-- 底部只留版本号。窗口按钮已经挪到右上角的拖拽栏，
-                     这里不再有 Border 顶边线 —— 一条只有一行小字的竖排尾巴，
-                     加横线反而像「被截断的内容」。 -->
+                <!-- 底部版本号 → L6 元数据。左缩进 11 与导航项文字（3 + 13 - 3）
+                     大致对齐；它不是导航项，微差反而说明「这一行不属于上面那组」。 -->
                 <TextBlock x:Name="VersionText"
                            Grid.Row="2"
-                           Margin="18,0,16,16"
+                           Margin="11,0,8,8"
                            FontSize="11"
-                           Foreground="{DynamicResource Text.Disabled}"/>
+                           Foreground="{DynamicResource Text.MetaBrush}"/>
             </Grid>
         </Border>
 

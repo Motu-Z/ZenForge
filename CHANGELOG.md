@@ -29,6 +29,79 @@ ZenForge 各版本改动记录。安装包与 Release 正文均以本文件为�
 
 程序内部（日志、关于信息）显示的版本取自 `AssemblyInformationalVersion`，带后缀；资源管理器「属性 → 详细信息」里的文件版本是四段数字。两者一对照就能确定这个包是第几次发版。
 
+### 1.0.0-can6
+
+全工程 UI 返工（间距 / 字体层级 / 组件高度三套口径），并把几乎全部阻塞式弹窗改为 Toast。
+另修一个 can6 首包启动即崩溃的资源键冲突。
+
+**0. 启动崩溃：`Text.Meta` 同时是画刷和样式（can6 首包）**
+
+首包在窗口 Measure 阶段抛 `InvalidOperationException：“System.Windows.Style”不是属性“Foreground”的有效值`，
+主窗口永远出不来，第二次启动也只会走到「唤出主窗口失败」。
+
+根因是两个字典定义了同一个键：调色板里 `Text.Meta` 是 `SolidColorBrush`（46% 白），
+`Typography.xaml` 里 `Text.Meta` 是 `TextBlock` 的 `Style`。
+`MergedDictionaries` 按声明顺序装填，后装的 `Typography.xaml` 把画刷顶掉，
+于是 `Foreground="{DynamicResource Text.Meta}"` 拿到一个 `Style` 对象。
+
+编译期查不出来：`MarkupCompilePass1` 不解析跨字典的键类型，
+`StaticResource`/`DynamicResource` 都是运行时才解析，BAML 照常生成、0 警告 0 错误。
+
+修法是画刷改名 `Text.MetaBrush`（与既有 `AccentBrush` / `AccentSoftBrush` 命名对齐），
+`Style` 保留 `Text.Meta`。同时补了一道静态检查：所有 `Style` 类型的键，
+只能出现在 `Style=` / `BasedOn=` / `*Style=` 这类属性上。
+
+**1. 间距与对齐**
+
+- 侧栏从贴窗口边缘的整条改为浮起面板：独立底色、四角 12 圆角、四周留 8。
+  导航项圆角由 `0,6,6,0` 改为完整四角 8，选中竖条收进内部不再被裁。
+- 设置页原本并存三种行结构（`StackPanel` 堆叠 / 裸 `TextBlock` / 三层嵌套 `Grid`），
+  统一为 `Grid(左* / 右Auto)` + `Stack.LabelBlock`。层数不同则垂直居中参照不同，并排看基线是歪的。
+- 行距全工程收敛到 20 一个数，最后一行改用 `CardRowLastStyle` / `SettingRowLastStyle` 归零。
+- 卡片圆角 8 → 10，内边距 `20,24` → `20,22`。
+
+**2. 字体层级（新文件 `Themes/Typography.xaml`）**
+
+七个层级键：L1 页面标题 26 / L2 卡片标题 15 / L3 核心数值 16 等宽 / L4 主标签 13 /
+L5 说明 12 60% / L6 元数据 11 46% / L7 微标签 10。
+旧键名（`CardTitleStyle` / `PageTitleStyle` / `CardRowLabelStyle` …）全部 `BasedOn` 新层级，
+页面不必改引用，将来调层级只动一处。
+
+单独成册的原因：`StaticResource` 只查「本字典 + 本字典合并的字典」，不向上查父字典，
+兄弟字典互相看不见。`Controls.xaml` 里的样式要 `BasedOn` 这些键，
+就必须放进一个 App 与 Controls 都 Merge 的独立字典。
+
+- 全部窗口与页面开启 `TextFormattingMode="Display"` + `TextRenderingMode="ClearType"`
+  （`Ideal` 按字形轮廓做亚像素定位，13px 中文在 100% 缩放下发虚）。
+- 数值一律等宽字体：FMax 输入框、CO 单元格、色值框、日志时间戳。
+  `-28` 与 `0` 在比例字体下宽度差近一倍，一列数字会参差不齐。
+- `Text.Disabled`（30% 白）不再用于元数据，改走新增的 46% 白档 —— 原对比度约 2.6:1，读不出来。
+
+**3. 组件高度只有两档**
+
+输入框 / 下拉框 32，行内按钮 28，开关 22。清掉了散落的 30 / 34 / 36 / 38。
+表格内下拉收进 `TableCellComboStyle`（进程页原本五处各抄一遍）。
+日志页 4 枚 pill 与 3 个工具按钮同为 28，同一条水平线。
+按钮选中态只换填充不换边框 —— `BorderThickness` 从 1 改 2 会让文字左右各移 1px，看起来在抖。
+
+**4. 阻塞式弹窗清理（27 处 → 8 处）**
+
+判据：能一句话说完 + 不需要用户当场决定 → Toast；破坏性操作 → 保留二次确认。
+剩下 8 处全是后者（删掩码 / 删规则 / 清空规则 / 恢复出厂），外加两处启动前硬阻断
+（缺少 .NET 运行时、Dispatcher 未处理异常）—— 那时主窗口还没建，Toast 没有宿主。
+
+长失败清单（恢复出厂的部分失败项）不再用模态列出，改为一句 Toast + 逐条写日志页。
+
+**5. 局部修复**
+
+- 右键菜单项加 4px 圆角与 `Margin="4,1"`，否则高亮块方角会顶破菜单的 6px 圆角。
+- 进程页警告条的 ⚠️ emoji 换成矢量三角 —— Windows 上 emoji 走彩色字形，与正文基线和字号都对不齐。
+- 「核心停放」读不到时整卡折叠成一行提示，不再显示拖了没反应的滑块；
+  错误按「权限 / 不存在 / 其它」三分流成可操作的说法。
+- 日志行去掉无信息量的方框边框，改为 2px 级别色条（色条进 `Grid` 列，避免被 `Border` 圆角切断首尾）。
+- 输入框底色从 `Input.Background`（20% 黑，比卡片还暗，像挖了个洞）改为新增的 `Control.Background`（6% 白）。
+- 深色册按钮底色整体压暗，从「四个发亮方块」改为克制中性。
+
 ### 1.0.0-can5
 
 两个处理器级新旋钮、优先级可下发、配置页界面落地，以及日志页与设置页返工。

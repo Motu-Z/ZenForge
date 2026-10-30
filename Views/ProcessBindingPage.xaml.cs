@@ -1268,11 +1268,9 @@ namespace ZenForge.Views
                 return true;
 
             CheckTopology();
-            DarkDialog.ShowError(
-                "CPU Sets 拓扑不可用，规则无法生效。\n\n" +
-                $"原因：{CpuSetBinder.LastTopologyError ?? "未能枚举到任何逻辑处理器"}\n\n" +
-                "请尝试以管理员身份重新运行 ZenForge。",
-                "无法调度");
+            // 顶部的警告条已经把这件事故障原因常驻显示在页面上，
+            // 这里再弹一个必须点确定的框只是重复告知 —— 走 Toast 即可。
+            ToastService.Error("CPU Sets 拓扑不可用，规则无法生效，请以管理员身份重新运行");
             return false;
         }
 
@@ -1621,13 +1619,13 @@ namespace ZenForge.Views
             BindingRule? rule = BindingStore.LookupByName(row.Name);
             if (rule == null)
             {
-                DarkDialog.ShowWarning("该规则已不存在。", "应用规则");
+                ToastService.Warning("该规则已不存在");
                 return;
             }
 
             if (rule.Target == BindingTarget.None)
             {
-                DarkDialog.ShowWarning("该规则没有设置绑定目标。", "应用规则");
+                ToastService.Warning("该规则没有设置绑定目标");
                 return;
             }
 
