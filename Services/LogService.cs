@@ -71,22 +71,48 @@ namespace ZenForge.Services
         /// 程序现在是常驻的（关窗收进托盘后一直活着），日志集合只增不减会把内存
         /// 一点点吃光。超限后从头部丢弃，保证内存有界。
         ///
-        /// 【2000 → 800 → 500】
+        /// 【2000 → 800 → 500 → 320】
         /// 2000 条按每条约 200 字节的字符串 + 对象头，常驻约 500KB～1MB；
         /// 更贵的是 UI 侧：每次新增都要让 ListBox 重排，筛选时还要整表重建。
-        /// 而实际上没人会翻到第 500 条以前 —— 要看历史有磁盘日志，
+        /// 而实际上没人会翻到几百条以前 —— 要看历史有磁盘日志（Debug 级也落盘），
         /// 界面上只承担「最近发生了什么」。
-        /// 500 条 ≈ 满屏 30 行的 16 屏，足够定位刚刚发生的问题。
+        ///
+        /// 收窄到 320 的依据是条数之外的第二个变量：单条长度。
+        /// 全局异常的完整堆栈常达 2～8KB，同样的 500 条，若里面掺着十几条堆栈，
+        /// 常驻内存就从几百 KB 跳到几 MB —— 条数上限根本拦不住它。
+        /// 所以这一版同时给单条消息加了长度上限（见 <see cref="MaxMessageChars"/>），
+        /// 两个上限相乘才是真正的内存天花板：320 × 2KB ≈ 640KB，且恒定。
+        /// 320 条 ≈ 满屏 30 行的 10 屏，仍够定位刚刚发生的问题。
         /// </summary>
-        private const int MaxEntries = 500;
+        private const int MaxEntries = 320;
 
         /// <summary>
         /// 单次丢弃的批量。
         ///
         /// 每删一条，界面上的列表就要整体下移一次。逐条删等于每条日志都让
         /// UI 重排整个列表，攒够一批再删就只有批量那一刻有开销。
+        ///
+        /// 128 → 64：集合本身变小了，一次丢 128 等于瞬间砍掉三分之一屏，
+        /// 用户正在往下翻时会看到列表「跳一下」。64 是「批量」与「不突兀」的平衡点，
+        /// 峰值条数（320 + 64）仍然有界。
         /// </summary>
-        private const int TrimBatch = 128;
+        private const int TrimBatch = 64;
+
+        /// <summary>
+        /// 单条消息进入内存集合时的长度上限（超出截断）。
+        ///
+        /// 【为什么必须截】
+        /// 条数上限管的是「多少条」，管不了「一条多大」。未捕获异常的堆栈、
+        /// WMI 查询报错整段吐回来的 HRESULT 描述，都是几 KB 起步；
+        /// 全局异常限流后前 3 条仍写完整栈，一次启动崩溃就是十几 KB × 3。
+        /// 这些字符串全部被内存集合强引用着，直到被 Trim 出去才释放。
+        ///
+        /// 【为什么只截内存、不截落盘】
+        /// Debug 级与磁盘是事后排查的唯一凭据，磁盘空间比内存便宜三个数量级，
+        /// 那里保留原文。界面上 2000 字符已经能看完栈顶（根因就在最前面几行），
+        /// 剩下的部分用户也不会在 13px 的列表里翻。
+        /// </summary>
+        private const int MaxMessageChars = 2000;
 
         /// <summary>日志文件最长留存天数，超过的启动即删。</summary>
         private const int MaxRetentionDays = 14;
@@ -108,7 +134,19 @@ namespace ZenForge.Services
         /// 对不上说明这批已经被用户清掉了，直接丢弃，别把旧日志又写回刚删掉的文件。
         /// </summary>
         private static int _generation;
-        private static readonly ManualResetEventSlim FileSignal = new(false);
+
+        /// <summary>
+        /// 落盘线程的唤醒信号。
+        ///
+        /// 【为什么必须是 AutoResetEvent】
+        /// ManualResetEventSlim 置位后不会自动复位，要靠代码显式 Reset()；
+        /// 一旦 Set 落在「Wait 已返回、Reset 还没执行」这个缝里，信号就被吃掉，
+        /// 那一批日志要白等一个 500ms 周期。同一个坑在采样线程上已经踩过一次
+        /// （永久置位导致忙等自旋），这里是它的轻量版。
+        /// AutoResetEvent 在 WaitOne 返回时自动复位，Set 一次唤醒一个等待者，
+        /// 本线程是唯一等待者，语义刚好，也不需要再写 Reset()。
+        /// </summary>
+        private static readonly AutoResetEvent FileSignal = new(false);
 
         static LogService()
         {
@@ -399,11 +437,13 @@ namespace ZenForge.Services
             if (Paused && level != LogLevel.Critical)
                 return;
 
+            // Debug 不截断：它只落盘，磁盘是事后排查的唯一凭据，保留原文。
+            // 其余级别要进内存集合，按 MaxMessageChars 截顶，避免一条堆栈吃掉几十 KB。
             LogEntry entry = new()
             {
                 Time = DateTime.Now,
                 Level = level,
-                Message = message
+                Message = level == LogLevel.Debug ? message : Clip(message)
             };
 
             // Debug 只落盘：不进 UI 集合，也不往 UI 线程封送。
@@ -419,6 +459,19 @@ namespace ZenForge.Services
                 UiContext.Post(_ => WriteOnUiThread(entry), null);
             else
                 WriteOnUiThread(entry);
+        }
+
+        /// <summary>超出 <see cref="MaxMessageChars"/> 的部分截掉，尾部标注被截了多少字符。</summary>
+        private static string Clip(string message)
+        {
+            if (message.Length <= MaxMessageChars)
+                return message;
+
+            return string.Concat(
+                message.AsSpan(0, MaxMessageChars),
+                "…(截断 ",
+                (message.Length - MaxMessageChars).ToString(CultureInfo.InvariantCulture),
+                " 字符)");
         }
 
         private static void WriteOnUiThread(LogEntry entry)
@@ -456,10 +509,14 @@ namespace ZenForge.Services
         /// 写线程会一直积压，而 UI 侧还在源源不断地产日志 ——
         /// 没有上限的话这里就是一条隐形的内存泄漏，而且越卡越涨。
         ///
-        /// 满了两千条说明落盘已经严重滞后，此时丢最旧的：日志是用来排查问题的，
-        /// 为了保住一条旧日志把进程撑爆，本末倒置。
+        /// 【2000 → 800】
+        /// 队列里存的是 LogEntry 引用，字符串本身与内存集合共享、不额外复制，
+        /// 但每条仍要占一个对象 + 队列节点。真正的风险窗口是「写线程卡住的那几秒」：
+        /// 按单条上限 2KB 算，2000 条意味着最多能积压 4MB；降到 800 条即 1.6MB 封顶，
+        /// 而后台线程每 500ms 就清一次队，正常状态下队列只有个位数 —— 800 的余量
+        /// 足够扛住一次几秒的磁盘卡顿，不需要更多。
         /// </summary>
-        private const int MaxPendingFile = 2000;
+        private const int MaxPendingFile = 800;
 
         /// <summary>把条目排进落盘队列。UI 线程上只做入队，真正的写由后台线程完成。</summary>
         private static void EnqueueFile(LogEntry entry)
@@ -483,8 +540,8 @@ namespace ZenForge.Services
             {
                 try
                 {
-                    FileSignal.Wait(500);
-                    FileSignal.Reset();
+                    // 最多等 500ms：即使没有任何 Set，也要把这段时间攒下的条目写掉
+                    FileSignal.WaitOne(500);
                     FlushPendingFile();
                 }
                 catch
