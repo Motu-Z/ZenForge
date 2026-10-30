@@ -140,15 +140,19 @@
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
 
+                                        <!-- 默认隐藏必须写在 Style 的 Setter 里，不能写成
+                                             Visibility="Collapsed" 属性：属性是局部值，
+                                             优先级高于样式里的 Trigger，写成属性就等于
+                                             这个圆点永远不会显示。 -->
                                         <Ellipse Grid.Column="0"
                                                  Width="6"
                                                  Height="6"
                                                  Margin="0,0,8,0"
                                                  VerticalAlignment="Center"
-                                                 Fill="{DynamicResource AccentBrush}"
-                                                 Visibility="Collapsed">
+                                                 Fill="{DynamicResource AccentBrush}">
                                             <Ellipse.Style>
                                                 <Style TargetType="Ellipse">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding IsActive}" Value="True">
                                                             <Setter Property="Visibility" Value="Visible"/>
