@@ -136,23 +136,7 @@ namespace ZenForge.Views
         {
             SetSmuState(SmuUiState.Probing, "ZenStates-Core 只读探测");
 
-            SmuSnapshot? snapshot = null;
-            string? fatalError = null;
-
-            try
-            {
-                snapshot = await System.Threading.Tasks.Task.Run(() =>
-                {
-                    SmuReader reader = SmuReader.Shared;
-                    if (!reader.IsAvailable)
-                        throw new InvalidOperationException(reader.LastError ?? "ZenStates-Core 初始化失败");
-                    return reader.ReadSnapshot();
-                });
-            }
-            catch (Exception ex)
-            {
-                fatalError = ex.Message;
-            }
+            (SmuSnapshot? snapshot, string? fatalError) = await ReadSnapshotAsync();
 
             if (snapshot == null || !snapshot.Success)
             {
@@ -165,6 +149,27 @@ namespace ZenForge.Views
             }
 
             ApplySnapshot(snapshot);
+        }
+
+        /// <summary>后台读一次快照。失败时返回 null，reason 说明原因。</summary>
+        private static async System.Threading.Tasks.Task<(SmuSnapshot? Snapshot, string? Error)> ReadSnapshotAsync()
+        {
+            try
+            {
+                SmuSnapshot snapshot = await System.Threading.Tasks.Task.Run(() =>
+                {
+                    SmuReader reader = SmuReader.Shared;
+                    if (!reader.IsAvailable)
+                        throw new InvalidOperationException(reader.LastError ?? "ZenStates-Core 初始化失败");
+                    return reader.ReadSnapshot();
+                });
+
+                return (snapshot, null);
+            }
+            catch (Exception ex)
+            {
+                return (null, ex.Message);
+            }
         }
 
         private void ApplySnapshot(SmuSnapshot snapshot)
@@ -465,11 +470,7 @@ namespace ZenForge.Views
         {
             try
             {
-                SmuSnapshot? snapshot = await System.Threading.Tasks.Task.Run(() =>
-                {
-                    SmuReader reader = SmuReader.Shared;
-                    return reader.IsAvailable ? reader.ReadSnapshot() : null;
-                });
+                (SmuSnapshot? snapshot, _) = await ReadSnapshotAsync();
                 if (snapshot != null && snapshot.Success)
                     Dispatcher.Invoke(() => ApplySnapshot(snapshot));
             }
@@ -553,22 +554,11 @@ namespace ZenForge.Views
             SetWriteButtonsEnabled(false);
             SetSmuState(SmuUiState.Probing, "手动刷新：从 SMU 现读");
 
-            SmuSnapshot? snapshot = null;
-            string? error = null;
-
+            SmuSnapshot? snapshot;
+            string? error;
             try
             {
-                snapshot = await System.Threading.Tasks.Task.Run(() =>
-                {
-                    SmuReader reader = SmuReader.Shared;
-                    if (!reader.IsAvailable)
-                        throw new InvalidOperationException(reader.LastError ?? "ZenStates-Core 初始化失败");
-                    return reader.ReadSnapshot();
-                });
-            }
-            catch (Exception ex)
-            {
-                error = ex.Message;
+                (snapshot, error) = await ReadSnapshotAsync();
             }
             finally
             {

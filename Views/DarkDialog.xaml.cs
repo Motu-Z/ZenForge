@@ -60,6 +60,18 @@ namespace ZenForge.Views
             }
         }
 
+        /// <summary>图标配色：符号色 + 圆底色（浅色主题用同色系浅调、深色主题用原色）。</summary>
+        private readonly record struct IconPalette(string Glyph, string SoftFill, string DeepInk)
+        {
+            public static IconPalette For(DialogKind kind) => kind switch
+            {
+                DialogKind.Success => new("\u2713", "#16C60C", "#0B6B06"),  // ✓ 绿
+                DialogKind.Warning => new("!", "#FFB900", "#5C4200"),       // ! 黄
+                DialogKind.Error => new("\u2715", "#C42B1C", "#7A1810"),    // ✕ 红
+                _ => new(kind == DialogKind.Question ? "?" : "i", "#00B4D8", "#00566B")
+            };
+        }
+
         // ==================== 静态入口 ====================
 
         /// <summary>信息提示（青色 i 图标 + 单个“确定”）。</summary>
@@ -116,44 +128,13 @@ namespace ZenForge.Views
             DarkDialog dialog = new();
 
             dialog.TitleTextBlock.Text = string.IsNullOrWhiteSpace(title) ? "ZenForge" : title;
-            dialog.MessageTextBlock.Text = message ?? string.Empty;
 
-            // 长文本自动放宽高度（SizeToContent 会处理，这里只保证短文本不显空）
-            if (string.IsNullOrEmpty(message))
-                dialog.MessageTextBlock.Text = " ";
+            // 短文本会被 SizeToContent 压成一条细缝，给个空格保住行高
+            dialog.MessageTextBlock.Text = string.IsNullOrEmpty(message) ? " " : message;
 
             dialog.CancelButton.Visibility = showCancel ? Visibility.Visible : Visibility.Collapsed;
 
-            // 按类型设置图标与配色。
-            //
-            // 原来这里是白字 + 彩色圆底：深色主题下好看，但浅色主题下白色对号压在
-            // 浅色底上几乎看不见（截图里那个"白勾糊在青色圆里"就是这个）。
-            // 改成"浅色底 + 深色符号"，两种主题都成立：
-            // 底色用同色系浅调，符号用同色系深调，对比度在任何主题下都够。
-            (string glyph, string softFill, string deepInk) = kind switch
-            {
-                DialogKind.Success => ("\u2713", "#16C60C", "#0B6B06"),   // ✓ 绿
-                DialogKind.Warning => ("!", "#FFB900", "#5C4200"),        // ! 黄
-                DialogKind.Error => ("\u2715", "#C42B1C", "#7A1810"),     // ✕ 红
-                DialogKind.Question => ("?", "#00B4D8", "#00566B"),       // ? 青
-                _ => ("i", "#00B4D8", "#00566B")                          // i 青
-            };
-
-            dialog.IconGlyph.Text = glyph;
-            dialog.IconGlyph.FontWeight = FontWeights.Bold;
-            dialog.IconGlyph.Foreground = new SolidColorBrush(
-                (Color)ColorConverter.ConvertFromString(deepInk));
-
-            // 圆底：深色主题用原色（饱和度高、在暗背景上显眼），
-            // 浅色主题用同色系的浅化版本，避免深色块在浅色卡片上过于抢眼。
-            bool light = IsLightTheme();
-            dialog.IconBadge.Background = new SolidColorBrush(
-                (Color)ColorConverter.ConvertFromString(light ? LightenHex(softFill) : softFill));
-
-            // 浅色底配深色符号、深色底配白色符号，保证始终可读
-            if (!light)
-                dialog.IconGlyph.Foreground = new SolidColorBrush(
-                    (Color)ColorConverter.ConvertFromString(kind == DialogKind.Warning ? "#101010" : "#FFFFFF"));
+            ApplyIcon(dialog, IconPalette.For(kind));
 
             // 居中于主窗口。
             // 必须用 App.RealMainWindow：托盘菜单那个 1×1 宿主也是 Window 且是可见的，
@@ -164,6 +145,24 @@ namespace ZenForge.Views
 
             return dialog;
         }
+
+        /// <summary>
+        /// 按主题上色。原先这里是「白字 + 彩色圆底」：深色主题下好看，浅色主题下
+        /// 白色对号压在浅底上几乎看不见。改成底色取同色系浅调、符号取同色系深调，
+        /// 两套主题下对比度都够。
+        /// </summary>
+        private static void ApplyIcon(DarkDialog dialog, IconPalette palette)
+        {
+            bool light = IsLightTheme();
+
+            dialog.IconGlyph.Text = palette.Glyph;
+            dialog.IconGlyph.FontWeight = FontWeights.Bold;
+            dialog.IconGlyph.Foreground = Brush(light ? palette.DeepInk : "#FFFFFF");
+            dialog.IconBadge.Background = Brush(light ? LightenHex(palette.SoftFill) : palette.SoftFill);
+        }
+
+        private static SolidColorBrush Brush(string hex) =>
+            new((Color)ColorConverter.ConvertFromString(hex));
 
         /// <summary>当前是否处于浅色主题（决定弹窗图标的配色方案）。</summary>
         private static bool IsLightTheme()

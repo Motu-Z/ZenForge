@@ -15,7 +15,7 @@ using ZenForge.Views;
 namespace ZenForge
 {
     /// <summary>
-    /// Interaction logic for App.xaml
+    /// 应用入口：单实例仲裁、提权、启动路径编排、全局异常兜底。
     /// </summary>
     public partial class App : Application
     {
@@ -49,23 +49,11 @@ namespace ZenForge
         public static System.Threading.ManualResetEventSlim? BackgroundExitSignal;
 
         /// <summary>
-        /// 真正的主窗口。
-        ///
-        /// 为什么不直接用 Application.MainWindow：
-        ///   · 托盘菜单宿主是第一个被 Show 出来的 Window，WPF 会把 MainWindow 指到它身上，
-        ///     拿它当宿主（当对话框 Owner、当导航目标）弹窗会跑到屏幕 (-10000,-10000) 去；
-        ///   · 轻量模式「仅驻留服务」会把主窗口整个销毁，此时 MainWindow 指向的是一个
-        ///     已经 Closed 的残骸，谁用它谁炸。
-        ///
-        /// 所以主窗口实例由 App 自己持有，创建与销毁都走 <see cref="SetMainWindow"/> /
-        /// <see cref="ReleaseMainWindow"/>。
-        /// </summary>
-        /// <summary>
         /// 面向用户的版本号，取自 AssemblyInformationalVersion。
         ///
-        /// 不用 <c>GetName().Version</c>：那是四段数字（0.8.5.0），
-        /// 而后缀（-can1 / -pre1 / -fix1）只存在于 InformationalVersion。
-        /// 金丝雀版和正式版在界面上必须能一眼分开，否则用户报问题时分不清跑的是哪个。
+        /// 不用 <c>GetName().Version</c>：那是四段数字（0.9.0.0），
+        /// 而后缀（-can1 / -rc1）只存在于 InformationalVersion。
+        /// 测试版和正式版在界面上必须能一眼分开，否则用户报问题时分不清跑的是哪个。
         /// 曾经被 SDK 追加的 "+&lt;commit&gt;" 已在 csproj 里关掉。
         /// </summary>
         public static string VersionText { get; } = ReadVersionText();
@@ -108,9 +96,21 @@ namespace ZenForge
                 _mainWindow = null;
         }
 
-        public static MainWindow? CurrentMainWindow => _mainWindow;
-
+        /// <summary>
+        /// 真正的主窗口。
+        ///
+        /// 为什么不直接用 Application.MainWindow：
+        ///   · 托盘菜单宿主是第一个被 Show 出来的 Window，WPF 会把 MainWindow 指到它身上，
+        ///     拿它当宿主（当对话框 Owner、当导航目标）弹窗会跑到屏幕 (-10000,-10000) 去；
+        ///   · 轻量模式「仅留服务进程」会把主窗口整个销毁，此时 MainWindow 指向的是一个
+        ///     已经 Closed 的残骸，谁用它谁炸。
+        ///
+        /// 所以主窗口实例由 App 自己持有，创建与销毁都走 <see cref="SetMainWindow"/> /
+        /// <see cref="ReleaseMainWindow"/>。
+        /// </summary>
         public static Window? RealMainWindow => _mainWindow;
+
+        public static MainWindow? CurrentMainWindow => _mainWindow;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -153,27 +153,9 @@ namespace ZenForge
 
                 LogService.Info("升级 3/6：加载设置 / 主题 / 存储");
 
-                // 后台宿主注入的唤醒回调指向已销毁的原生托盘，这里换成 WPF 版本。
-                // 唤醒宿主窗口在后台常驻时已经建好（EnsureCreated 幂等，这里只是兜底），
-                // 通道不变，只换回调目标 —— 这样即使升级过程中丢了引用，
-                // 下一次双击仍然能找到同一个窗口。
-                WakeWindow.EnsureCreated();
-                WakeWindow.Activated = () =>
-                    Dispatcher.BeginInvoke(new Action(TrayIconService.ShowOrCreateMainWindow));
-
-                // 命名事件通道作为兜底保留（同权限级时更省事），两路都指向同一个回调
-                SingleInstance.WakeRequested = () =>
-                    Dispatcher.BeginInvoke(new Action(TrayIconService.ShowOrCreateMainWindow));
-
+                AttachWakeChannel();
                 DisableFocusVisuals();
-
-                UiSettingsStore.Load();
-                ThemeService.Initialize();
-                ThemeService.StartSystemMonitor();
-
-                TuningStore.Load();
-                MaskStore.Load();
-                BindingStore.Load();
+                LoadStores();
 
                 LogService.Info("升级 4/6：启动进程采样与绑核回调");
 
@@ -217,24 +199,7 @@ namespace ZenForge
             //   2. 命令行 -debug / --debug；
             //   3. 环境变量 ZENFORGE_DEBUG=1。
             // 放在 base.OnStartup 之前，保证窗口构造期间的日志也能被记录。
-            try
-            {
-                if (!LogService.Verbose)
-                {
-                    bool byArg = e.Args.Any(a =>
-                        string.Equals(a, "-debug", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(a, "--debug", StringComparison.OrdinalIgnoreCase));
-
-                    bool byEnv = string.Equals(
-                        Environment.GetEnvironmentVariable("ZENFORGE_DEBUG"), "1", StringComparison.Ordinal);
-
-                    LogService.Verbose = byArg || byEnv;
-                }
-            }
-            catch
-            {
-                // 开关解析失败不应影响启动
-            }
+            EnableVerboseLogIfRequested(e.Args);
 
             // ==================== 单实例：先探测 ====================
             // 必须在 base.OnStartup 之前：基类会按 StartupUri 把主窗口造出来并显示，
@@ -393,12 +358,7 @@ namespace ZenForge
             // 启动的是中等权限。低权限 → 高权限方向，EventWaitHandle.OpenExisting
             // 会被 ACL 拒绝，于是「明明有一个在跑，双击却没反应，还多一个幽灵进程」。
             // 窗口消息不受这个限制，只要对方把消息加进 UIPI 白名单。
-            WakeWindow.EnsureCreated();
-            WakeWindow.Activated = () =>
-                Dispatcher.BeginInvoke(new Action(TrayIconService.ShowOrCreateMainWindow));
-
-            SingleInstance.WakeRequested = () =>
-                Dispatcher.BeginInvoke(new Action(TrayIconService.ShowOrCreateMainWindow));
+            AttachWakeChannel();
 
             DispatcherUnhandledException += OnDispatcherUnhandledException;
 
@@ -408,15 +368,7 @@ namespace ZenForge
             // 全局禁用焦点虚线框（必须在任何控件被创建之前执行）
             DisableFocusVisuals();
 
-            // 读取界面设置（主题 / 强调色），并应用主题
-            UiSettingsStore.Load();
-            ThemeService.Initialize();
-            ThemeService.StartSystemMonitor();
-
-            // 读取调校 / 绑核 / 掩码的本地配置（供界面显示与开机静默自启重新应用）
-            TuningStore.Load();
-            MaskStore.Load();
-            BindingStore.Load();
+            LoadStores();
 
             // 按设置启动后台调度监听（轮询 bindings.json）。
             // 总闸「开启后台服务」关着就不启动 —— 用户没要后台，不该悄悄占着全局互斥体。
@@ -553,55 +505,31 @@ namespace ZenForge
         /// </summary>
         private static void HardStop()
         {
-            try
-            {
-                ProcessWatcher.Stop();
-            }
-            catch
-            {
-                // 忽略
-            }
-
-            try
-            {
-                ProcessRefresher.Stop();
-            }
-            catch
-            {
-                // 忽略
-            }
-
-            try
-            {
-                TrayIconService.Shutdown();
-            }
-            catch
-            {
-                // 忽略
-            }
+            Quietly(ProcessWatcher.Stop);
+            Quietly(ProcessRefresher.Stop);
+            Quietly(TrayIconService.Shutdown);
 
             // 唤醒宿主窗口跟着一起收：留着它等于留一个「进程已死但还能被 FindWindow 命中」
             // 的假地址，下一次双击会 PostMessage 到无效句柄，看起来像唤不醒。
-            try
-            {
-                WakeWindow.Destroy();
-            }
-            catch
-            {
-                // 忽略
-            }
+            Quietly(WakeWindow.Destroy);
 
             // 日志是后台批量落盘的，退出前把最后几条冲掉
+            Quietly(LogService.Flush);
+
+            SingleInstance.Release();
+        }
+
+        /// <summary>退出阶段的收摊动作一律不许抛：前一步失败不能连累后面的清理。</summary>
+        private static void Quietly(Action action)
+        {
             try
             {
-                LogService.Flush();
+                action();
             }
             catch
             {
                 // 忽略
             }
-
-            SingleInstance.Release();
         }
 
         /// <summary>
@@ -690,6 +618,57 @@ namespace ZenForge
         }
 
         /// <summary>
+        /// 挂唤醒回调。唤醒宿主窗口在后台常驻时已经建好（EnsureCreated 幂等，这里只是兜底），
+        /// 通道不变、只换回调目标 —— 这样即使升级过程中丢了引用，下一次双击仍能找到同一个窗口。
+        ///
+        /// 命名事件通道作为兜底保留（同权限级时更省事），两路都指向同一个回调。
+        /// </summary>
+        private void AttachWakeChannel()
+        {
+            WakeWindow.EnsureCreated();
+            WakeWindow.Activated = () =>
+                Dispatcher.BeginInvoke(new Action(TrayIconService.ShowOrCreateMainWindow));
+
+            SingleInstance.WakeRequested = () =>
+                Dispatcher.BeginInvoke(new Action(TrayIconService.ShowOrCreateMainWindow));
+        }
+
+        /// <summary>读界面设置（主题 / 强调色）与调校 / 绑核 / 掩码配置，并应用主题。</summary>
+        private static void LoadStores()
+        {
+            UiSettingsStore.Load();
+            ThemeService.Initialize();
+            ThemeService.StartSystemMonitor();
+
+            TuningStore.Load();
+            MaskStore.Load();
+            BindingStore.Load();
+        }
+
+        /// <summary>命令行 / 环境变量里是否要求详细日志。解析失败一律当作不开启。</summary>
+        private static void EnableVerboseLogIfRequested(string[]? args)
+        {
+            try
+            {
+                if (LogService.Verbose)
+                    return;
+
+                bool byArg = args != null && args.Any(a =>
+                    string.Equals(a, "-debug", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(a, "--debug", StringComparison.OrdinalIgnoreCase));
+
+                bool byEnv = string.Equals(
+                    Environment.GetEnvironmentVariable("ZENFORGE_DEBUG"), "1", StringComparison.Ordinal);
+
+                LogService.Verbose = byArg || byEnv;
+            }
+            catch
+            {
+                // 开关解析失败不应影响启动
+            }
+        }
+
+        /// <summary>
         /// 运行时环境检测：确认当前运行于 .NET 10（框架依赖发布的前提）。
         /// 不满足时弹出深色提示框并准备退出。
         /// </summary>
@@ -721,37 +700,21 @@ namespace ZenForge
             if (args == null || args.Length == 0)
                 return string.Empty;
 
-            System.Text.StringBuilder sb = new();
-            foreach (string arg in args)
-            {
-                if (sb.Length > 0)
-                    sb.Append(' ');
-
-                if (arg.Contains(' ') || arg.Contains('\t'))
-                    sb.Append('"').Append(arg.Replace("\"", "\\\"")).Append('"');
-                else
-                    sb.Append(arg);
-            }
-
-            return sb.ToString();
+            return string.Join(" ", args.Select(QuoteIfNeeded));
         }
+
+        private static string QuoteIfNeeded(string arg) =>
+            arg.Contains(' ') || arg.Contains('\t')
+                ? "\"" + arg.Replace("\"", "\\\"") + "\""
+                : arg;
 
         /// <summary>
         /// 判断是否为静默启动：命令行含 -silent / --silent / /silent（不区分大小写）。
         /// </summary>
         private static bool IsSilentLaunch(string[]? args)
         {
-            if (args == null || args.Length == 0)
-                return false;
-
-            foreach (string arg in args)
-            {
-                string normalized = arg.Trim().TrimStart('-', '/', '—');
-                if (normalized.Equals("silent", StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-
-            return false;
+            return args != null && args.Any(arg =>
+                arg.Trim().TrimStart('-', '/', '—').Equals("silent", StringComparison.OrdinalIgnoreCase));
         }
 
         /// <summary>

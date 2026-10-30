@@ -10,7 +10,7 @@ using ZenForge.Services;
 namespace ZenForge
 {
     /// <summary>
-    /// Interaction logic for MainWindow.xaml
+    /// 主窗口：导航壳 + 关窗去向判定。
     /// </summary>
     public partial class MainWindow : Window
     {
@@ -87,21 +87,14 @@ namespace ZenForge
         }
 
         /// <summary>
-        /// 关窗口的去向。
+        /// 关窗口的去向，只认两项设置，层级写死（③ 是总闸，④ 只决定减不减负）：
         ///
-        /// 只认两项设置，层级写死（③ 是总闸，④ 只决定减不减负）：
+        ///   ③「开启后台服务」关 → 进程彻底退出（监听停、托盘收、单实例锁释放）。
+        ///   ③ 开 + ④「仅留服务进程」关 → 只 Hide，界面完整保留，内存一分不省。
+        ///   ③ 开 + ④ 开 → 先 Hide，倒计时 3 秒后销毁界面，进程只剩后台服务。
         ///
-        ///   ③「开启后台服务」关 → 进程彻底退出。
-        ///       监听停、托盘收、单实例锁释放，什么都不留 —— 用户明说了不需要后台。
-        ///
-        ///   ③ 开 + ④「仅留服务进程」关 → 只 Hide，界面完整保留。
-        ///       内存一分不省，但回来是瞬间的。
-        ///
-        ///   ③ 开 + ④ 开 → 先 Hide（用户看到窗口立刻消失），倒计时 3 秒后销毁界面，
-        ///       进程只剩后台服务。
-        ///
-        /// 用 OnClosing 而不是在按钮里硬写，是为了一并接住 Alt+F4、
-        /// 系统菜单关闭、任务栏右键关闭等所有关闭入口，行为一致。
+        /// 写在 OnClosing 里而不是按钮里，是为了一并接住 Alt+F4、系统菜单关闭、
+        /// 任务栏右键关闭等所有入口，行为一致。
         /// </summary>
         protected override void OnClosing(CancelEventArgs e)
         {
@@ -115,7 +108,6 @@ namespace ZenForge
 
             UiSettings s = UiSettingsStore.Settings;
 
-            // ---------- ③ 总闸关：彻底退出 ----------
             if (!s.BackendService)
             {
                 StopLightCountdown();
@@ -128,18 +120,15 @@ namespace ZenForge
                 return;
             }
 
-            // ---------- ③ 开 + ④ 关：只隐藏，原样保留 ----------
+            e.Cancel = true;
+            Hide();
+
             if (!s.LightMode)
             {
-                e.Cancel = true;
-                Hide();
                 LogService.Info("窗口已隐藏，进程继续在后台运行（仅留服务进程未开启，界面完整保留）");
                 return;
             }
 
-            // ---------- ③ 开 + ④ 开：隐藏 + 倒计时 ----------
-            e.Cancel = true;
-            Hide();
             StartLightCountdown(s.LightModeDelaySeconds);
         }
 
@@ -172,13 +161,14 @@ namespace ZenForge
                 Interval = TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 3600))
             };
 
-            _lightTimer.Tick += (_, _) =>
-            {
-                StopLightCountdown();
-                EnterLightMode();
-            };
-
+            _lightTimer.Tick += OnLightTimerTick;
             _lightTimer.Start();
+        }
+
+        private void OnLightTimerTick(object? sender, EventArgs e)
+        {
+            StopLightCountdown();
+            EnterLightMode();
         }
 
         private void StopLightCountdown()

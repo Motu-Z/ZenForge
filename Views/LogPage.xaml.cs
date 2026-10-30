@@ -13,6 +13,7 @@ namespace ZenForge.Views
     public partial class LogPage : Page
     {
         private bool _subscribed;
+        private DispatcherTimer? _followTimer;
 
         public LogPage()
         {
@@ -37,6 +38,15 @@ namespace ZenForge.Views
             UpdateCount();
         }
 
+        private void Unsubscribe()
+        {
+            StopFollow();
+
+            if (!_subscribed) return;
+            LogService.EntryAdded -= OnEntryAdded;
+            _subscribed = false;
+        }
+
         /// <summary>
         /// 把开关状态同步成日志服务的真实状态。
         /// 开关不持久化 —— 详细日志是排查工具，不该在用户不知情时长期开着，
@@ -59,16 +69,6 @@ namespace ZenForge.Views
                 : "详细日志已关闭");
         }
 
-        private void Unsubscribe()
-        {
-            if (_followTimer != null && _followTimer.IsEnabled)
-                _followTimer.Stop();
-
-            if (!_subscribed) return;
-            LogService.EntryAdded -= OnEntryAdded;
-            _subscribed = false;
-        }
-
         private void OnEntryAdded(LogEntry entry)
         {
             // EntryAdded 本来就在 UI 线程触发（LogService 内部已封送），
@@ -89,12 +89,9 @@ namespace ZenForge.Views
             _followTimer.Start();
         }
 
-        private DispatcherTimer? _followTimer;
-
         private void OnFollowTick(object? sender, EventArgs e)
         {
-            if (_followTimer != null)
-                _followTimer.Stop();
+            StopFollow();
 
             // 页面已经卸载（或日志页不在前台）时不要再碰列表
             if (!_subscribed || !IsLoaded)
@@ -114,6 +111,12 @@ namespace ZenForge.Views
             }
         }
 
+        private void StopFollow()
+        {
+            if (_followTimer != null && _followTimer.IsEnabled)
+                _followTimer.Stop();
+        }
+
         private void UpdateCount()
         {
             LogCountText.Text = $"共 {LogListBox.Items.Count} 条";
@@ -123,8 +126,7 @@ namespace ZenForge.Views
         {
             // 先停掉跟随再清空：否则队列里那次 ScrollIntoView 会在集合已经空了
             // 之后才执行，对着一个不存在的项做定位，界面就此卡住。
-            if (_followTimer != null && _followTimer.IsEnabled)
-                _followTimer.Stop();
+            StopFollow();
 
             // 摘掉数据源再清。ObservableCollection.Clear() 会让 ListBox 一次性丢弃
             // 所有已生成的容器；列表还绑着的时候做这件事，既有开销，又容易和队列里

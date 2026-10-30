@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -37,6 +39,8 @@ namespace ZenForge.Views
             "#16C60C", // 绿
             "#C42B1C", // 红
         };
+
+        private const string DefaultAccent = "#00B4D8";
 
         private bool _suppress;
         private bool _initialized;
@@ -193,26 +197,41 @@ namespace ZenForge.Views
         private static string CurrentAccentHex()
         {
             UiSettings s = UiSettingsStore.Settings;
-            Color c;
-            if (s.FollowSystemAccent)
-            {
-                // ThemeService 内部已把系统强调色解析成 AccentColor 并应用到画刷
-                c = ThemeService.AccentColor;
-            }
-            else
-            {
-                try
-                {
-                    c = (Color)ColorConverter.ConvertFromString(
-                        string.IsNullOrWhiteSpace(s.CustomAccentHex) ? "#00B4D8" : s.CustomAccentHex);
-                }
-                catch
-                {
-                    c = (Color)ColorConverter.ConvertFromString("#00B4D8");
-                }
-            }
 
-            return string.Format("#{0:X2}{1:X2}{2:X2}", c.R, c.G, c.B);
+            // 跟随时直接用 ThemeService 已解析好的系统强调色
+            Color c = s.FollowSystemAccent ? ThemeService.AccentColor : ParseAccent(s.CustomAccentHex);
+
+            return $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+        }
+
+        private static Color ParseAccent(string? hex)
+        {
+            try
+            {
+                return (Color)ColorConverter.ConvertFromString(
+                    string.IsNullOrWhiteSpace(hex) ? DefaultAccent : hex);
+            }
+            catch
+            {
+                return (Color)ColorConverter.ConvertFromString(DefaultAccent);
+            }
+        }
+
+        /// <summary>把输入框与色板选中环同步到「当前真正生效」的颜色。</summary>
+        private void SyncAccentUi()
+        {
+            string hex = CurrentAccentHex();
+
+            _suppress = true;
+            try
+            {
+                AccentHexBox.Text = hex;
+                MarkActiveSwatch(hex);
+            }
+            finally
+            {
+                _suppress = false;
+            }
         }
 
         // ==================== 外观：色板 ====================
@@ -286,17 +305,7 @@ namespace ZenForge.Views
             LogService.Info($"主题模式：{mode}");
 
             // 跟随系统时强调色会变成系统色，色板选中环与输入框需要同步
-            _suppress = true;
-            try
-            {
-                string hex = CurrentAccentHex();
-                AccentHexBox.Text = hex;
-                MarkActiveSwatch(hex);
-            }
-            finally
-            {
-                _suppress = false;
-            }
+            SyncAccentUi();
         }
 
         /// <summary>强调色模式切换：与「主题模式」完全同构的下拉框逻辑。</summary>
@@ -311,17 +320,7 @@ namespace ZenForge.Views
             ThemeService.ApplyAndSave(ThemeService.Mode, follow,
                                       UiSettingsStore.Settings.CustomAccentHex);
 
-            _suppress = true;
-            try
-            {
-                string hex = CurrentAccentHex();
-                AccentHexBox.Text = hex;
-                MarkActiveSwatch(hex);
-            }
-            finally
-            {
-                _suppress = false;
-            }
+            SyncAccentUi();
 
             LogService.Info(follow ? "强调色：跟随系统" : "强调色：自定义");
         }
@@ -358,7 +357,7 @@ namespace ZenForge.Views
         {
             string norm;
             if (!TryNormalizeHex(hex, out norm, out _))
-                norm = "#00B4D8";
+                norm = DefaultAccent;
 
             _suppress = true;
             try
@@ -409,14 +408,10 @@ namespace ZenForge.Views
                 return false;
             }
 
-            foreach (char c in v)
+            if (!v.All(Uri.IsHexDigit))
             {
-                bool ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
-                if (!ok)
-                {
-                    error = "颜色值只能包含 0-9 和 A-F。";
-                    return false;
-                }
+                error = "颜色值只能包含 0-9 和 A-F。";
+                return false;
             }
 
             hex = "#" + v.ToUpperInvariant();
@@ -430,17 +425,7 @@ namespace ZenForge.Views
             if (!_initialized || _suppress || !UiSettingsStore.Settings.FollowSystemAccent)
                 return;
 
-            string hex = CurrentAccentHex();
-            _suppress = true;
-            try
-            {
-                AccentHexBox.Text = hex;
-                MarkActiveSwatch(hex);
-            }
-            finally
-            {
-                _suppress = false;
-            }
+            SyncAccentUi();
         }
 
         // ==================== 启动与后台开关 ====================
@@ -529,45 +514,10 @@ namespace ZenForge.Views
             bool enabled = BackendServiceToggle.IsChecked == true;
             UiSettingsStore.Settings.BackendService = enabled;
 
-            if (!enabled)
-            {
-                // 总闸关 = 不要后台。托盘和调度一起收，别留下看不见的活口。
-                StopScheduling("关闭后台服务");
-                TrayIconService.SetVisible(false);
-
-                _suppress = true;
-                try
-                {
-                    ProcessWatchToggle.IsChecked = false;
-                    ShowTrayToggle.IsChecked = false;
-                }
-                finally
-                {
-                    _suppress = false;
-                }
-            }
+            if (enabled)
+                ReopenBackend();
             else
-            {
-                // 重新打开总闸：把用户上次的意愿（ui.json 里的值）恢复成实际状态。
-                UiSettings ui = UiSettingsStore.Settings;
-
-                if (ui.WatchProcessBinding)
-                    StartScheduling();
-
-                _suppress = true;
-                try
-                {
-                    ProcessWatchToggle.IsChecked = ProcessWatcher.IsRunning;
-                    ShowTrayToggle.IsChecked = ui.ShowTrayIcon;
-                }
-                finally
-                {
-                    _suppress = false;
-                }
-
-                if (ui.ShowTrayIcon)
-                    TrayIconService.EnsureCreated();
-            }
+                CloseBackend();
 
             UiSettingsStore.Save();
             RefreshRowVisibility();
@@ -575,6 +525,43 @@ namespace ZenForge.Views
             LogService.Info(enabled
                 ? "后台服务：已开启（点 × 不再退出进程）"
                 : "后台服务：已关闭（点 × 将直接退出进程，调度与托盘一并停止）");
+        }
+
+        /// <summary>总闸关 = 不要后台。托盘和调度一起收，别留下看不见的活口。</summary>
+        private void CloseBackend()
+        {
+            StopScheduling("关闭后台服务");
+            TrayIconService.SetVisible(false);
+            SetBackendDependentToggles(watch: false, tray: false);
+        }
+
+        /// <summary>重新打开总闸：把用户上次的意愿（ui.json 里的值）恢复成实际状态。</summary>
+        private void ReopenBackend()
+        {
+            UiSettings ui = UiSettingsStore.Settings;
+
+            if (ui.WatchProcessBinding)
+                StartScheduling();
+
+            SetBackendDependentToggles(watch: ProcessWatcher.IsRunning, tray: ui.ShowTrayIcon);
+
+            if (ui.ShowTrayIcon)
+                TrayIconService.EnsureCreated();
+        }
+
+        /// <summary>改这两个开关会各自触发 Click，先屏蔽掉再赋值。</summary>
+        private void SetBackendDependentToggles(bool watch, bool tray)
+        {
+            _suppress = true;
+            try
+            {
+                ProcessWatchToggle.IsChecked = watch;
+                ShowTrayToggle.IsChecked = tray;
+            }
+            finally
+            {
+                _suppress = false;
+            }
         }
 
         /// <summary>仅留服务进程：只决定「关掉前台之后要不要销毁界面」，不决定后台存不存在。</summary>
@@ -738,7 +725,7 @@ namespace ZenForge.Views
             string? path = null;
             try
             {
-                path = await System.Threading.Tasks.Task.Run(() => SmuDiagnostics.Run());
+                path = await Task.Run(SmuDiagnostics.Run);
             }
             catch (Exception ex)
             {
@@ -759,11 +746,16 @@ namespace ZenForge.Views
             }
 
             LogService.Info($"SMU 自检完成，报告：{path}");
+            RevealInExplorer(path);
+            DarkDialog.ShowSuccess($"自检完成，报告已生成：\n{path}", "SMU 自检");
+        }
 
-            // 打开所在目录并选中文件，省去用户自己找
+        /// <summary>打开所在目录并选中文件，省去用户自己找。</summary>
+        private static void RevealInExplorer(string path)
+        {
             try
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                Process.Start(new ProcessStartInfo
                 {
                     FileName = "explorer.exe",
                     Arguments = $"/select,\"{path}\"",
@@ -774,8 +766,6 @@ namespace ZenForge.Views
             {
                 // 打不开资源管理器不影响报告已生成
             }
-
-            DarkDialog.ShowSuccess($"自检完成，报告已生成：\n{path}", "SMU 自检");
         }
 
         // ==================== 其他：全局重置 ====================
@@ -795,74 +785,75 @@ namespace ZenForge.Views
             uint effectiveFMax = TuningStore.ResetToFactory();
 
             SmuReader reader = SmuReader.Shared;
-            if (reader.IsAvailable)
-            {
-                // 写入期间禁用按钮：这条路径不经过调校页的 _busy 闸门，
-                // 点了没反应总比连点两次并发下发好（SmuReader 内部虽然串行化，
-                // 但两次重置会各写一遍、日志也重复）。
-                GlobalResetButton.IsEnabled = false;
-                try
-                {
-                    // 核数拿不到就不要猜。以前回落 16，在非 16 核机器上会
-                    // 要么漏核（写入不完整）、要么对不存在的核下发 0。
-                    int coreCount = reader.CoreCount;
-                    if (coreCount <= 0)
-                    {
-                        DarkDialog.Show(
-                            "已重置本地配置，但读不到 CPU 核心数，未写回 SMU。\n" +
-                            "请先到「调校」页刷新一次再重试。",
-                            "全局重置");
-                        LogService.Error("全局重置：CoreCount 未知，跳过 SMU 写回");
-                        return;
-                    }
-
-                    int[] zeros = new int[coreCount];
-
-                    SmuWriteResult co = await Task.Run(() => reader.WriteCurveOptimizer(zeros));
-
-                    // FMax 基线未知（从未探测到）时只归零 CO，不拿猜来的值写 FMax
-                    SmuFMaxResult fm = effectiveFMax > 0
-                        ? await Task.Run(() => reader.WriteFMax(effectiveFMax))
-                        : new SmuFMaxResult { AllSucceeded = true, ReadBack = 0 };
-
-                    if (co.AllSucceeded && fm.AllSucceeded)
-                    {
-                        string fmaxLine = effectiveFMax > 0
-                            ? $"FMax：{effectiveFMax} MHz（回读 {fm.ReadBack}）"
-                            : "FMax：基线未知，未写回";
-                        DarkDialog.Show(
-                            $"已恢复出厂设置并写回 SMU。\n\n" +
-                            $"CO：{coreCount} 核归零\n" + fmaxLine,
-                            "全局重置");
-                        LogService.Info($"全局重置：CO 归零" +
-                            (effectiveFMax > 0 ? $" + FMax {effectiveFMax} MHz 已写回 SMU" : "（FMax 未写回）"));
-                    }
-                    else
-                    {
-                        LogService.Error(co.AllSucceeded
-                            ? $"全局重置：FMax 写回 SMU 失败（回读 {fm.ReadBack}）"
-                            : "全局重置：CO 写回 SMU 失败");
-                        DarkDialog.Show(
-                            "已重置本地配置，但写回 SMU 部分失败，详见日志。",
-                            "全局重置");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    LogService.Error($"全局重置写回 SMU 失败: {ex.Message}");
-                    DarkDialog.Show(
-                        "已重置本地配置，但写回 SMU 失败，详见日志。",
-                        "全局重置");
-                }
-                finally
-                {
-                    GlobalResetButton.IsEnabled = true;
-                }
-            }
-            else
+            if (!reader.IsAvailable)
             {
                 DarkDialog.Show("已重置本地配置，下次启动时将按出厂值应用。", "全局重置");
                 LogService.Info("全局重置：SMU 不可用，仅重置本地配置");
+                return;
+            }
+
+            // 写入期间禁用按钮：这条路径不经过调校页的 _busy 闸门，
+            // 点了没反应总比连点两次并发下发好（SmuReader 内部虽然串行化，
+            // 但两次重置会各写一遍、日志也重复）。
+            GlobalResetButton.IsEnabled = false;
+            try
+            {
+                await WriteFactoryToSmuAsync(reader, effectiveFMax);
+            }
+            finally
+            {
+                GlobalResetButton.IsEnabled = true;
+            }
+        }
+
+        private static async Task WriteFactoryToSmuAsync(SmuReader reader, uint effectiveFMax)
+        {
+            // 核数拿不到就不要猜。以前回落 16，在非 16 核机器上会
+            // 要么漏核（写入不完整）、要么对不存在的核下发 0。
+            int coreCount = reader.CoreCount;
+            if (coreCount <= 0)
+            {
+                DarkDialog.Show(
+                    "已重置本地配置，但读不到 CPU 核心数，未写回 SMU。\n" +
+                    "请先到「调校」页刷新一次再重试。",
+                    "全局重置");
+                LogService.Error("全局重置：CoreCount 未知，跳过 SMU 写回");
+                return;
+            }
+
+            try
+            {
+                SmuWriteResult co = await Task.Run(() => reader.WriteCurveOptimizer(new int[coreCount]));
+
+                // FMax 基线未知（从未探测到）时只归零 CO，不拿猜来的值写 FMax
+                SmuFMaxResult fm = effectiveFMax > 0
+                    ? await Task.Run(() => reader.WriteFMax(effectiveFMax))
+                    : new SmuFMaxResult { AllSucceeded = true, ReadBack = 0 };
+
+                if (!co.AllSucceeded || !fm.AllSucceeded)
+                {
+                    LogService.Error(co.AllSucceeded
+                        ? $"全局重置：FMax 写回 SMU 失败（回读 {fm.ReadBack}）"
+                        : "全局重置：CO 写回 SMU 失败");
+                    DarkDialog.Show("已重置本地配置，但写回 SMU 部分失败，详见日志。", "全局重置");
+                    return;
+                }
+
+                string fmaxLine = effectiveFMax > 0
+                    ? $"FMax：{effectiveFMax} MHz（回读 {fm.ReadBack}）"
+                    : "FMax：基线未知，未写回";
+
+                DarkDialog.Show(
+                    $"已恢复出厂设置并写回 SMU。\n\nCO：{coreCount} 核归零\n{fmaxLine}",
+                    "全局重置");
+
+                LogService.Info("全局重置：CO 归零" +
+                    (effectiveFMax > 0 ? $" + FMax {effectiveFMax} MHz 已写回 SMU" : "（FMax 未写回）"));
+            }
+            catch (Exception ex)
+            {
+                LogService.Error($"全局重置写回 SMU 失败: {ex.Message}");
+                DarkDialog.Show("已重置本地配置，但写回 SMU 失败，详见日志。", "全局重置");
             }
         }
     }

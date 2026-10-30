@@ -571,13 +571,12 @@ namespace ZenForge.Views
 
             foreach (IGrouping<string, ProcessRefresher.Entry> grp in groups)
             {
-                List<ProcessMember> members = new();
-                double sum = 0;
-                foreach (ProcessRefresher.Entry e in grp)
-                {
-                    members.Add(new ProcessMember { Pid = e.Pid, Path = e.Path });
-                    sum += e.Cpu;
-                }
+                int count = grp.Count();
+                List<ProcessMember> members = grp
+                    .Select(e => new ProcessMember { Pid = e.Pid, Path = e.Path })
+                    .ToList();
+
+                double cpu = count > 0 ? grp.Sum(e => e.Cpu) / count : 0.0;
 
                 // 路径取该名称下首个非空实例（同名的多个实例指向同一个 exe）
                 string groupPath = grp.FirstOrDefault(e => !string.IsNullOrEmpty(e.Path))?.Path ?? string.Empty;
@@ -585,8 +584,8 @@ namespace ZenForge.Views
                 if (existing.TryGetValue(grp.Key, out ProcessGroupRow? row))
                 {
                     // 就地更新数值，保留 Selection（含下拉选中项）
-                    row.Count = grp.Count();
-                    row.CpuValue = grp.Count() > 0 ? sum / grp.Count() : 0.0;
+                    row.Count = count;
+                    row.CpuValue = cpu;
                     row.Members = members;
                     row.Path = groupPath;
                 }
@@ -595,8 +594,8 @@ namespace ZenForge.Views
                     row = new ProcessGroupRow
                     {
                         Name = grp.Key,
-                        Count = grp.Count(),
-                        CpuValue = grp.Count() > 0 ? sum / grp.Count() : 0.0,
+                        Count = count,
+                        CpuValue = cpu,
                         Members = members,
                         Path = groupPath,
                         CanBind = _topologyAvailable
@@ -873,8 +872,7 @@ namespace ZenForge.Views
             }
 
             UpsertRule(group.Name, target, maskId, mask, group.Path);
-            ProcessWatcher.ResetCache();
-            LoadSavedRules();
+            ReloadRulesAfterChange();
             _ = FlashRowAsync(group);
         }
 
@@ -899,18 +897,21 @@ namespace ZenForge.Views
         /// 对某一进程名下所有运行实例下发绑核，返回成功绑定的进程数。
         /// 纯粹的 CPU Sets 调用——不退化成 ProcessorAffinity。
         /// </summary>
+        /// <summary>按目标类型挑一路下发。CCD 绑定用不到掩码，只在 Custom 时才有意义。</summary>
+        private static CpuSetBindResult BindMember(int pid, BindingTarget target, ulong mask) => target switch
+        {
+            BindingTarget.CCD0 => CpuSetBinder.BindToCcd(pid, 0),
+            BindingTarget.CCD1 => CpuSetBinder.BindToCcd(pid, 1),
+            _ => CpuSetBinder.BindToMask(pid, mask)
+        };
+
         private static int BindGroupMembers(
             ProcessGroupRow group, BindingTarget target, string maskId, ulong mask, string label)
         {
             int bound = 0;
             foreach (ProcessMember m in group.Members)
             {
-                CpuSetBindResult result = target switch
-                {
-                    BindingTarget.CCD0 => CpuSetBinder.BindToCcd(m.Pid, 0),
-                    BindingTarget.CCD1 => CpuSetBinder.BindToCcd(m.Pid, 1),
-                    _ => CpuSetBinder.BindToMask(m.Pid, mask)
-                };
+                CpuSetBindResult result = BindMember(m.Pid, target, mask);
 
                 if (result.Success)
                 {
@@ -936,8 +937,7 @@ namespace ZenForge.Views
             if (rule == null || !rule.Enabled || rule.Target == BindingTarget.None)
                 return 0;
 
-            ProcessGroupRow? group = _allGroups.FirstOrDefault(
-                g => g.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            ProcessGroupRow? group = FindGroup(name);
             if (group == null)
                 return 0;
 
@@ -1002,12 +1002,7 @@ namespace ZenForge.Views
 
                 foreach (ProcessMember m in group.Members)
                 {
-                    CpuSetBindResult result = target switch
-                    {
-                        BindingTarget.CCD0 => CpuSetBinder.BindToCcd(m.Pid, 0),
-                        BindingTarget.CCD1 => CpuSetBinder.BindToCcd(m.Pid, 1),
-                        _ => CpuSetBinder.BindToMask(m.Pid, mask)
-                    };
+                    CpuSetBindResult result = BindMember(m.Pid, target, mask);
                     if (result.Success)
                         bound++;
                     else
@@ -1033,22 +1028,31 @@ namespace ZenForge.Views
                 return;
 
             BindingStore.Save(new List<BindingRule>());
-            ProcessWatcher.ResetCache();
 
             foreach (ProcessGroupRow group in _allGroups)
                 group.SetInitialSelection("不绑定");
 
-            LoadSavedRules();
+            ReloadRulesAfterChange();
             LogService.Info("已清空全部调度规则");
         }
 
         // ---------- 规则持久化 ----------
 
+        /// <summary>按进程名找列表里那一组（进程名比较一律忽略大小写）。</summary>
+        private ProcessGroupRow? FindGroup(string name) =>
+            _allGroups.FirstOrDefault(g => g.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>规则改动落盘后的收尾：清掉监听的「已处理」缓存，再重建规则列表。</summary>
+        private void ReloadRulesAfterChange()
+        {
+            ProcessWatcher.ResetCache();
+            LoadSavedRules();
+        }
+
         private static void UpsertRule(string name, BindingTarget target, string maskId, ulong mask, string path = "")
         {
             List<BindingRule> rules = BindingStore.Profile.Rules;
-            BindingRule? existing = rules.FirstOrDefault(
-                r => r.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            BindingRule? existing = BindingStore.LookupByName(name);
 
             if (target == BindingTarget.None)
             {
@@ -1111,9 +1115,7 @@ namespace ZenForge.Views
             if (!string.IsNullOrWhiteSpace(rule.Path))
                 return rule.Path;
 
-            ProcessGroupRow? group = _allGroups.FirstOrDefault(
-                g => g.Name.Equals(rule.Name, StringComparison.OrdinalIgnoreCase));
-            return group?.Path ?? string.Empty;
+            return FindGroup(rule.Name)?.Path ?? string.Empty;
         }
 
         /// <summary>单条规则「应用」：把这一条（含行内刚改的掩码）重新下发到正在运行的实例。</summary>
@@ -1132,39 +1134,19 @@ namespace ZenForge.Views
             if (!string.Equals(selection, row.Label, StringComparison.Ordinal))
             {
                 (BindingTarget newTarget, string newMaskId, ulong newMask) = SelectionToTarget(selection);
+
+                // 选到「不绑定」＝删除这条规则，给出明确提示而不是静默删掉
                 if (newTarget == BindingTarget.None)
                 {
-                    // 选到「不绑定」＝删除这条规则，给出明确提示而不是静默删掉
-                    if (!DarkDialog.Confirm(
-                            $"「{row.Name}」已选择「不绑定」，应用后将删除这条规则。是否继续？",
-                            "应用规则"))
-                        return;
-
-                    List<BindingRule> all = BindingStore.Profile.Rules;
-                    BindingRule? stale = all.FirstOrDefault(
-                        r => r.Name.Equals(row.Name, StringComparison.OrdinalIgnoreCase));
-                    if (stale != null)
-                    {
-                        all.Remove(stale);
-                        BindingStore.Save(all);
-                    }
-
-                    ProcessWatcher.ResetCache();
-                    ProcessGroupRow? blank = _allGroups.FirstOrDefault(
-                        g => g.Name.Equals(row.Name, StringComparison.OrdinalIgnoreCase));
-                    blank?.SetInitialSelection("不绑定");
-                    LoadSavedRules();
-                    LogService.Info($"已按界面选择解除绑定：{row.Name}");
+                    RemoveRuleBySelection(row);
                     return;
                 }
 
                 UpsertRule(row.Name, newTarget, newMaskId, newMask, row.Path);
-                ProcessWatcher.ResetCache();
-                LoadSavedRules();
+                ReloadRulesAfterChange();
             }
 
-            BindingRule? rule = BindingStore.Profile.Rules.FirstOrDefault(
-                r => r.Name.Equals(row.Name, StringComparison.OrdinalIgnoreCase));
+            BindingRule? rule = BindingStore.LookupByName(row.Name);
             if (rule == null)
             {
                 DarkDialog.ShowWarning("该规则已不存在。", "应用规则");
@@ -1178,9 +1160,7 @@ namespace ZenForge.Views
             }
 
             // 上方「运行中进程」的同名下拉框同步到最新值，避免两处显示不一致
-            ProcessGroupRow? group = _allGroups.FirstOrDefault(
-                g => g.Name.Equals(row.Name, StringComparison.OrdinalIgnoreCase));
-            group?.SetInitialSelection(selection);
+            FindGroup(row.Name)?.SetInitialSelection(selection);
 
             int bound = HotApplyRule(row.Name);
             string msg = bound > 0
@@ -1189,6 +1169,18 @@ namespace ZenForge.Views
 
             LogService.Info(msg);
             DarkDialog.ShowSuccess(msg, "应用规则");
+        }
+
+        /// <summary>规则行选了「不绑定」：删掉这条规则，并把界面上的下拉框复位。</summary>
+        private void RemoveRuleBySelection(SavedRuleRow row)
+        {
+            if (!DarkDialog.Confirm(
+                    $"「{row.Name}」已选择「不绑定」，应用后将删除这条规则。是否继续？",
+                    "应用规则"))
+                return;
+
+            DeleteRule(row.Name);
+            LogService.Info($"已按界面选择解除绑定：{row.Name}");
         }
 
         /// <summary>单条规则「删除」：只删这一条，其余规则保留。</summary>
@@ -1200,9 +1192,15 @@ namespace ZenForge.Views
             if (!DarkDialog.Confirm($"确定要删除规则「{row.Name} → {row.Label}」吗？", "删除规则"))
                 return;
 
+            DeleteRule(row.Name);
+            LogService.Info($"已删除单条规则：{row.Name}");
+        }
+
+        /// <summary>删掉一条规则并复位界面上下方列表的同名下拉框。</summary>
+        private void DeleteRule(string name)
+        {
             List<BindingRule> rules = BindingStore.Profile.Rules;
-            BindingRule? existing = rules.FirstOrDefault(
-                r => r.Name.Equals(row.Name, StringComparison.OrdinalIgnoreCase));
+            BindingRule? existing = BindingStore.LookupByName(name);
 
             if (existing != null)
             {
@@ -1210,15 +1208,8 @@ namespace ZenForge.Views
                 BindingStore.Save(rules);
             }
 
-            ProcessWatcher.ResetCache();
-
-            // 界面上的对应下拉框复位为「不绑定」
-            ProcessGroupRow? group = _allGroups.FirstOrDefault(
-                g => g.Name.Equals(row.Name, StringComparison.OrdinalIgnoreCase));
-            group?.SetInitialSelection("不绑定");
-
-            LoadSavedRules();
-            LogService.Info($"已删除单条规则：{row.Name}");
+            FindGroup(name)?.SetInitialSelection("不绑定");
+            ReloadRulesAfterChange();
         }
 
         /// <summary>
@@ -1248,8 +1239,7 @@ namespace ZenForge.Views
             if (row == null || _loadingRules)
                 return;
 
-            BindingRule? rule = BindingStore.Profile.Rules.FirstOrDefault(
-                r => r.Name.Equals(row.Name, StringComparison.OrdinalIgnoreCase));
+            BindingRule? rule = BindingStore.LookupByName(row.Name);
             if (rule == null)
                 return;
 

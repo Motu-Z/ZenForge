@@ -29,6 +29,26 @@ ZenForge 各版本改动记录。安装包与 Release 正文均以本文件为�
 
 程序内部（日志、关于信息）显示的版本取自 `AssemblyInformationalVersion`，带后缀；资源管理器「属性 → 详细信息」里的文件版本是四段数字。两者一对照就能确定这个包是第几次发版。
 
+### 0.9.1-can1
+
+界面层整理，不改动任何业务逻辑与执行流程。
+
+`SettingsPage`：三处「抑制回调 → 改值 → 恢复回调」的重复块收敛成 `SyncAccentUi`，后端的关闭 / 重开提成 `CloseBackend` / `ReopenBackend`，全局恢复默认里 60 行深嵌套的 SMU 写序列提成 `WriteFactoryToSmuAsync`，十六进制判定的逐字符循环改用 `Uri.IsHexDigit`。
+
+`ProcessBindingPage`：两处重复的 switch 绑定收敛成 `BindMember`，「改完规则就重载缓存」的四次重复组合收敛成 `ReloadRulesAfterChange`，绑定快照的手写累加循环改用 `Count` / `Sum` / `Select`。
+
+`MaskManagerWindow`：两处重复的编辑器复位收敛成 `ResetEditor`，重名建议的 `while` 试探改用 `Enumerable.Range`。
+
+`MainWindow`：关闭事件的三个分支合并，`e.Cancel = true; Hide();` 提到分支外只留一处；倒计时 Tick 的 lambda 改为具名方法。
+
+`App`：`HardStop` 里五段重复的 try/catch 收敛成 `Quietly`，启动流程里重复的唤醒通道挂接与 store 加载各自提成独立方法，命令行拼接改用 LINQ。
+
+`TuningPage`：三处「探测 SMU 快照」的重复逻辑收敛成 `ReadSnapshotAsync`，异步方法改用元组返回以避开 `out` 参数限制。
+
+`DarkDialog`：图标配色表提成 `IconPalette`，上色逻辑从 `Create` 里拆出为 `ApplyIcon`；`LogPage`：跟随定时器的三处重复停止判断收敛成 `StopFollow`。
+
+顺带修正 `App` 里一个错位的文档注释 —— 描述「真正的主窗口」的那段 `<summary>` 此前挂在了 `VersionText` 上，导致该属性有两个连续的说明块。
+
 ### 0.9.0-can2
 
 第二轮复核，仍是纯整理，不改动任何业务逻辑与执行流程。

@@ -256,17 +256,18 @@ namespace ZenForge.Views
             });
         }
 
-        private ulong CollectMask()
+        private void CollectMask(out ulong mask)
         {
-            ulong mask = 0;
+            mask = 0;
             foreach (CheckBox box in _allBoxes)
-                if (box.IsChecked == true)
-                {
-                    int logical = (int)box.Tag;
-                    if (logical >= 0 && logical < 64)
-                        mask |= 1UL << logical;
-                }
-            return mask;
+            {
+                if (box.IsChecked != true)
+                    continue;
+
+                int logical = (int)box.Tag;
+                if (logical >= 0 && logical < 64)
+                    mask |= 1UL << logical;
+            }
         }
 
         private void ApplyMask(ulong mask)
@@ -276,6 +277,14 @@ namespace ZenForge.Views
                 int logical = (int)box.Tag;
                 box.IsChecked = logical < _logicalCount && (mask & (1UL << logical)) != 0;
             }
+        }
+
+        /// <summary>清空右侧勾选与编辑上下文（放弃草稿 / 删掉正在编辑的条目时用）。</summary>
+        private void ResetEditor()
+        {
+            _editingId = null;
+            _pendingName = string.Empty;
+            ApplyMask(0);
         }
 
         // ---------- 列表 ----------
@@ -650,20 +659,18 @@ namespace ZenForge.Views
         private string SuggestDraftName()
         {
             const string baseName = "自定义掩码";
-            string name = baseName;
-            int n = 2;
 
-            // Set 里包含已落盘 + 草稿，忽略了大小写（与重名校验同一口径）
-            var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (CustomMask m in MaskStore.Masks)
-                taken.Add(m.Name.Trim());
+            // Set 里包含已落盘 + 草稿，忽略大小写（与重名校验同一口径）
+            HashSet<string> taken = new(MaskStore.Masks.Select(m => m.Name.Trim()),
+                                        StringComparer.OrdinalIgnoreCase);
+
             if (_draft != null)
                 taken.Add(_draft.Name.Trim());
 
-            while (taken.Contains(name))
-                name = $"{baseName} {n++}";
-
-            return name;
+            // 数字后缀从 2 起 ——「自定义掩码」本身就是第 1 个
+            return Enumerable.Range(1, int.MaxValue)
+                .Select(n => n == 1 ? baseName : $"{baseName} {n}")
+                .First(name => !taken.Contains(name));
         }
 
         private void SelectAndRename(CustomMask row)
@@ -726,9 +733,7 @@ namespace ZenForge.Views
             if (ReferenceEquals(mask, _draft))
             {
                 _draft = null;
-                _editingId = null;
-                _pendingName = string.Empty;
-                ApplyMask(0);
+                ResetEditor();
                 RefreshList();
                 LogService.Debug("[掩码窗口] 草稿已丢弃");
                 return;
@@ -737,11 +742,7 @@ namespace ZenForge.Views
             MaskStore.Remove(mask.Id);
 
             if (_editingId == mask.Id)
-            {
-                _editingId = null;
-                _pendingName = string.Empty;
-                ApplyMask(0);
-            }
+                ResetEditor();
 
             LogService.Info($"已删除自定义掩码「{mask.Name}」");
             RefreshList();
@@ -773,7 +774,7 @@ namespace ZenForge.Views
                 return;
             }
 
-            ulong mask = CollectMask();
+            CollectMask(out ulong mask);
             if (mask == 0)
             {
                 DarkDialog.ShowWarning("请至少勾选一个核心 / 线程。", "掩码为空");
