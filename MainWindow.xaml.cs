@@ -41,6 +41,8 @@ namespace ZenForge
             _router = new NavigationRouter(PageHost);
             RegisterPages();
 
+            UiTextOptions.Attach(this);
+
             SourceInitialized += (_, _) =>
             {
                 WindowHelper.ApplyWindowAttributes(this);

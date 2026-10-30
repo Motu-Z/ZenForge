@@ -20,7 +20,8 @@
 
 | Tag | Commit | 内容 |
 |-----|--------|------|
-| `v1.0.4-can1` | 待填 | 进程列表平滑排序过渡（SmoothSortPanel） |
+| `v1.0.4-can1` | 65c312c | 进程列表平滑排序过渡（SmoothSortPanel） |
+| `v1.0.4-can2` | 待填 | 高 DPI 字体适配（UiTextOptions 按 DPI 选格式化模式 + 位移行 Animated hinting） |
 
 ---
 
@@ -28,8 +29,8 @@
 
 | # | 任务 | 状态 | 落点 |
 |---|------|------|------|
-| 1.1 | 进程列表平滑排序动画 | ⏳ 待做 | 数值列次级排序键 + 过渡（非瞬切） |
-| 1.2 | 高 DPI 字体适配 | ⏳ 待做 | `TextFormattingMode` / `UseLayoutRounding` / `SnapsToDevicePixels` |
+| 1.1 | 进程列表平滑排序动画 | ✅ 完成 | 数值列次级排序键 + 过渡（非瞬切） |
+| 1.2 | 高 DPI 字体适配 | ✅ 完成 | `TextFormattingMode` / `UseLayoutRounding` / `SnapsToDevicePixels` |
 | 1.3 | 日志内存再收 | ⏳ 待做 | 内存日志上限 + 落盘队列上限复核 |
 
 ## 第二阶段：v1.1.x 功能注入（骨架）

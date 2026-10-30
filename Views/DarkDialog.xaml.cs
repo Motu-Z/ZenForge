@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using ZenForge.Helpers;
 
 namespace ZenForge.Views
 {
@@ -31,6 +32,8 @@ namespace ZenForge.Views
         private DarkDialog()
         {
             InitializeComponent();
+
+            UiTextOptions.Attach(this);
 
             // 兜底清除焦点虚线框：本窗口是独立 Window，不属于主窗口可视树，
             // 且按钮用的是内联模板，App 层的可视树清扫覆盖不到这里。

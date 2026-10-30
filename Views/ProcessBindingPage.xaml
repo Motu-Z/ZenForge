@@ -305,7 +305,12 @@
                                         <!-- 行底色走 Style + DataTrigger，不靠代码改 Background：
                                              虚拟化 Recycling 会复用容器，命令式设过的颜色不会自动复原，
                                              选中色就会跟着滚动条跑到别的行上。 -->
+                                        <!-- TextHintingMode=Animated：重排过渡期间行会带 RenderTransform 位移，
+                                             默认 Fixed 的 hinting 每帧按像素网格重算字形，文字会在位移中
+                                             「抖一下」；Animated 让动画期间的字形保持稳定，代价只是略柔一点。
+                                             只对会位移的行开，静止的页面文本仍是 Fixed。 -->
                                         <Border x:Name="Row"
+                                                TextOptions.TextHintingMode="Animated"
                                                 MouseLeftButtonDown="ProcessRow_MouseLeftButtonDown">
                                             <Border.Style>
                                                 <Style TargetType="Border" BasedOn="{StaticResource ProcessRowStyle}">

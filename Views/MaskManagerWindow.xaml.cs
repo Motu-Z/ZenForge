@@ -41,6 +41,9 @@ namespace ZenForge.Views
         public MaskManagerWindow()
         {
             InitializeComponent();
+
+            UiTextOptions.Attach(this);
+
             MaskStore.Changed += OnMasksChanged;
             // MaskStore 是静态存储，窗口关闭后必须解绑，否则反复开关窗口会累积回调，
             // 并让已关闭的窗口无法被回收。
