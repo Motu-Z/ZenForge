@@ -70,11 +70,16 @@
     <SolidColorBrush x:Key="Log.Error" Color="#D13A2F"/>
     <SolidColorBrush x:Key="Log.Critical" Color="#8F1E13"/>
 
-    <!-- 日志级别 pill / 徽章的底色：对应级别色的 12% 透明度版本 -->
-    <SolidColorBrush x:Key="Log.InfoTint" Color="#1F4A5A70"/>
-    <SolidColorBrush x:Key="Log.WarnTint" Color="#1FB26A00"/>
-    <SolidColorBrush x:Key="Log.ErrorTint" Color="#1FD13A2F"/>
-    <SolidColorBrush x:Key="Log.CriticalTint" Color="#1F8F1E13"/>
+    <!-- 日志级别 pill 的底（10%）与描边（30%），与深色册同一套透明度档位 -->
+    <SolidColorBrush x:Key="Log.InfoTint" Color="#1A4A5A70"/>
+    <SolidColorBrush x:Key="Log.WarnTint" Color="#1AB26A00"/>
+    <SolidColorBrush x:Key="Log.ErrorTint" Color="#1AD13A2F"/>
+    <SolidColorBrush x:Key="Log.CriticalTint" Color="#1A8F1E13"/>
+
+    <SolidColorBrush x:Key="Log.InfoEdge" Color="#4D4A5A70"/>
+    <SolidColorBrush x:Key="Log.WarnEdge" Color="#4DB26A00"/>
+    <SolidColorBrush x:Key="Log.ErrorEdge" Color="#4DD13A2F"/>
+    <SolidColorBrush x:Key="Log.CriticalEdge" Color="#4D8F1E13"/>
 
     <SolidColorBrush x:Key="Scrollbar.Thumb" Color="#26000000"/>
     <SolidColorBrush x:Key="Scrollbar.ThumbHover" Color="#4D000000"/>
@@ -84,6 +89,11 @@
 
     <!-- 警告横幅 / 危险操作的淡底（Danger 的低透明度版本，深浅两册各自取值） -->
     <SolidColorBrush x:Key="DangerSoft" Color="#1FE5534B"/>
+
+    <SolidColorBrush x:Key="Danger.Foreground" Color="#D13A2F"/>
+    <SolidColorBrush x:Key="Danger.Edge" Color="#66D13A2F"/>
+    <SolidColorBrush x:Key="Danger.Hover" Color="#1AD13A2F"/>
+    <SolidColorBrush x:Key="Danger.Pressed" Color="#26D13A2F"/>
 
     <!-- 中性单色按钮（不跟随主题强调色，低调浅灰） -->
     <SolidColorBrush x:Key="Button.Neutral.Background" Color="#F7F7F9"/>

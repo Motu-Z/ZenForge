@@ -19,7 +19,7 @@
     <!-- 无边框外壳。CaptionHeight 必须为 0：
          只要保留非零值，系统就把这块当 HTCAPTION 吃掉 WM_NCLBUTTONDOWN，
          我们自己挂在拖拽栏上的 MouseLeftButtonDown 根本不会触发，DragMove 成死代码。
-         真实的可拖拽区域由下面那层 40px 高的 DragBar 承担。
+         真实的可拖拽区域由下面那层 40px 高的 DragBar 与整块侧栏承担。
          ResizeBorderThickness=6 留出边缘拉伸热区；CornerRadius 系统上限就是 8。 -->
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="0"
@@ -29,19 +29,15 @@
     </shell:WindowChrome.WindowChrome>
 
     <!-- =====================================================================
-         骨架（v14）：侧栏 208px（含 8px 外缩进的独立浮起面板）+ 右侧「拖拽栏 40px / 内容 *」
+         骨架（v1.0.2）：侧栏 208px（到边到角，右缘 1px 分隔）
+                        + 右侧「拖拽栏 40px / 内容 *」
          =====================================================================
-         为什么要多出这一条 40px 的拖拽栏：
-           窗口按钮挪到右上角之后，侧栏不再是唯一的拖动来源。如果只把按钮移走、
-           不给内容区一条能按住拖动、能双击最大化的横条，用户就只剩侧栏那一条
-           窄带可以拖窗口 —— 窗口拉宽以后，这个比例会越用越别扭。
-
-         关于 8px 窗口圆角：
-           无边框窗口在系统层面仍是直角。CornerRadius=8 只是 GlassFrameThickness=0
-           时 WindowChrome 的裁剪提示，实际到边到角的部分会露出背景色。
-           侧栏底色 #18181A 是实色，露角时看不出问题；右侧内容区同理。
-           这里不再额外做圆角遮罩 —— 遮罩要么吃掉 8px 的内容，要么引入
-           一个跟随主题变化的 Border，成本大于收益。
+         为什么侧栏不再做成缩进的浮起面板：
+           1.0.2 的定稿图里侧栏是一整块实色底板，靠右缘 1px 线切出内容区，
+           卡片与页面都活在这条线的右侧。做成 8px 缩进的浮起面板会让
+           「侧栏」读成「一张贴在窗口里的卡片」，208px 的导航宽度被吃掉 16px，
+           导航项的可点区域也跟着缩水。既然窗口本身就是无边框实色，
+           浮起感没有任何信息量，直接到边到角。
 
          列定义不能放进这一层：拖拽栏必须只覆盖右列（不能压在侧栏上，
          否则侧栏顶部的品牌区会被拖拽条吃掉命中），所以先在根 Grid 分两列，
@@ -52,104 +48,147 @@
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- ===================== 侧栏 =====================
-             【不再是「贴到窗口边缘的一条」】
-             整个侧栏缩进 8px 并给 12px 圆角，成为一块独立的浮起面板。
-             原先它从 x=0 一路顶到 y=0，与内容区共用同一个边界，
-             视觉上像「窗口左边被刷了一块深色」，而不是「有一块导航面板」。
+        <!-- ===================== 侧栏（208px，到边到角） =====================
+             整块可拖（品牌区 + 导航下方空白），这样「想拖窗口」的老习惯
+             不会因为按钮移到右上角而失效。导航项在 MainWindow 的类处理器里
+             拦掉了 MouseLeftButtonUp，所以点导航不会变成拖拽。
 
-             缩进之后必须同时给四角圆角，否则圆角只在上方可见、下方
-             被窗口边缘切断 —— 那比直角更难看。
-
-             侧栏仍然整块可拖（品牌区 + 导航下方空白），这样「想拖窗口」的
-             老习惯不会因为按钮移走而失效。导航项在模板层拦掉了
-             MouseLeftButtonUp，所以点导航不会变成拖拽。
-
-             Padding="8,6,8,8"：左右各 8 内边，导航项的选中块这才有地方
-             显示它的 8px 圆角（详见 Controls.xaml 的侧栏导航注释）。 -->
+             右缘 1px 线用 BorderThickness 而不是另画一条 Rectangle：
+             Border 的 1px 参与布局计算，窗口四角的圆角裁剪不会把它切掉半截。 -->
         <Border Grid.Column="0"
-                Margin="8,8,0,8"
                 Background="{DynamicResource SideBar.Background}"
                 BorderBrush="{DynamicResource SideBar.Border}"
-                BorderThickness="1"
-                CornerRadius="12"
-                Padding="8,6,8,8"
+                BorderThickness="0,0,1,0"
                 SnapsToDevicePixels="True"
                 MouseLeftButtonDown="Chrome_MouseLeftButtonDown">
             <Grid>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="52"/>   <!-- 品牌 -->
+                    <RowDefinition Height="56"/>   <!-- 品牌 -->
                     <RowDefinition Height="*"/>    <!-- 导航 -->
-                    <RowDefinition Height="Auto"/> <!-- 版本号 -->
+                    <RowDefinition Height="Auto"/> <!-- 语言 / 版本 -->
                 </Grid.RowDefinitions>
 
-                <!-- 品牌：全窗口唯一一处 ZenForge。
-                     17px / Bold。与导航项（13 / Medium）拉开 4px 且加粗，
-                     读起来是「产品名」而不是「一个稍大的导航项」。
-                     左边距 8：与外层 Padding 8 相加得 16，正好等于导航项
-                     文字起点的视觉余量（导航项内缩 13 + 竖条列 3）。 -->
-                <StackPanel Grid.Row="0"
-                            Orientation="Horizontal"
-                            Margin="8,0,8,0"
-                            VerticalAlignment="Center">
-                    <!-- 品牌标记：一枚 6×6 的强调色圆点。
-                         不是装饰 —— 侧栏顶部需要一个「不是文字」的锚点，
-                         纯文字品牌在深色面板上容易被读成又一个导航项。 -->
-                    <Ellipse Width="6" Height="6"
-                             Margin="0,0,8,0"
-                             VerticalAlignment="Center"
-                             Fill="{DynamicResource AccentBrush}"/>
-                    <TextBlock Text="ZenForge"
-                               VerticalAlignment="Center"
-                               FontSize="17"
-                               FontWeight="Bold"
-                               Foreground="{DynamicResource Text.Primary}"/>
-                </StackPanel>
+                <!-- 品牌：全窗口唯一一处 ZenForge。18px / Bold。
+                     与导航项（13 / Medium）拉开 5px 且加粗，读起来是「产品名」
+                     而不是「一个稍大的导航项」。
+                     左边距 24 与导航图标起点（12 + 12）对齐：品牌与导航共用
+                     同一条左基准线，侧栏才不会出现两条互相错开的竖边。 -->
+                <TextBlock Grid.Row="0"
+                           Text="ZenForge"
+                           Margin="24,0,0,0"
+                           VerticalAlignment="Center"
+                           FontSize="18"
+                           FontWeight="Bold"
+                           Foreground="{DynamicResource Text.Primary}"
+                           TextOptions.TextFormattingMode="Display"/>
 
-                <!-- 导航。分组标题是 TextBlock 不是 ToggleButton ——
-                     SetActiveNav 里 `if (child is ToggleButton)` 会自动跳过它，
-                     选中逻辑一行不用改。
+                <!-- 导航：7 项分三组，组间用 1px 线 + 上下 20px 间距隔开。
+                     组间间距必须是 20：4px 的项间距用来表示「同一组内的相邻项」，
+                     20px 用来表示「换了一组」，两个数量级不拉开时，
+                     七个项会被读成一整条没有结构的列表。
 
-                     导航项自身 Margin=0：选中块的四角圆角要完整显示，
-                     任何额外外边距都会让它在视觉上「缩进不齐」。 -->
+                     Tag 里存的是路由 key（不是文件路径）：导航与
+                     NavigationRouter 共用同一套短名，改 XAML 文件名不影响导航。 -->
                 <StackPanel x:Name="NavPanel"
                             Grid.Row="1"
                             Orientation="Vertical"
-                            Margin="0,10,0,0">
+                            Margin="12,0,12,0">
                     <ToggleButton Style="{StaticResource SideNavItemStyle}"
-                                  Content="调校"
-                                  Tag="Views/TuningPage.xaml"
+                                  Tag="tuning"
                                   IsChecked="True"
-                                  Click="NavButton_Click"/>
+                                  Click="NavButton_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource NavIconPath}"
+                                  Data="M4 21v-7M4 14V3M12 21v-9M12 12V3M20 21v-5M20 16V3M1 14h6M9 8h6M17 16h6"/>
+                            <TextBlock Text="调校" Margin="10,0,0,0"/>
+                        </StackPanel>
+                    </ToggleButton>
                     <ToggleButton Style="{StaticResource SideNavItemStyle}"
-                                  Content="进程"
-                                  Tag="Views/ProcessBindingPage.xaml"
-                                  Click="NavButton_Click"/>
+                                  Tag="process"
+                                  Click="NavButton_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource NavIconPath}"
+                                  Data="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 -2.83 2.83l-.06-.06a1.65 1.65 0 0 0 -1.82-.33 1.65 1.65 0 0 0 -1 1.51V21a2 2 0 0 1 -4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0 -1.82.33l-.06.06a2 2 0 0 1 -2.83 -2.83l.06-.06a1.65 1.65 0 0 0 .33 -1.82 1.65 1.65 0 0 0 -1.51 -1H3a2 2 0 0 1 0 -4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0 -.33 -1.82l-.06-.06a2 2 0 0 1 2.83 -2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1 -1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82 -.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0 -.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0 -1.51 1z"/>
+                            <TextBlock Text="进程" Margin="10,0,0,0"/>
+                        </StackPanel>
+                    </ToggleButton>
                     <ToggleButton Style="{StaticResource SideNavItemStyle}"
-                                  Content="配置"
-                                  Tag="Views/ProfilePage.xaml"
-                                  Click="NavButton_Click"/>
+                                  Tag="config"
+                                  Click="NavButton_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource NavIconPath}"
+                                  Data="M12 2L2 7l10 5 10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                            <TextBlock Text="配置" Margin="10,0,0,0"/>
+                        </StackPanel>
+                    </ToggleButton>
 
-                    <TextBlock Text="系统"
-                               Style="{StaticResource NavGroupTitleStyle}"/>
+                    <Rectangle Style="{StaticResource NavGroupSeparatorStyle}"/>
 
                     <ToggleButton Style="{StaticResource SideNavItemStyle}"
-                                  Content="设置"
-                                  Tag="Views/SettingsPage.xaml"
-                                  Click="NavButton_Click"/>
+                                  Tag="general"
+                                  Click="NavButton_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource NavIconPath}"
+                                  Data="M3 3h18v18H3zM3 9h18M9 21V9"/>
+                            <TextBlock Text="通用" Margin="10,0,0,0"/>
+                        </StackPanel>
+                    </ToggleButton>
                     <ToggleButton Style="{StaticResource SideNavItemStyle}"
-                                  Content="日志"
-                                  Tag="Views/LogPage.xaml"
-                                  Click="NavButton_Click"/>
+                                  Tag="behavior"
+                                  Click="NavButton_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource NavIconPath}"
+                                  Data="M22 12h-4l-3 9L9 3l-3 9H2"/>
+                            <TextBlock Text="行为" Margin="10,0,0,0"/>
+                        </StackPanel>
+                    </ToggleButton>
+                    <ToggleButton Style="{StaticResource SideNavItemStyle}"
+                                  Tag="advanced"
+                                  Click="NavButton_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <!-- 定稿图里「配置」与「高级」共用同一枚三层堆叠图标，
+                                 两个相邻导航项长一样等于没有图标。这里换成盾牌：
+                                 高级页的内容是防砖保护与危险操作，盾牌直接指向语义。 -->
+                            <Path Style="{StaticResource NavIconPath}"
+                                  Data="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                            <TextBlock Text="高级" Margin="10,0,0,0"/>
+                        </StackPanel>
+                    </ToggleButton>
+
+                    <Rectangle Style="{StaticResource NavGroupSeparatorStyle}"/>
+
+                    <ToggleButton Style="{StaticResource SideNavItemStyle}"
+                                  Tag="logs"
+                                  Click="NavButton_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource NavIconPath}"
+                                  Data="M14 2H6a2 2 0 0 0 -2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8"/>
+                            <TextBlock Text="日志" Margin="10,0,0,0"/>
+                        </StackPanel>
+                    </ToggleButton>
                 </StackPanel>
 
-                <!-- 底部版本号 → L6 元数据。左缩进 11 与导航项文字（3 + 13 - 3）
-                     大致对齐；它不是导航项，微差反而说明「这一行不属于上面那组」。 -->
-                <TextBlock x:Name="VersionText"
-                           Grid.Row="2"
-                           Margin="11,0,8,8"
-                           FontSize="11"
-                           Foreground="{DynamicResource Text.MetaBrush}"/>
+                <!-- 底部：左「中 / EN」、右版本号。
+                     上缘 1px 线与 16px 上下内边距，把这一行从导航里切出去：
+                     它不属于任何一组，也不该被当成第 8 个导航项。
+
+                     语言切换目前只呈现、不响应点击 —— 文案资源尚未落地，
+                     给一个点了没反应的开关会让用户以为软件坏了。
+                     v1.1 引入语言资源后，这一行换成真正的 ToggleButton。 -->
+                <Border Grid.Row="2"
+                        BorderBrush="{DynamicResource SideBar.Border}"
+                        BorderThickness="0,1,0,0"
+                        Padding="24,14,24,14"
+                        SnapsToDevicePixels="True">
+                    <Grid>
+                        <TextBlock Text="中 / EN"
+                                   HorizontalAlignment="Left"
+                                   Style="{StaticResource Text.Meta}"/>
+                        <TextBlock x:Name="VersionText"
+                                   HorizontalAlignment="Right"
+                                   Style="{StaticResource Text.Meta}"/>
+                    </Grid>
+                </Border>
             </Grid>
         </Border>
 
@@ -165,9 +204,7 @@
                  把页面大标题往下推、让顶部显得笨重。透明之后视觉上不存在
                  这条栏，但它实实在在占着 40px 的命中区。
 
-                 Grid.ColumnSpan 不存在（这里只有一列），三颗按钮靠
-                 HorizontalAlignment=Right 贴到窗口右上角。
-
+                 三颗按钮靠 HorizontalAlignment=Right 贴到窗口右上角。
                  MouseLeftButtonDown 挂在这一层：按住任意空白处可拖，
                  双击可最大化 / 还原。按钮是自己的 Button，会先吃掉点击，
                  不会顺手把窗口拖走。 -->
@@ -176,9 +213,8 @@
                   Background="Transparent"
                   MouseLeftButtonDown="DragBar_MouseLeftButtonDown">
 
-                <!-- 窗口按钮组：右缘留 8px，与窗口 8px 圆角呼应；
-                     上缘留 6px，让 30px 高的按钮在 40px 栏里上下留白均衡
-                     （6 + 30 + 4）。 -->
+                <!-- 右缘留 8px，与窗口 8px 圆角呼应；上缘留 6px，
+                     让 30px 高的按钮在 40px 栏里上下留白均衡（6 + 30 + 4）。 -->
                 <StackPanel Orientation="Horizontal"
                             HorizontalAlignment="Right"
                             VerticalAlignment="Top"
@@ -202,30 +238,33 @@
             </Grid>
 
             <!-- ===== 内容区 =====
-                 FocusVisualStyle / IsTabStop 全部清空的原因：
-                 Frame 与 Page 都是可聚焦控件，默认 FocusVisualStyle 是系统那套
-                 「1px 黑色圆角虚线框」。鼠标点过导航按钮后按 Tab、或程序内部
-                 把焦点交给 Frame 时，这条虚线会横贯整个内容区；同时 Page 本身
-                 也会在内容四周画出虚线 —— 就是截图里那两条"丑陋虚线"的真正来源。
-                 这里彻底断掉：Frame 不参与 Tab、不显示焦点框，Page 也不显示。 -->
-            <Frame Grid.Row="1"
-                   x:Name="ContentFrame"
-                   NavigationUIVisibility="Hidden"
-                   Focusable="False"
-                   IsTabStop="False"
-                   FocusVisualStyle="{x:Null}"
-                   Background="{DynamicResource Window.Background}"/>
+                 【这里刻意没有 ScrollViewer】
+                 规范写的是「内容区必须包裹在 ScrollViewer 内」，但那与另一条
+                 更硬的红线直接冲突：外层 ScrollViewer 会用「无限高度」去测量
+                 子内容，页面里那个 * 行因此拿到无限高度，VirtualizingStackPanel
+                 立刻退化成「把全部行都实例化」—— 进程页三百行、日志页两千行
+                 全量建树，1.0.1 的内存事故就是这么来的。
+
+                 所以滚动交给页面自己：静态页（调校 / 通用 / 行为 / 高级 / 配置）
+                 在自己的根节点包 ScrollViewer；带列表的页（进程 / 日志）用
+                 Grid(Auto / Auto / *) 把列表钉在剩余高度里，虚拟化才成立。
+                 外边距 28,6,28,24 由各页自己持有，与规范一致。
+
+                 ContentControl 而非 Frame：Frame 的导航日志会强引用已卸载的
+                 Page，切几次就是好几份旧视觉树留在内存里。见 Views/NavigationRouter.cs。 -->
+            <ContentControl Grid.Row="1"
+                            x:Name="PageHost"
+                            Focusable="False"
+                            IsTabStop="False"
+                            FocusVisualStyle="{x:Null}"
+                            Background="{DynamicResource Window.Background}"/>
 
             <!-- Toast 也放在右列：它应该相对「用户正在看的页面」居中。
                  早先写在根 Grid 上跨两列，视觉中心会偏移到整个窗口
-                 （含 200px 侧栏）的中心，比用户注意力所在的位置偏右约 100px。
-                 现在挂在内容区这一列，正中就是页面正中。
+                 （含 208px 侧栏）的中心，比用户注意力所在的位置偏右约 100px。
 
-                 只占第 1 行（内容区）：Toast 浮在页面内，不能压住拖拽栏上那三颗
-                 窗口按钮 —— ToastHost 自带 IsHitTestVisible=False，但它若覆盖
-                 按钮所在区域，视觉上仍会盖住按钮的 hover 底色，看着像糊了一层。
-                 Margin="0,0,0,26"：ToastHost 模板顶端本来就留了 16，
-                 再 +10 让第一条 Toast 落在页面标题的上方空档里，而不是压在标题字上。 -->
+                 只占第 1 行（内容区）：ToastHost 自带 IsHitTestVisible=False，
+                 但它若覆盖按钮所在区域，视觉上仍会盖住按钮的 hover 底色。 -->
             <controls:ToastHost x:Name="ToastLayer"
                                 Grid.Row="1"
                                 HorizontalAlignment="Center"

@@ -395,6 +395,9 @@ namespace ZenForge.Views
     /// </summary>
     public partial class ProcessBindingPage : Page
     {
+        /// <summary>本页在路由中的 key，与 MainWindow 侧栏的 Tag 一致。</summary>
+        public const string PageKey = "process";
+
         /// <summary>下拉选项（不绑定 / CCD0 / CCD1 / 各自定义掩码名称），全局共享并通知所有 ComboBox。</summary>
         public static ObservableCollection<string> TargetOptions { get; } = new();
 

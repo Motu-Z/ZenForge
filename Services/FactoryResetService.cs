@@ -87,6 +87,154 @@ namespace ZenForge.Services
             return report;
         }
 
+        /// <summary>
+        /// 停用全部功能：解除本程序对系统与硬件的一切干预，但<b>保留用户配置</b>。
+        ///
+        /// 【与 <see cref="ResetToFactoryAsync"/> 的差别只在最后一步】
+        /// 这里不删 tuning / bindings / masks / ui.json：
+        /// 停用的语义是「先别动手」，不是「从来没装过」。用户随时可以回到
+        /// 调校页点「应用全部」把参数重新下发，配置还跟离开时一样。
+        /// 顺序与主流程相同（先解除占用 → 再复位硬件），
+        /// 否则后台监听会在清空硬件参数之后又把进程的亲和性按老规则写回去。
+        /// </summary>
+        public static async Task<FactoryResetReport> DisableAllFeaturesAsync()
+        {
+            LogService.Info("=== 停用全部功能开始（保留用户配置）===");
+            LogService.Flush();
+
+            FactoryResetReport report = await Task.Run(() => RunDisableSteps()).ConfigureAwait(true);
+
+            LogService.Info(report.AllSucceeded
+                ? "=== 停用全部功能完成 ==="
+                : $"=== 停用全部功能完成，但有 {report.Failed.Count} 项未成功 ===");
+
+            foreach (string line in report.Done)
+                LogService.Info($"  已完成：{line}");
+            foreach (string line in report.Skipped)
+                LogService.Info($"  无需处理：{line}");
+            foreach (string line in report.Failed)
+                LogService.Warn($"  失败：{line}");
+
+            LogService.Flush();
+            return report;
+        }
+
+        private static FactoryResetReport RunDisableSteps()
+        {
+            FactoryResetReport report = new();
+            uint fMaxBaseline = SafeReadFMaxBaseline();
+
+            StepStopWatching(report);
+            StepReleaseAffinities(report);
+            StepRemoveAutoStart(report);
+            StepResetHardware(report, fMaxBaseline);
+            StepReleasePowerPolicy(report);
+            StepDisableBackendService(report);
+
+            return report;
+        }
+
+        /// <summary>停后台监听。必须第一个做：它活着就会把老规则重新写回进程。</summary>
+        private static void StepStopWatching(FactoryResetReport report)
+        {
+            try
+            {
+                if (ProcessWatcher.IsRunning)
+                {
+                    ProcessWatcher.Stop();
+                    report.Ok("已停止后台进程监听");
+                }
+                else
+                {
+                    report.Skip("后台进程监听（未在运行）");
+                }
+            }
+            catch (Exception ex)
+            {
+                report.Fail("停止后台进程监听", ex.Message);
+            }
+        }
+
+        private static void StepReleaseAffinities(FactoryResetReport report)
+        {
+            try
+            {
+                ReleaseAffinities(out int released, out int failed);
+
+                if (released > 0)
+                    report.Ok($"已解除 {released} 个进程的 CPU 亲和性限制");
+
+                if (failed > 0)
+                    report.Fail("解除部分进程亲和性", $"{failed} 个进程无权限或被保护，已跳过");
+                else if (released == 0)
+                    report.Skip("解除 CPU 亲和性（没有正在生效的绑核）");
+            }
+            catch (Exception ex)
+            {
+                report.Fail("解除 CPU 亲和性", ex.Message);
+            }
+        }
+
+        private static void StepRemoveAutoStart(FactoryResetReport report)
+        {
+            try
+            {
+                if (!AutoStartService.IsEnabled())
+                {
+                    report.Skip("开机自启（未启用）");
+                    return;
+                }
+
+                if (AutoStartService.Disable())
+                    report.Ok("已移除开机自启计划任务");
+                else
+                    report.Fail("移除开机自启计划任务", "计划任务删除失败");
+            }
+            catch (Exception ex)
+            {
+                report.Fail("移除开机自启计划任务", ex.Message);
+            }
+        }
+
+        /// <summary>释放电源方案：本程序改过的 Boost / EPP / 频率上限全部交还 Windows。</summary>
+        private static void StepReleasePowerPolicy(FactoryResetReport report)
+        {
+            try
+            {
+                PowerPlanResult result = ProcessorPowerPolicy.Release();
+
+                if (result.Ok)
+                    report.Ok("已释放电源方案设置");
+                else
+                    report.Fail("释放电源方案设置", result.Error);
+            }
+            catch (Exception ex)
+            {
+                report.Fail("释放电源方案设置", ex.Message);
+            }
+        }
+
+        /// <summary>总闸关到底：后台服务、常驻调度、托盘图标一并停在关闭态并落盘。</summary>
+        private static void StepDisableBackendService(FactoryResetReport report)
+        {
+            try
+            {
+                UiSettings settings = UiSettingsStore.Settings;
+                settings.BackendService = false;
+                settings.WatchProcessBinding = false;
+                settings.ShowTrayIcon = false;
+                settings.AutoStart = false;
+                UiSettingsStore.Save();
+
+                TrayIconService.SetVisible(false);
+                report.Ok("后台服务已停用（调度、托盘一并关闭）");
+            }
+            catch (Exception ex)
+            {
+                report.Fail("停用后台服务", ex.Message);
+            }
+        }
+
         private static FactoryResetReport RunSteps()
         {
             FactoryResetReport report = new();

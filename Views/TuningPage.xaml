@@ -186,7 +186,10 @@
                 </StackPanel>
             </Border>
 
-            <!-- ======= FMax ======= -->
+            <!-- ======= FMax =======
+                 标题在左、输入框与单位在右、同一水平行（参考图的版式）。
+                 不写「单位 MHz，留空沿用固件默认」：MHz 就在输入框右边，
+                 而「留空沿用固件默认」是读说明书的人才需要知道的 —— 想知道机制看 README。 -->
             <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -194,12 +197,10 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <StackPanel Grid.Column="0"
-                                Style="{StaticResource Stack.LabelBlock}"
-                                Margin="0,0,24,0">
-                        <TextBlock Text="最高加速频率 (FMax)" Style="{StaticResource CardRowLabelStyle}"/>
-                        <TextBlock Text="单位 MHz，留空沿用固件默认" Style="{StaticResource CardRowDescStyle}"/>
-                    </StackPanel>
+                    <TextBlock Grid.Column="0"
+                               Text="最高加速频率 (FMax)"
+                               Style="{StaticResource CardRowLabelStyle}"
+                               VerticalAlignment="Center"/>
 
                     <Grid Grid.Column="1" VerticalAlignment="Center">
                         <Grid.ColumnDefinitions>
@@ -227,233 +228,195 @@
             </Border>
 
 
-            <!-- ======= 电源计划策略（原 PBO 策略，放在 FMax 下方） =======                 【为什么改名】
+            <!-- ======= 电源与策略 =======
+                 【三件事合一张卡】
+                 电源策略、升频模式、核心停放都是「Windows 电源方案里的同一组索引」，
+                 拆成三张卡会让页面出现三张只有一行的卡片，
+                 用户得在三块独立的边框之间来回找。
+                 合成一张卡之后，三行共用同一个标题与同一套行距，
+                 一眼看过去是「一组相关的设置」。
+
+                 【电源计划策略】
                  「PBO」在 AMD 语境里特指 SMU 固件层的 Precision Boost Overdrive
                  （功耗墙 / 曲线优化 / Boost 上限）。那一层没有公开 API，只有 BIOS
-                 与 AMD 驱动能写 —— 这个下拉框从来就不是它。继续叫 PBO，是在承诺
-                 一件做不到的事。改叫「电源计划策略」，名字与它实际控制的
-                 Windows 电源方案一一对应，用户去「控制面板 → 电源选项」也能对得上。
+                 与 AMD 驱动能写 —— 这个下拉框从来就不是它。改叫「电源策略」，
+                 名字与它实际控制的 Windows 电源方案一一对应。
+                 四个 powrprof 索引全部可读可写、可一键换档，
+                 具体每档取值见 Services/ProcessorPowerPolicy.cs。
 
-                 【这一档到底动了什么】
-                 四个 powrprof 索引，全部有返回码、可读可写、可一键换档：
-                   · 处理器性能提升模式（PERFBOOSTMODE）
-                   · 最大处理器状态（PROCTHROTTLEMAX，百分比上限）
-                   · 能效偏好（PERFEPP，0=性能 100=能效）
-                   · 处理器空闲禁用（IDLEDISABLE）
-                 具体每档的取值见 Services/ProcessorPowerPolicy.cs。 -->
-            <Border x:Name="PowerPlanCard" Style="{StaticResource CardBorderStyle}">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <StackPanel Grid.Column="0"
-                                Style="{StaticResource Stack.LabelBlock}"
-                                Margin="0,0,24,0">
-                        <TextBlock Text="电源计划策略"
-                                   Style="{StaticResource CardRowLabelStyle}"/>
-                        <TextBlock x:Name="PlanHint"
-                                   Text="正在读取当前电源方案…"
-                                   Style="{StaticResource CardRowDescStyle}"/>
-                    </StackPanel>
-
-                    <!-- 初值 IsEnabled=False：档位是读出来才知道的，
-                         读完前不能按（否则用户点了一个「我以为能改」的控件）。
-                         宽度 148 是为容纳「解除限制」四个字 + 下拉箭头。 -->
-                    <ComboBox Grid.Column="1" x:Name="PlanCombo"
-                              Width="148"
-                              VerticalAlignment="Center"
-                              IsEnabled="False"
-                              SelectionChanged="PlanCombo_SelectionChanged">
-                        <ComboBoxItem Content="解除限制"/>
-                        <ComboBoxItem Content="温和"/>
-                        <ComboBoxItem Content="均衡"/>
-                        <ComboBoxItem Content="静音"/>
-                    </ComboBox>
-                </Grid>
-            </Border>
-
-
-            <!-- ======= 升频模式 =======
-                 Windows 电源管理里「处理器性能提升模式」那一项，值即位掩码
-                 （0 停用 / 1 启用 / 2 积极 / 3 高效 / 4 积极且高效）。
-                 与上面那张卡的档位相互独立：换档位不会改这一项，改这一项也不会换档位 ——
-                 两个旋钮管的是不同的事（档位是整套策略，这项只是升频行为）。
-                 读写实现在 Services/ProcessorPowerTuning.cs。 -->
-            <Border x:Name="BoostCard" Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <StackPanel Grid.Column="0"
-                                Style="{StaticResource Stack.LabelBlock}"
-                                Margin="0,0,24,0">
-                        <TextBlock Text="升频模式" Style="{StaticResource CardRowLabelStyle}"/>
-                        <TextBlock x:Name="BoostHint"
-                                   Text="正在读取当前升频模式…"
-                                   Style="{StaticResource CardRowDescStyle}"/>
-                    </StackPanel>
-
-                    <!-- 初值禁用：读到系统值之前不提供选择，避免「点了却不知道原本是什么」 -->
-                    <ComboBox Grid.Column="1" x:Name="BoostCombo"
-                              Width="148"
-                              VerticalAlignment="Center"
-                              IsEnabled="False"
-                              SelectionChanged="BoostCombo_SelectionChanged">
-                        <ComboBoxItem Content="积极且高效"/>
-                        <ComboBoxItem Content="积极"/>
-                        <ComboBoxItem Content="已启用"/>
-                        <ComboBoxItem Content="高效"/>
-                        <ComboBoxItem Content="已停用"/>
-                    </ComboBox>
-                </Grid>
-            </Border>
-
-
-            <!-- ======= 核心停放 =======
-                 powrprof 的范围型索引 CPMINMAX（0cc5b647-…），滑杆同时写 Min 与 Max。
-                 为什么不做两条滑杆：Min > Max 会被 Windows 判为非法并静默钳制，
-                 用户拖完看到数值跳回去，比只有一个旋钮更困惑。
-
-                 【三种状态，绝不出现「能拖但拖了没用」】
-                 A. 可读可写 —— 滑块 + 输入框 + 一句话说明。正常态。
-                 B. 读不到   —— 整张卡折叠成一条提示：标题 + 一行原因，控件全部隐藏。
-                                 旧版把滑块灰着留在那儿，用户拖了没反应又不知道为什么，
-                                 这是「像 Bug 的界面」；控件既然用不上，就不该占位。
-                 C. 写入失败 —— 只有 toast + 日志，控件保持可用（可重试），
-                                 不在这里做额外的置灰状态。
-
-                 【对齐】
-                 左文字块与右控件组同在垂直中线上：
-                   · 两侧都写 VerticalAlignment="Center"；
-                   · 输入框与滑杆同为 32 高（滑杆本身 32 高、轨道居中绘制），
-                     所以「滑杆中线 = 输入框中线 = 百分比中线」天然重合，
-                     不需要任何 Petting 微调。
-                 旧版的 % 号单独垂直居中，但输入框带 1px 边框、内部
-                 Padding 又与滑杆不同，三者各偏 0.5–1px，看着就是「没对齐」。 -->
-            <Border x:Name="ParkingCard" Style="{StaticResource CardBorderStyle}">
+                 【升频模式】
+                 电源管理里「处理器性能提升模式」那一项（0 停用 / 1 启用 / 2 积极 /
+                 3 高效 / 4 积极且高效），与上面的档位相互独立：
+                 档位是整套策略，这项只管升频行为。 -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
                 <StackPanel>
+                    <TextBlock Text="电源与策略" Style="{StaticResource CardTitleStyle}"/>
 
-                    <!-- ============================================================
-                         【两态互斥，不是并排】
-                         以前 ParkingScaleHint 写在两个面板之外，于是「读不到」时
-                         它照样显示，并且因为它位于折叠面板之上，屏幕上呈现出
-                         「0% 允许全部核心停放 · 100% 禁止停放」压在
-                         「⚠ 核心停放」标题上面的倒序 —— 说明跑到了标题前面。
-                         现在提示归入状态 A 内部，状态 B 换成单行「标题 + 原因」，
-                         两块严格二选一：没有功能就不出现任何解释功能怎么用的文字。
-                         ============================================================ -->
-
-                    <!-- ===== 状态 A：正常（可读写） =====
-                         【必须是 Grid 而不是 StackPanel】
-                         这一块是「左文字 / 右控件」两栏，靠 ColumnDefinitions 分栏。
-                         改成 StackPanel 会直接抛 InvalidCastException
-                         （StackPanel 没有 ColumnDefinitions 这个属性），
-                         整页 XAML 加载失败。行 0 = 两栏主体，行 1 = 跨两列的端点说明。 -->
-                    <Grid x:Name="ParkingEditablePanel">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
+                    <!-- 电源策略 -->
+                    <Grid Style="{StaticResource CardRowStyle}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
-                        <StackPanel Grid.Row="0" Grid.Column="0"
+                        <StackPanel Grid.Column="0"
                                     Style="{StaticResource Stack.LabelBlock}"
                                     Margin="0,0,24,0">
-                            <TextBlock Text="核心停放" Style="{StaticResource CardRowLabelStyle}"/>
-                            <TextBlock x:Name="ParkingHint"
-                                       Text="正在读取当前核心停放设置…"
+                            <TextBlock Text="电源策略" Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock x:Name="PlanHint"
+                                       Text="正在读取当前电源方案…"
                                        Style="{StaticResource CardRowDescStyle}"/>
                         </StackPanel>
 
-                        <!-- 数值区：滑杆 / 输入框 / 单位，三者同高同中线 -->
-                        <Grid Grid.Row="0" Grid.Column="1" VerticalAlignment="Center">
+                        <!-- 初值 IsEnabled=False：档位是读出来才知道的，
+                             读完前不能按（否则用户点了一个「我以为能改」的控件）。
+                             宽度 148 是为容纳「解除限制」四个字 + 下拉箭头。 -->
+                        <ComboBox Grid.Column="1" x:Name="PlanCombo"
+                                  Width="148"
+                                  VerticalAlignment="Center"
+                                  IsEnabled="False"
+                                  SelectionChanged="PlanCombo_SelectionChanged">
+                            <ComboBoxItem Content="解除限制"/>
+                            <ComboBoxItem Content="温和"/>
+                            <ComboBoxItem Content="均衡"/>
+                            <ComboBoxItem Content="静音"/>
+                        </ComboBox>
+                    </Grid>
+
+                    <!-- 升频模式 -->
+                    <Grid Style="{StaticResource CardRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0"
+                                    Style="{StaticResource Stack.LabelBlock}"
+                                    Margin="0,0,24,0">
+                            <TextBlock Text="升频模式" Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock x:Name="BoostHint"
+                                       Text="正在读取当前升频模式…"
+                                       Style="{StaticResource CardRowDescStyle}"/>
+                        </StackPanel>
+
+                        <!-- 初值禁用：读到系统值之前不提供选择，避免「点了却不知道原本是什么」 -->
+                        <ComboBox Grid.Column="1" x:Name="BoostCombo"
+                                  Width="148"
+                                  VerticalAlignment="Center"
+                                  IsEnabled="False"
+                                  SelectionChanged="BoostCombo_SelectionChanged">
+                            <ComboBoxItem Content="积极且高效"/>
+                            <ComboBoxItem Content="积极"/>
+                            <ComboBoxItem Content="已启用"/>
+                            <ComboBoxItem Content="高效"/>
+                            <ComboBoxItem Content="已停用"/>
+                        </ComboBox>
+                    </Grid>
+
+                    <!-- 核心停放：三种状态，绝不出现「能拖但拖了没用」
+                         A. 可读可写 —— 滑块 + 输入框 + 单位
+                         B. 读不到   —— 整行折叠成「标题 + 一行原因」，控件全部隐藏
+                         C. 写入失败 —— 只有 toast + 日志，控件保持可用（可重试） -->
+                    <Grid Style="{StaticResource CardRowLastStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- ===== 状态 A：正常（可读写） =====
+                             左文字块与右控件组同在垂直中线上：
+                             两侧都写 VerticalAlignment="Center"，输入框与滑杆同为 32 高
+                             （滑杆本身 32 高、轨道居中绘制），
+                             于是「滑杆中线 = 输入框中线 = 百分比中线」天然重合。 -->
+                        <Grid x:Name="ParkingEditablePanel"
+                              Grid.ColumnSpan="2">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
-                            <Slider x:Name="ParkingSlider"
-                                    Grid.Column="0"
-                                    Width="200" Height="32"
-                                    Minimum="0" Maximum="100"
-                                    TickFrequency="5"
-                                    IsSnapToTickEnabled="True"
-                                    SmallChange="5" LargeChange="20"
-                                    VerticalAlignment="Center"
-                                    IsEnabled="False"
-                                    PreviewMouseUp="ParkingSlider_PreviewMouseUp"
-                                    ValueChanged="ParkingSlider_ValueChanged"/>
+                            <StackPanel Grid.Column="0"
+                                        Style="{StaticResource Stack.LabelBlock}"
+                                        Margin="0,0,24,0">
+                                <TextBlock Text="核心停放" Style="{StaticResource CardRowLabelStyle}"/>
+                                <TextBlock x:Name="ParkingHint"
+                                           Text="正在读取当前核心停放设置…"
+                                           Style="{StaticResource CardRowDescStyle}"/>
+                            </StackPanel>
 
-                            <!-- 输入框 56 宽：32 只够放两位数字 + 内缩，
-                                 三位数（100）会被截掉末位的描边。 -->
-                            <TextBox x:Name="ParkingBox"
-                                     Grid.Column="1"
-                                     Width="56" Height="32"
-                                     Margin="14,0,0,0"
-                                     VerticalContentAlignment="Center"
-                                     TextAlignment="Center"
-                                     Style="{StaticResource TuningBoxStyle}"
-                                     IsEnabled="False"
-                                     KeyDown="ParkingBox_KeyDown"
-                                     LostFocus="ParkingBox_LostFocus"/>
+                            <Grid Grid.Column="1" VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
 
-                            <!-- % 号与数字之间 6px，且 12px 字号 —— 单位不该和数值一样重 -->
-                            <TextBlock Grid.Column="2"
-                                       Text="%"
-                                       Margin="6,0,0,0"
-                                       VerticalAlignment="Center"
-                                       FontSize="12"
-                                       Foreground="{DynamicResource Text.Secondary}"/>
+                                <Slider x:Name="ParkingSlider"
+                                        Grid.Column="0"
+                                        Width="200" Height="32"
+                                        Minimum="0" Maximum="100"
+                                        TickFrequency="5"
+                                        IsSnapToTickEnabled="True"
+                                        SmallChange="5" LargeChange="20"
+                                        VerticalAlignment="Center"
+                                        IsEnabled="False"
+                                        PreviewMouseUp="ParkingSlider_PreviewMouseUp"
+                                        ValueChanged="ParkingSlider_ValueChanged"/>
+
+                                <!-- 输入框 56 宽：32 只够放两位数字 + 内缩，
+                                     三位数（100）会被截掉末位的描边。 -->
+                                <TextBox x:Name="ParkingBox"
+                                         Grid.Column="1"
+                                         Width="56" Height="32"
+                                         Margin="14,0,0,0"
+                                         VerticalContentAlignment="Center"
+                                         TextAlignment="Center"
+                                         Style="{StaticResource TuningBoxStyle}"
+                                         IsEnabled="False"
+                                         KeyDown="ParkingBox_KeyDown"
+                                         LostFocus="ParkingBox_LostFocus"/>
+
+                                <!-- % 号与数字之间 6px，且 12px 字号 —— 单位不该和数值一样重 -->
+                                <TextBlock Grid.Column="2"
+                                           Text="%"
+                                           Margin="6,0,0,0"
+                                           VerticalAlignment="Center"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource Text.Secondary}"/>
+                            </Grid>
                         </Grid>
 
-                        <!-- 端点语义：0% / 100% 是什么意思。
-                             只在状态 A 内出现 —— 读不到值时解释「怎么用」没有意义。
-                             与上方说明行隔 8px、字号降一级（L6 元数据）。
-                             左内缩 24 与文字块对齐（Grid 第 0 列起点）。 -->
-                        <TextBlock x:Name="ParkingScaleHint"
-                                   Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                                   Text="0% 允许全部核心停放 · 100% 禁止停放"
-                                   Style="{StaticResource Text.Meta}"
-                                   Margin="0,10,0,0"/>
-                    </Grid>
-
-                    <!-- ===== 状态 B：读不到（整块折叠成提示） =====
-                         【为什么只有一句 12 字的话】
-                         这一格的职责是「告诉你它现在用不了」，不是解释电源方案的索引结构。
-                         旧版把 powrprof 的原始错误串直接拼进正文，屏幕上出现了
-                         「当前系统无法读取核心停放设置（当前电源方案不提供核心停放设置。），
-                         此项已停用。」—— 一句话里说了两遍同一件事，还带着嵌套括号和句号。
-                         原始错误现在只进日志。 -->
-                    <StackPanel x:Name="ParkingUnavailablePanel" Visibility="Collapsed">
-                        <StackPanel Orientation="Horizontal">
-                            <Path Width="13" Height="13"
-                                  Margin="0,0,8,0"
-                                  VerticalAlignment="Center"
-                                  Stretch="Uniform"
-                                  Stroke="{DynamicResource State.Warning}"
-                                  StrokeThickness="1.5"
-                                  StrokeStartLineCap="Round"
-                                  StrokeEndLineCap="Round"
-                                  StrokeLineJoin="Round"
-                                  Fill="Transparent"
-                                  Data="M 8,1 L 15,14 L 1,14 Z M 8,6 L 8,10 M 8,12 L 8,12.1"/>
-                            <TextBlock Text="核心停放"
-                                       VerticalAlignment="Center"
-                                       Style="{StaticResource CardRowLabelStyle}"/>
+                        <!-- ===== 状态 B：读不到 =====
+                             只有一句 12 字的话 —— 这一格的职责是
+                             「告诉你它现在用不了」，不是解释电源方案的索引结构。
+                             旧版把 powrprof 的原始错误串直接拼进正文，
+                             一句话里说了两遍同一件事，还带着嵌套括号和句号；
+                             原始错误现在只进日志。 -->
+                        <StackPanel x:Name="ParkingUnavailablePanel"
+                                    Grid.ColumnSpan="2"
+                                    Visibility="Collapsed">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Width="13" Height="13"
+                                      Margin="0,0,8,0"
+                                      VerticalAlignment="Center"
+                                      Stretch="Uniform"
+                                      Stroke="{DynamicResource State.Warning}"
+                                      StrokeThickness="1.5"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      StrokeLineJoin="Round"
+                                      Fill="Transparent"
+                                      Data="M 8,1 L 15,14 L 1,14 Z M 8,6 L 8,10 M 8,12 L 8,12.1"/>
+                                <TextBlock Text="核心停放"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource CardRowLabelStyle}"/>
+                            </StackPanel>
+                            <TextBlock x:Name="ParkingUnavailableText"
+                                       Text="当前电源方案不支持核心停放，此项已停用"
+                                       Style="{StaticResource CardRowDescStyle}"
+                                       Margin="21,6,0,0"/>
                         </StackPanel>
-                        <TextBlock x:Name="ParkingUnavailableText"
-                                   Text="当前电源方案不支持核心停放，此项已停用"
-                                   Style="{StaticResource CardRowDescStyle}"
-                                   Margin="21,6,0,0"/>
-                    </StackPanel>
+                    </Grid>
                 </StackPanel>
             </Border>
 

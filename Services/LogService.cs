@@ -162,6 +162,20 @@ namespace ZenForge.Services
         public static int Count => EntriesInternal.Count;
 
         /// <summary>
+        /// 取一份当前日志的快照副本。
+        ///
+        /// 导出、自检这类需求必须走这个方法而不是直接 foreach <see cref="Entries"/>：
+        /// 那个集合是后台线程在写的，遍历它时后台正好 Add 一条，
+        /// 就是随机的 InvalidOperationException（"Collection was modified"）。
+        /// 锁只保护这次复制，出去之后副本归调用方，不与写入路径争锁。
+        /// </summary>
+        public static LogEntry[] Snapshot()
+        {
+            lock (EntriesGate)
+                return EntriesInternal.ToArray();
+        }
+
+        /// <summary>
         /// 暂停日志记录。
         ///
         /// 【与旧版「暂停」的区别】

@@ -1,0 +1,192 @@
+﻿<Page x:Class="ZenForge.Views.BehaviorPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Title="行为"
+      Focusable="False"
+      FocusVisualStyle="{x:Null}">
+
+    <!--
+        ============================================================
+        行为页（v1.0.2）：启动 / 后台 / 通知
+        ============================================================
+        三张卡的顺序按「影响范围」排：开机 → 常驻 → 出事怎么办。
+
+        【后台卡为什么用缩进子选项】
+        「开启后台服务」是总闸，下面三项只有它开着才有意义。
+        用「缩进 + 左侧 1px 竖线」而不是同级的四行并列：
+        并排会让人以为四项各自独立，而实际是「关掉第一项，后三项就不存在」。
+        总闸关闭时整块 Collapsed（不是灰显）—— 灰显会留下
+        「这一项存在、只是暂时点不了」的误导。
+    -->
+
+    <Page.Resources>
+        <Style x:Key="BehaviorRowStyle" TargetType="Grid" BasedOn="{StaticResource CardRowStyle}"/>
+
+        <Style x:Key="BehaviorRowLastStyle" TargetType="Grid" BasedOn="{StaticResource CardRowStyle}">
+            <Setter Property="Margin" Value="0"/>
+        </Style>
+
+        <!-- 子选项容器：左边距 24 让出缩进，内部左内边距 16 给竖线留出呼吸，
+             竖线 1px 用卡片边框色（比 Separator 更淡，避免和卡片边界抢）。 -->
+        <Style x:Key="SubOptionsStyle" TargetType="Border">
+            <Setter Property="Margin" Value="24,0,0,0"/>
+            <Setter Property="Padding" Value="16,0,0,0"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Card.Border}"/>
+            <Setter Property="BorderThickness" Value="1,0,0,0"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+        </Style>
+    </Page.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="28,6,28,24">
+            <TextBlock Text="行为"
+                       Style="{StaticResource PageTitleStyle}"
+                       Margin="0,0,0,16"/>
+
+            <!-- ===== 启动 ===== -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="启动" Style="{StaticResource CardTitleStyle}"/>
+
+                    <Grid Style="{StaticResource BehaviorRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Text="开机静默自启"
+                                   Style="{StaticResource CardRowLabelStyle}"
+                                   VerticalAlignment="Center"/>
+                        <ToggleButton Grid.Column="1"
+                                      x:Name="AutoStartToggle"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      VerticalAlignment="Center"
+                                      Click="AutoStartToggle_Click"/>
+                    </Grid>
+
+                    <Grid Style="{StaticResource BehaviorRowLastStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Text="自动应用调校"
+                                   Style="{StaticResource CardRowLabelStyle}"
+                                   VerticalAlignment="Center"/>
+                        <ToggleButton Grid.Column="1"
+                                      x:Name="ApplyTuningToggle"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      VerticalAlignment="Center"
+                                      Click="ApplyTuningToggle_Click"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 后台 ===== -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="后台" Style="{StaticResource CardTitleStyle}"/>
+
+                    <Grid Style="{StaticResource BehaviorRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Text="开启后台服务"
+                                   Style="{StaticResource CardRowLabelStyle}"
+                                   VerticalAlignment="Center"/>
+                        <ToggleButton Grid.Column="1"
+                                      x:Name="BackendServiceToggle"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      VerticalAlignment="Center"
+                                      Click="BackendServiceToggle_Click"/>
+                    </Grid>
+
+                    <!-- 总闸关 → 整块消失。子项行距 20，最后一行归零，
+                         与卡片内其它卡保持同一种行节奏。 -->
+                    <Border x:Name="SubOptions"
+                            Style="{StaticResource SubOptionsStyle}"
+                            Margin="24,0,0,0">
+                        <StackPanel>
+                            <Grid Style="{StaticResource BehaviorRowStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0"
+                                           Text="后台常驻调度"
+                                           Style="{StaticResource CardRowLabelStyle}"
+                                           Foreground="{DynamicResource Text.Secondary}"
+                                           VerticalAlignment="Center"/>
+                                <ToggleButton Grid.Column="1"
+                                              x:Name="ProcessWatchToggle"
+                                              Style="{StaticResource ToggleSwitchStyle}"
+                                              VerticalAlignment="Center"
+                                              Click="ProcessWatchToggle_Click"/>
+                            </Grid>
+
+                            <Grid Style="{StaticResource BehaviorRowStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0"
+                                           Text="后台轻量模式"
+                                           Style="{StaticResource CardRowLabelStyle}"
+                                           Foreground="{DynamicResource Text.Secondary}"
+                                           VerticalAlignment="Center"/>
+                                <ToggleButton Grid.Column="1"
+                                              x:Name="LightModeToggle"
+                                              Style="{StaticResource ToggleSwitchStyle}"
+                                              VerticalAlignment="Center"
+                                              Click="LightModeToggle_Click"/>
+                            </Grid>
+
+                            <Grid Style="{StaticResource BehaviorRowLastStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0"
+                                           Text="显示托盘图标"
+                                           Style="{StaticResource CardRowLabelStyle}"
+                                           Foreground="{DynamicResource Text.Secondary}"
+                                           VerticalAlignment="Center"/>
+                                <ToggleButton Grid.Column="1"
+                                              x:Name="ShowTrayToggle"
+                                              Style="{StaticResource ToggleSwitchStyle}"
+                                              VerticalAlignment="Center"
+                                              Click="ShowTrayToggle_Click"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 通知（放在最底部：它是「出事之后才想起来的事」，
+                 不该挤在启动与后台前面） ===== -->
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel>
+                    <TextBlock Text="通知" Style="{StaticResource CardTitleStyle}"/>
+
+                    <Grid Style="{StaticResource BehaviorRowLastStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Text="出错时通知我"
+                                   Style="{StaticResource CardRowLabelStyle}"
+                                   VerticalAlignment="Center"/>
+                        <ToggleButton Grid.Column="1"
+                                      x:Name="ErrorNotifyToggle"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      VerticalAlignment="Center"
+                                      Click="ErrorNotifyToggle_Click"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

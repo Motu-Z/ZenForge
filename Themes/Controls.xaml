@@ -190,8 +190,8 @@
          竖条与文字都用 Grid 列定位，不靠 Padding 位移：
          用 Padding 改内缩会在选中/取消瞬间产生 1px 抖动。 -->
     <Style x:Key="SideNavItemStyle" TargetType="ToggleButton">
-        <Setter Property="Height" Value="36"/>
-        <Setter Property="Margin" Value="0,0,0,2"/>
+        <Setter Property="Height" Value="38"/>
+        <Setter Property="Margin" Value="0,0,0,4"/>
         <Setter Property="FontSize" Value="13"/>
         <Setter Property="Foreground" Value="{DynamicResource Text.Secondary}"/>
         <Setter Property="Background" Value="Transparent"/>
@@ -207,44 +207,50 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ToggleButton">
-                    <!-- 四角 8px。三列：竖条 / 图标 / 文字。
-                         图标列固定 26（14 图标 + 12 间距），让五个导航项的
-                         图标中线和文字起点天然对齐 —— 只靠文字左边距的话，
-                         中英文混排时「调校」与「ZenForge」的视觉起点会差 1–2px。 -->
-                    <Border x:Name="Bd"
-                            Background="{TemplateBinding Background}"
-                            CornerRadius="8"
-                            SnapsToDevicePixels="True">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="3"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
+                    <!-- 竖条画在项外（第 0 列），底色块从第 1 列起：
+                         选中标记落在外侧，底色块就不会被竖条啃掉一块，
+                         圆角也保持完整。侧栏导航区左右各留 12，加上这里
+                         的 12 内缩，图标与文字起点严格落在 x=24。 -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
 
-                            <!-- 选中竖条：圆头、上下各 8px 内缩。
-                                 行高 36 - 16 = 20px 可见段，与 13px 字号比例接近，
-                                 读起来是「一枚标记」而不是「一条分隔线」。 -->
-                            <Rectangle x:Name="Bar"
-                                       Grid.Column="0"
-                                       Width="3"
-                                       RadiusX="1.5" RadiusY="1.5"
-                                       Margin="0,8,0,8"
-                                       HorizontalAlignment="Left"
-                                       VerticalAlignment="Stretch"
-                                       Fill="{DynamicResource AccentBrush}"
-                                       Visibility="Collapsed"/>
+                        <Rectangle x:Name="Bar"
+                                   Grid.Column="0"
+                                   Width="3"
+                                   Height="16"
+                                   RadiusX="1.5" RadiusY="1.5"
+                                   HorizontalAlignment="Left"
+                                   VerticalAlignment="Center"
+                                   Fill="{DynamicResource AccentBrush}"
+                                   Visibility="Collapsed"/>
 
+                        <Border x:Name="Bd"
+                                Grid.Column="1"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="6"
+                                SnapsToDevicePixels="True">
                             <ContentPresenter x:Name="Txt"
-                                              Grid.Column="1"
-                                              Margin="13,0,12,0"
+                                              Margin="12,0,12,0"
                                               HorizontalAlignment="Left"
                                               VerticalAlignment="Center"/>
-                        </Grid>
-                    </Border>
+                        </Border>
+                    </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Nav.Button.Hover}"/>
                             <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <!-- 按压微缩 0.98：与全工程按钮的 Active 反馈同一档，
+                                 比位移或改底色便宜，也不会影响文字基线。 -->
+                            <Setter Property="LayoutTransform">
+                                <Setter.Value>
+                                    <ScaleTransform ScaleX="0.98" ScaleY="0.98"/>
+                                </Setter.Value>
+                            </Setter>
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Nav.Button.Active}"/>
@@ -260,19 +266,34 @@
         </Setter>
     </Style>
 
-    <!-- 侧栏分组标题：「系统」这类不可点的语义分隔。
-         L7 微标签（10 / SemiBold / 46% 白）+ 上方 18px 的下压间距。
-         左边缘 13 与导航项文字起点对齐（竖条 3 + 内缩 13 = 16，
-         ContentPresenter 从第 1 列起算，所以这里写 16）。 -->
-    <Style x:Key="NavGroupTitleStyle" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}"/>
-        <Setter Property="FontSize" Value="10"/>
-        <Setter Property="FontWeight" Value="SemiBold"/>
-        <Setter Property="Foreground" Value="{DynamicResource Text.MetaBrush}"/>
-        <Setter Property="Margin" Value="16,18,4,6"/>
-        <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+    <!-- 侧栏导航图标：16×16 描边矢量，颜色跟随所在按钮的 Foreground。
+         用 Self 取 Foreground 而不是写死强调色：
+         图标必须是「文字的附属」，选中/悬停时随着文字一起提亮，
+         写死颜色会出现「图标灰、文字白」的割裂感。 -->
+    <Style x:Key="NavIconPath" TargetType="Path">
+        <Setter Property="Width" Value="16"/>
+        <Setter Property="Height" Value="16"/>
+        <Setter Property="Stretch" Value="Uniform"/>
+        <Setter Property="Fill" Value="Transparent"/>
+        <Setter Property="Stroke" Value="{Binding Foreground, RelativeSource={RelativeSource Self}}"/>
+        <Setter Property="StrokeThickness" Value="1.8"/>
+        <Setter Property="StrokeStartLineCap" Value="Round"/>
+        <Setter Property="StrokeEndLineCap" Value="Round"/>
+        <Setter Property="StrokeLineJoin" Value="Round"/>
+        <Setter Property="Opacity" Value="0.85"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
     </Style>
 
+    <!-- 侧栏分组分割线。上下 20 / 左右 8：
+         上下留够 20 才能让「组」读成组，而不是「挨得比较近的几个项」；
+         左右内缩 8 是为了不让线顶到侧栏边，顶到边就会和窗口边框糊成一条。 -->
+    <Style x:Key="NavGroupSeparatorStyle" TargetType="Rectangle">
+        <Setter Property="Height" Value="1"/>
+        <Setter Property="Fill" Value="{DynamicResource Separator}"/>
+        <Setter Property="Margin" Value="8,20,8,20"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+    </Style>
 
     <!-- ===================== 页面标题（指向 Typography 的 L1） =====================
          具体数值与理由见 Themes/Typography.xaml，那里是全工程唯一口径。
@@ -342,6 +363,64 @@
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
                             <Setter Property="Foreground" Value="{DynamicResource Disabled.Foreground}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===================== 危险按钮 =====================
+         只用于「清除全部数据」「停用全部功能」这类不可逆操作。
+         与 SecondaryButtonStyle 完全同尺寸（32 / 圆角 6 / 13px），
+         差别只有红色文字 + 红边框 —— 尺寸必须一致，否则重置卡上
+         两个按钮会一高一低，看起来像两个不同性质的控件。
+
+         不复用次要按钮模板的原因：那个模板把 hover 底写死成中性灰，
+         危险按钮悬停时红字配灰底会互相抵消。 -->
+    <Style x:Key="DangerButtonStyle" TargetType="Button">
+        <Setter Property="Height" Value="32"/>
+        <Setter Property="Padding" Value="14,0"/>
+        <Setter Property="Margin" Value="0,0,8,0"/>
+        <Setter Property="MinWidth" Value="72"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Foreground" Value="{DynamicResource Danger.Foreground}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Danger.Edge}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="6"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Danger.Hover}"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Danger.Pressed}"/>
+                            <Setter Property="RenderTransform">
+                                <Setter.Value>
+                                    <ScaleTransform ScaleX="0.96" ScaleY="0.96"/>
+                                </Setter.Value>
+                            </Setter>
+                            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -1159,15 +1238,115 @@
     </Style>
 
     <!-- 日志级别 pill：圆角 20，10% 级别色底 + 30% 级别色边 -->
-    <Style x:Key="LogPillStyle" TargetType="Border">
-        <Setter Property="Height" Value="26"/>
+    <!-- ===================== 日志级别 pill（筛选器） =====================
+         做成 ToggleButton 而不是 Border + 代码改色：
+         筛选器有两种状态（选中 / 未选），状态必须由控件自己持有，
+         而不是靠代码在每次刷新时把 Brush 写回去 —— 后者在虚拟化回收
+         与主题切换时都会漏改一处，出现「半旧半新」的胶囊。
+
+         描边 30% + 底 10%：两档透明度拉开，底色属于背景层、描边属于前景层。
+         只有 10% 底时胶囊在卡片上几乎看不见边界，只有 30% 描边时三枚
+         并排会连成三条硬线。
+
+         选中态直接把底色翻成实心级别色、文字与圆点翻成窗口底色：
+         尺寸一个像素都不动（加粗边框会让文字左右各抖 1px），
+         但视觉重量足以表达「正在按这一级筛选」。 -->
+    <Style x:Key="LogPillStyle" TargetType="ToggleButton">
+        <Setter Property="Height" Value="28"/>
         <Setter Property="Padding" Value="12,0"/>
-        <Setter Property="CornerRadius" Value="13"/>
+        <Setter Property="Margin" Value="0,0,10,0"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Foreground" Value="{DynamicResource Log.Info}"/>
+        <Setter Property="Background" Value="{DynamicResource Log.InfoTint}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Log.InfoEdge}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="Background" Value="{DynamicResource Input.Background}"/>
-        <Setter Property="BorderBrush" Value="{DynamicResource Input.Border}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="14"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <!-- 6px 实心圆点（参考图 .pill-dot）：
+                                 圆点比文字更能表达「这是什么颜色」，
+                                 在 12px 字号下加粗文字反而不如一个色点好认。 -->
+                            <Ellipse x:Name="Dot"
+                                     Width="6" Height="6"
+                                     Margin="0,0,8,0"
+                                     VerticalAlignment="Center"
+                                     Fill="{TemplateBinding Foreground}"
+                                     SnapsToDevicePixels="True"/>
+                            <ContentPresenter VerticalAlignment="Center"
+                                              TextBlock.Foreground="{TemplateBinding Foreground}"/>
+                        </StackPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <!-- 描边提到实心：不动位移，避免 1px 抖动把三枚胶囊推歪 -->
+                            <Setter TargetName="Bd" Property="BorderBrush"
+                                    Value="{Binding Foreground, RelativeSource={RelativeSource TemplatedParent}}"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter Property="LayoutTransform">
+                                <Setter.Value>
+                                    <ScaleTransform ScaleX="0.97" ScaleY="0.97"/>
+                                </Setter.Value>
+                            </Setter>
+                        </Trigger>
+                        <!-- 注意顺序：IsChecked 里把 Foreground 改成了窗口底色，
+                             而 Bd.Background 是从 Foreground 取的 —— 会一起翻成式。
+                             所以圆点与文字必须显式指向窗口底色，不能再用 TemplateBinding。 -->
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Bd" Property="Background"
+                                    Value="{Binding Foreground, RelativeSource={RelativeSource TemplatedParent}}"/>
+                            <Setter TargetName="Dot" Property="Fill"
+                                    Value="{DynamicResource Window.Background}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource Window.Background}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- 三个级别只换三支笔，其余全部继承：
+         加一个级别 = 加一个 4 行的派生样式，不用复制整套模板。 -->
+    <Style x:Key="LogPillWarnStyle" TargetType="ToggleButton" BasedOn="{StaticResource LogPillStyle}">
+        <Setter Property="Foreground" Value="{DynamicResource Log.Warn}"/>
+        <Setter Property="Background" Value="{DynamicResource Log.WarnTint}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Log.WarnEdge}"/>
+    </Style>
+
+    <Style x:Key="LogPillErrorStyle" TargetType="ToggleButton" BasedOn="{StaticResource LogPillStyle}">
+        <Setter Property="Foreground" Value="{DynamicResource Log.Error}"/>
+        <Setter Property="Background" Value="{DynamicResource Log.ErrorTint}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Log.ErrorEdge}"/>
+    </Style>
+
+    <!-- 日志行容器：选中态用「相对于 ListBoxItem 的 IsSelected」这条
+         数据绑定来驱动，而不是在代码里改 Background。
+
+         为什么必须是 DataTrigger（而不是在模板里写 Trigger Property=IsSelected）：
+         行模板挂在 ListBoxItem 的内容上，它自己没有 IsSelected 属性，
+         Trigger 无处可挂；而相对于容器的 RelativeSource 绑定是**数据绑定**，
+         容器被回收复用时会重新求值 —— 这正是虚拟化回收模式下
+         「选中色跟着滚动条跑」的对症解法（1.0.1 的事故）。 -->
+    <Style x:Key="LogRowBorderStyle" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource Log.Background}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="CornerRadius" Value="6"/>
+        <Setter Property="Margin" Value="0,0,0,8"/>
         <Setter Property="SnapsToDevicePixels" Value="True"/>
     </Style>
+
 
 
     <!-- 方形工具按钮（32×32，带边框，与 SecondaryButtonStyle 同高同圆角）。

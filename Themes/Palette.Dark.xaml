@@ -74,8 +74,11 @@
     <SolidColorBrush x:Key="Disabled.Background" Color="#2A2A2C"/>
     <SolidColorBrush x:Key="Disabled.Foreground" Color="#6C6C70"/>
 
-    <SolidColorBrush x:Key="Log.Background" Color="#33000000"/>
-    <SolidColorBrush x:Key="Log.Border" Color="#14FFFFFF"/>
+    <!-- 日志行底色：8% 白（参考图 .log-item 的 rgba(255,255,255,0.08)）。
+         叠在卡片 3% 白之上正好高一档，行与卡片底之间有一层可读的层次，
+         又不会亮到把卡片本身的边界吃掉。 -->
+    <SolidColorBrush x:Key="Log.Background" Color="#14FFFFFF"/>
+    <SolidColorBrush x:Key="Log.Border" Color="#1AFFFFFF"/>
 
     <!-- ==================================================================
          【语义色区：禁止与强调色产生任何关联】
@@ -91,23 +94,35 @@
            · 换主题时整册替换（SwapPalette），深浅两册各自定义同名键，
              因此无需在运行时动态改写 —— 也就没有「被覆盖」的机会。
 
-         Log.Info 用中性灰蓝 #8B9BB4 而非任何强调色系：
+         Log.Info 用中性灰蓝 #A3B8CC 而非任何强调色系：
          默认强调色是 #38BDF8（亮青蓝），若日志信息级也用同色系，
          用户会分不清「这是可点的东西」还是「这是一条普通日志」。
          灰蓝的饱和度足够低，既保留「信息级偏冷」的语义习惯，
          又不会在任何强调色主题下与之混淆。
+
+         1.0.2 起色值直接取自 UI 规范的「语义色铁律区」：
+         Info #A3B8CC / Warn #F5D90A / Error #FF453A。
+         这三个值与强调色互不引用，换任何强调色都不变。
          ================================================================== -->
-    <SolidColorBrush x:Key="Log.Info" Color="#8B9BB4"/>
+    <SolidColorBrush x:Key="Log.Info" Color="#A3B8CC"/>
     <SolidColorBrush x:Key="Log.Warn" Color="#F5D90A"/>
     <SolidColorBrush x:Key="Log.Error" Color="#FF453A"/>
     <SolidColorBrush x:Key="Log.Critical" Color="#C42B1C"/>
 
-    <!-- 日志级别 pill / 徽章的底色：对应级别色的 12% 透明度版本（0x1F = 31/255）。
+    <!-- 日志级别 pill 的底（10%，0x1A = 26/255）与描边（30%，0x4D = 77/255）。
+         两档透明度拉开是为了让「底色属于背景层、描边属于前景层」：
+         只有一层 10% 底时，胶囊在深色卡片上几乎看不见边界；
+         只有 30% 描边时，三枚并排会连成三条硬线。
          必须与上面的色值同源，改一个就要改另一个。 -->
-    <SolidColorBrush x:Key="Log.InfoTint" Color="#1F8B9BB4"/>
-    <SolidColorBrush x:Key="Log.WarnTint" Color="#1FF5D90A"/>
-    <SolidColorBrush x:Key="Log.ErrorTint" Color="#1FFF453A"/>
-    <SolidColorBrush x:Key="Log.CriticalTint" Color="#1FC42B1C"/>
+    <SolidColorBrush x:Key="Log.InfoTint" Color="#1AA3B8CC"/>
+    <SolidColorBrush x:Key="Log.WarnTint" Color="#1AF5D90A"/>
+    <SolidColorBrush x:Key="Log.ErrorTint" Color="#1AFF453A"/>
+    <SolidColorBrush x:Key="Log.CriticalTint" Color="#1AC42B1C"/>
+
+    <SolidColorBrush x:Key="Log.InfoEdge" Color="#4DA3B8CC"/>
+    <SolidColorBrush x:Key="Log.WarnEdge" Color="#4DF5D90A"/>
+    <SolidColorBrush x:Key="Log.ErrorEdge" Color="#4DFF453A"/>
+    <SolidColorBrush x:Key="Log.CriticalEdge" Color="#4DC42B1C"/>
 
     <SolidColorBrush x:Key="Scrollbar.Thumb" Color="#26FFFFFF"/>
     <SolidColorBrush x:Key="Scrollbar.ThumbHover" Color="#4DFFFFFF"/>
@@ -117,6 +132,15 @@
 
     <!-- 警告横幅 / 危险操作的淡底（Danger 的低透明度版本，深浅两册各自取值） -->
     <SolidColorBrush x:Key="DangerSoft" Color="#26E5534B"/>
+
+    <!-- 危险按钮的四个状态。文字与边框取规范里的 #FF453A（错误红），
+         不取 Danger(#C42B1C)：后者是「已经出事了」的深红，按钮上会显得发暗、
+         像禁用态。40% 的边框在深色卡片上刚好是一条能看清的红线，
+         悬停/按压时只把红底升到 10% / 15%，不碰文字颜色。 -->
+    <SolidColorBrush x:Key="Danger.Foreground" Color="#FF453A"/>
+    <SolidColorBrush x:Key="Danger.Edge" Color="#66FF453A"/>
+    <SolidColorBrush x:Key="Danger.Hover" Color="#1AFF453A"/>
+    <SolidColorBrush x:Key="Danger.Pressed" Color="#26FF453A"/>
 
     <!-- 中性单色按钮（不跟随主题强调色，低调深灰）。
          底色从 #4E4E54 收到 #2A2A2D：原来的灰比卡片亮太多，

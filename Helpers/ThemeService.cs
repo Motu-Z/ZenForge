@@ -1,8 +1,9 @@
+using System;
 using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Media;
-using System.Windows.Threading;
 using Microsoft.Win32;
+using ZenForge.Services;
 
 namespace ZenForge.Helpers
 {
@@ -17,7 +18,7 @@ namespace ZenForge.Helpers
         private const string FallbackSystemAccentHex = "#0078D4";
 
         private static ResourceDictionary? _accentDictionary;
-        private static DispatcherTimer? _systemMonitorTimer;
+        private static ManagedTimer? _systemMonitorTimer;
         private static bool _lastKnownDark = true;
         private static Color _lastKnownSystemAccent;
 
@@ -106,18 +107,28 @@ namespace ZenForge.Helpers
         /// <summary>
         /// 启动系统主题/强调色监视。Windows 设置变更后最多 2 秒内自动跟随。
         /// （后续可替换为 SystemEvents.UserPreferenceChanged，轮询方案零 API 风险。）
+        ///
+        /// 【为什么走 PageTimerManager + HostScope】
+        /// 2 秒一拍的轮询是「后台 CPU 空转」最大的单点来源：它每拍都要
+        /// 读注册表 + 读系统强调色，而且跑在 UI 线程上。
+        /// 交给 PageTimerManager 之后，窗口隐藏 / 最小化 / 收进托盘时
+        /// 它会被自动挂起，回到界面再自动恢复 —— 恢复时重新对表，
+        /// 期间错过的主题变化照样会被补上。
         /// </summary>
         public static void StartSystemMonitor()
         {
             _lastKnownDark = IsDark;
 
-            // 重复调用会丢掉旧定时器。DispatcherTimer 一旦 Start 就被 Dispatcher 持有，
-            // 不显式 Stop 就会一直 tick —— 每次从托盘回来都建一个新的，等于越攒越多。
-            if (_systemMonitorTimer != null)
-                _systemMonitorTimer.Stop();
+            // 重复调用会丢掉旧定时器：ManagedTimer 一旦 Create 就登记进
+            // PageTimerManager 的静态表，不 Dispose 就永远留在那里 ——
+            // 每次从托盘回来都建一个新的，等于越攒越多。
+            _systemMonitorTimer?.Dispose();
 
-            _systemMonitorTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-            _systemMonitorTimer.Tick += (_, _) => OnMonitorTick();
+            _systemMonitorTimer = PageTimerManager.Create(
+                PageTimerManager.HostScope,
+                TimeSpan.FromSeconds(2),
+                (_, _) => OnMonitorTick());
+
             _systemMonitorTimer.Start();
         }
 
@@ -159,17 +170,7 @@ namespace ZenForge.Helpers
         /// 收进托盘之后没人看界面，让它每 2 秒唤醒一次 UI 线程纯属浪费。
         /// 回到界面时调 StartSystemMonitor() 会重新对表，期间错过的主题变化也会被补上。
         /// </summary>
-        public static void StopSystemMonitor()
-        {
-            try
-            {
-                _systemMonitorTimer?.Stop();
-            }
-            catch
-            {
-                // 忽略
-            }
-        }
+        public static void StopSystemMonitor() => _systemMonitorTimer?.Stop();
 
         private static bool ResolveDark(AppThemeMode mode) => mode switch
         {

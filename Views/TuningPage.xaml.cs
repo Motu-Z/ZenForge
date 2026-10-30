@@ -24,6 +24,9 @@ namespace ZenForge.Views
     /// </summary>
     public partial class TuningPage : Page
     {
+        /// <summary>本页在路由中的 key，与 MainWindow 侧栏的 Tag 一致。</summary>
+        public const string PageKey = "tuning";
+
         // 与 SmuReader 的输入合法性边界保持一致
         private const int CoMin = SmuReader.CoMin;
         private const int CoMax = SmuReader.CoMax;

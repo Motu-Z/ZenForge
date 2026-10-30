@@ -31,9 +31,9 @@
 
          第四段跟发版次序走，不与后缀数字对齐。
          改 Version 时这两行必须一起改，别让资源管理器里的数字和 Release 标题对不上。 -->
-    <Version>1.0.1</Version>
-    <FileVersion>1.0.1.0</FileVersion>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <Version>1.0.2</Version>
+    <FileVersion>1.0.2.0</FileVersion>
+    <AssemblyVersion>1.0.2.0</AssemblyVersion>
     <Product>ZenForge</Product>
 
     <!-- 仓库纳入 git 之后，SDK 默认往 InformationalVersion 追加 "+<commit>"。

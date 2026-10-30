@@ -1,0 +1,131 @@
+﻿<Page x:Class="ZenForge.Views.AdvancedPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Title="高级"
+      Focusable="False"
+      FocusVisualStyle="{x:Null}">
+
+    <!--
+        ============================================================
+        高级页（v1.0.2）：安全 + 重置
+        ============================================================
+        本页是静态页（没有列表），所以根节点自带 ScrollViewer。
+        带列表的页（进程 / 日志）不能这么做 —— 外层 ScrollViewer 会让
+        虚拟化失效，见 MainWindow 内容区那条注释。
+
+        【为什么不写说明文字】
+        「设备防砖保护」这类名字本身已经把功能说完了，再挂一行
+        「异常蓝屏重启后自动跳过危险调校」就是在替用户读第二遍。
+        想知道机制的人去看 README，界面只负责让人一眼认出这是哪一项。
+        不能关的两项用 ToolTip 交代原因（鼠标悬停才出现，不占版面）。
+    -->
+
+    <Page.Resources>
+        <Style x:Key="AdvancedRowStyle" TargetType="Grid" BasedOn="{StaticResource CardRowStyle}"/>
+
+        <Style x:Key="AdvancedRowLastStyle" TargetType="Grid" BasedOn="{StaticResource CardRowStyle}">
+            <Setter Property="Margin" Value="0"/>
+        </Style>
+    </Page.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="28,6,28,24">
+            <TextBlock Text="高级"
+                       Style="{StaticResource PageTitleStyle}"
+                       Margin="0,0,0,16"/>
+
+            <!-- ===== 安全 =====
+                 两项都是写 SMU 前的最后一道闸，固定开启。
+                 显示为开启态且不可点（IsHitTestVisible=False）——
+                 不提供一个「点了没反应」的开关。 -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="安全" Style="{StaticResource CardTitleStyle}"/>
+
+                    <Grid Style="{StaticResource AdvancedRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Text="设备防砖保护"
+                                   Style="{StaticResource CardRowLabelStyle}"
+                                   VerticalAlignment="Center"/>
+                        <ToggleButton Grid.Column="1"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      IsChecked="True"
+                                      IsHitTestVisible="False"
+                                      Opacity="0.55"
+                                      VerticalAlignment="Center"
+                                      ToolTip="防砖保护是写 SMU 前的最后一道闸，不允许关闭"/>
+                    </Grid>
+
+                    <Grid Style="{StaticResource AdvancedRowLastStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Text="智能休眠感知"
+                                   Style="{StaticResource CardRowLabelStyle}"
+                                   VerticalAlignment="Center"/>
+                        <ToggleButton Grid.Column="1"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      IsChecked="True"
+                                      IsHitTestVisible="False"
+                                      Opacity="0.55"
+                                      VerticalAlignment="Center"
+                                      ToolTip="唤醒后重新下发是保证调校不丢的必要动作，不提供关闭入口"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 重置 =====
+                 两个按钮都是危险按钮（红字红边），但语义不同：
+                 停用 = 解除干预、保留配置；清除 = 连配置一起抹掉。
+                 两者都要二次确认 —— 这是全程序唯一允许用模态对话框的地方，
+                 Toast 承载不了「确认 / 取消」这种二选一。 -->
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel>
+                    <TextBlock Text="重置" Style="{StaticResource CardTitleStyle}"/>
+
+                    <Grid Style="{StaticResource AdvancedRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Text="停用全部功能"
+                                   Style="{StaticResource CardRowLabelStyle}"
+                                   VerticalAlignment="Center"/>
+                        <Button Grid.Column="1"
+                                x:Name="DisableAllButton"
+                                Content="停用"
+                                Style="{StaticResource DangerButtonStyle}"
+                                Margin="0"
+                                VerticalAlignment="Center"
+                                Click="DisableAllButton_Click"/>
+                    </Grid>
+
+                    <Grid Style="{StaticResource AdvancedRowLastStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Text="清除全部数据"
+                                   Style="{StaticResource CardRowLabelStyle}"
+                                   VerticalAlignment="Center"/>
+                        <Button Grid.Column="1"
+                                x:Name="FactoryResetButton"
+                                Content="清除"
+                                Style="{StaticResource DangerButtonStyle}"
+                                Margin="0"
+                                VerticalAlignment="Center"
+                                Click="FactoryResetButton_Click"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

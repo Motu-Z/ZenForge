@@ -5,24 +5,24 @@ using System.Diagnostics;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Threading;
 using ZenForge.Services;
 
 namespace ZenForge.Views
 {
     /// <summary>
-    /// 日志页（v12）。
+    /// 日志页（v1.0.2）。
     ///
-    /// 结构：页头（标题 + 条数副行 + 三个工具按钮）→ 级别 pill 组 → 搜索框 → 日志卡片列表。
+    /// 结构：页头 → 工具卡（级别 pill + 详细日志 / 搜索 + 暂停·清空·目录）→ 列表卡。
     ///
     /// 数据链路刻意做成「三段」，不要合并：
-    ///   LogService.Entries（全部，上限 2000）
+    ///   LogService.Entries（全部，上限 500）
     ///     → <see cref="VisibleEntries"/>（过滤后的可见集合，绑定给 ListBox）
     ///     → pill 计数（对 Entries 全量统计，不随过滤变化）
     /// 为什么 pill 不跟着过滤走：pill 的作用是「告诉我总量里各有多少」，
-    /// 如果点一个 WARN 筛选后 INFO 的计数变成 0，用户会以为日志丢了。
+    /// 如果点一个「警告」筛选后「信息」的计数变成 0，用户会以为日志丢了。
     ///
     /// 为什么需要独立的可见集合而不是直接用 CollectionViewSource：
     /// LogService.Entries 是从后台线程写入的（内部已封送到 UI 线程），
@@ -30,16 +30,13 @@ namespace ZenForge.Views
     /// 而日志页常常一次冲进来几十条（绑核一次就是几十行），
     /// 独立集合可以按批处理，一次重建完再统一刷新。
     /// </summary>
-    public partial class LogPage : Page
+    public partial class LogPage : Page, IPageLifecycle, IDisposable
     {
+        /// <summary>本页在路由中的 key，与 MainWindow 侧栏的 Tag 一致。</summary>
+        public const string PageKey = "logs";
+
         /// <summary>绑定给列表的可见集合（已按级别 + 搜索词过滤）。</summary>
         public static ObservableCollection<LogEntry> VisibleEntries { get; } = new();
-
-        private bool _subscribed;
-        private DispatcherTimer? _followTimer;
-
-        /// <summary>过滤条件变化后延迟合并重建，避免连续输入时每条日志都重建一次。</summary>
-        private DispatcherTimer? _rebuildTimer;
 
         /// <summary>
         /// 暂停状态直接读 <see cref="LogService.Paused"/>，不在页面里另存一份。
@@ -50,29 +47,63 @@ namespace ZenForge.Views
         /// <summary>当前级别筛选（null = 全部）。点同一枚 pill 再点一次可取消。</summary>
         private LogLevel? _levelFilter;
 
+        private bool _subscribed;
+
+        /// <summary>过滤条件变化后延迟合并重建，避免连续输入时每条日志都重建一次。</summary>
+        private ManagedTimer? _rebuildTimer;
+
+        /// <summary>突发日志到达时延迟跟随，避免几十条逐条 ScrollIntoView。</summary>
+        private ManagedTimer? _followTimer;
+
+        /// <summary>
+        /// pill 互斥时的重入保护。
+        /// 程序化地把另外两枚置 false 会触发它们的 Unchecked，
+        /// 而那一次不是「用户取消了筛选」—— 没有这个闸门，
+        /// 从「信息」切到「警告」会顺手把筛选条件一起清空。
+        /// </summary>
+        private bool _syncingPills;
+
+        private ToggleButton[] Pills => new[] { PillInfo, PillWarn, PillError };
+
         public LogPage()
         {
             InitializeComponent();
-            BuildPills();
-            RebuildVisibleList();
 
-            // 订阅/解绑成对绑定在 Loaded/Unloaded 上。
-            // 早先只在构造函数里 +=、在 Unloaded 里 -=：页面离开一次后
-            // 就再也不订阅了，回到日志页时不再自动跟随新条目、计数也不刷新
-            Loaded += (_, _) => Subscribe();
-            Unloaded += (_, _) => Unsubscribe();
+            // 详细日志不持久化：它是排障时的临时开关，
+            // 不该在下一次启动还开着、把日志写满磁盘。
+            // 这里回填的是本次运行的实际状态。
+            VerboseToggle.IsChecked = LogService.Verbose;
+
+            RebuildVisibleList();
         }
+
+        // ==================== 生命周期 ====================
+        // 挂在路由器上，不再用 Loaded / Unloaded：那两个事件在页面实例被复用时
+        // 只在第一次进视觉树时触发，第二次回到本页就不会再订阅。
+
+        public void OnActivated()
+        {
+            Subscribe();
+
+            // 离开期间产生的日志不会进 OnEntryAdded（那时没订阅），
+            // 回来时补一次全量重建，否则界面停在离开前的最后一条。
+            RebuildVisibleList();
+        }
+
+        public void OnDeactivated() => Unsubscribe();
 
         private void Subscribe()
         {
-            if (_subscribed) return;
+            if (_subscribed)
+                return;
+
             LogService.EntryAdded += OnEntryAdded;
             _subscribed = true;
 
             // 暂停状态是进程级的（LogService.Paused），离开页面再回来仍是暂停态。
-            // 不在这里同步按钮文案的话，界面会显示「暂停日志记录」而实际已在暂停，
-            // 点一下反而变成"暂停"——按钮说的和做的不一致。
-            PauseButton.Content = LogService.Paused ? "恢复日志记录" : "暂停日志记录";
+            // 不在这里同步按钮文案的话，界面会说「暂停」而实际已在暂停，
+            // 点一下反而变成暂停 —— 按钮说的和做的不一致。
+            PauseButton.Content = LogService.Paused ? "恢复" : "暂停";
 
             UpdateStats();
         }
@@ -81,7 +112,9 @@ namespace ZenForge.Views
         {
             StopFollow();
 
-            if (!_subscribed) return;
+            if (!_subscribed)
+                return;
+
             LogService.EntryAdded -= OnEntryAdded;
             _subscribed = false;
         }
@@ -89,92 +122,46 @@ namespace ZenForge.Views
         // ==================== 级别 pill ====================
 
         /// <summary>
-        /// 四枚 pill 的生成顺序与配色（信息 / 警告 / 错误 / 致命）。
+        /// 点选一枚 pill：三枚互斥，选中态由 ToggleButton 自己持有。
         ///
-        /// 【为什么去掉「调试」换成「致命」】
-        /// 调试级只在 Verbose 打开时才有内容，常规运行下永远显示 0 ——
-        /// 一枚「按下去永远是空列表」的筛选器，占着最左边最显眼的位置。
-        /// 换成「致命」后，异常兜底记录的崩溃信息有了独立入口，
-        /// 而且四项正好对应四个固定语义色：Log.Info / Warn / Error / Critical。
-        ///
-        /// 【配色铁律】这四个 DotKey 全部指向 Palette 里的硬编码语义色，
-        /// 不跟随 AccentBrush。用户改强调色时，警告还是黄、错误还是红。
+        /// 【为什么筛选条件对 Error 与 Critical 同时生效】
+        /// 致命级不再单独开一枚常驻 0 的胶囊，那就必须保证它不会被筛选漏掉，
+        /// 否则「点错误 → 致命日志凭空消失」。列表里两者仍用各自的竖条颜色区分。
         /// </summary>
-        private static readonly (string Label, LogLevel? Level, string DotKey, string? TintKey)[] PillSpecs =
+        private void Pill_Checked(object sender, RoutedEventArgs e)
         {
-            ("信息", LogLevel.Info,     "Log.Info",     "Log.InfoTint"),
-            ("警告", LogLevel.Warn,     "Log.Warn",     "Log.WarnTint"),
-            ("错误", LogLevel.Error,    "Log.Error",    "Log.ErrorTint"),
-            ("致命", LogLevel.Critical, "Log.Critical", "Log.CriticalTint"),
-        };
+            if (_syncingPills)
+                return;
 
-        /// <summary>
-        /// 生成四枚 pill 并挂点击筛选。
-        ///
-        /// 用代码生成而不是 XAML 写死四份：四个 pill 的结构完全相同，
-        /// 差别只有颜色和级别枚举，写四份模板会让「加一级」变成改五处。
-        ///
-        /// 【版式对齐】
-        /// 高度 28 与右侧三个工具按钮严格一致（LogToolButtonStyle 也是 28），
-        /// 两者都 VerticalAlignment=Center，落在同一条水平线上。
-        /// 旧版 pill 26 / 按钮 32，胶囊上下各悬空 3px，读起来像
-        /// 「四个胶囊飘在一条更粗的带子里」而不是一行工具栏。
-        /// </summary>
-        private void BuildPills()
-        {
-            PillHost.Children.Clear();
+            _syncingPills = true;
+            foreach (ToggleButton pill in Pills)
+                if (!ReferenceEquals(pill, sender))
+                    pill.IsChecked = false;
+            _syncingPills = false;
 
-            foreach ((string label, LogLevel? level, string dotKey, string? tintKey) in PillSpecs)
-            {
-                Border pill = new()
-                {
-                    Height = 28,
-                    CornerRadius = new CornerRadius(14),
-                    Padding = new Thickness(12, 0, 12, 0),
-                    BorderThickness = new Thickness(1),
-                    Margin = new Thickness(0, 0, 8, 0),
-                    Cursor = Cursors.Hand,
-                    Tag = level,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    SnapsToDevicePixels = true,
-                };
+            _levelFilter = ReferenceEquals(sender, PillInfo) ? LogLevel.Info
+                         : ReferenceEquals(sender, PillWarn) ? LogLevel.Warn
+                         : LogLevel.Error;
 
-                // 配色：全部走资源字典，深浅主题各自取值
-                pill.Background = Res(tintKey ?? "Input.Background", Brushes.Transparent);
-                pill.BorderBrush = Res(tintKey != null ? dotKey : "Input.Border", Brushes.Transparent);
-
-                StackPanel inner = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-
-                // 7px 级别色点：比旧版 6px 略大，因为 pill 本身抬高了 2px，
-                // 圆点不跟着长会显得「缩在胶囊里」。左边距 0、右边 7，
-                // 文字与圆点靠得比文字与胶囊边缘更近，读起来是一个整体。
-                inner.Children.Add(new System.Windows.Shapes.Ellipse
-                {
-                    Width = 7,
-                    Height = 7,
-                    Fill = Res(dotKey, Brushes.Gray),
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(0, 0, 7, 0),
-                });
-
-                TextBlock text = new()
-                {
-                    FontSize = 12,
-                    FontWeight = FontWeights.Normal,
-                    Foreground = Res(dotKey, Brushes.Gray),
-                    VerticalAlignment = VerticalAlignment.Center,
-                };
-
-                inner.Children.Add(text);
-                pill.Child = inner;
-                pill.MouseLeftButtonUp += Pill_Click;
-
-                PillHost.Children.Add(pill);
-            }
+            ScheduleRebuild();
         }
 
+        /// <summary>再点一次已选中的 pill = 取消筛选（走到这里的一定是用户直接点的）。</summary>
+        private void Pill_Unchecked(object sender, RoutedEventArgs e)
+        {
+            if (_syncingPills)
+                return;
+
+            _levelFilter = null;
+            ScheduleRebuild();
+        }
+
+        private static bool LevelMatches(LogEntry entry, LogLevel filter)
+            => entry.Level == filter ||
+               (filter == LogLevel.Error && entry.Level == LogLevel.Critical);
+
         /// <summary>
-        /// 按当前计数刷新 pill 文案与选中态（选中 = 描边加粗 + 不降透明度）。
+        /// 刷新三枚 pill 的计数文案。
         ///
         /// 【这里不再遍历 Entries】
         /// 旧实现每刷新一次就把整个集合走一遍。日志页每收到一条新日志都要刷新，
@@ -184,73 +171,11 @@ namespace ZenForge.Views
         /// </summary>
         private void UpdateStats()
         {
-            // 顺序必须与 PillSpecs 一一对应：信息 / 警告 / 错误 / 致命
-            long[] counts =
-            {
-                LogService.CountInfo,
-                LogService.CountWarn,
-                LogService.CountError,
-                LogService.CountCritical,
-            };
+            PillInfo.Content = $"信息 {LogService.CountInfo}";
+            PillWarn.Content = $"警告 {LogService.CountWarn}";
 
-            for (int i = 0; i < PillHost.Children.Count && i < PillSpecs.Length; i++)
-            {
-                if (PillHost.Children[i] is not Border pill || pill.Child is not StackPanel inner)
-                    continue;
-
-                if (inner.Children.Count < 2 || inner.Children[1] is not TextBlock text)
-                    continue;
-
-                (string label, LogLevel? level, string dotKey, string? tintKey) = PillSpecs[i];
-                text.Text = $"{label} {counts[i]}";
-
-                bool active = _levelFilter == level;
-                bool dimmed = _levelFilter != null && !active;
-
-                // 【选中态只改「填充」，不改边框粗细】
-                // 旧版选中时把 BorderThickness 从 1 改成 2 —— 边框内缩 1px，
-                // 胶囊里的文字跟着左右各抖 1px，点一下四个 pill 都在微跳。
-                // 现在粗细恒定 1，靠底色从 tint(12%) 换成实心级别色来表达选中，
-                // 尺寸完全不动。
-                pill.Opacity = dimmed ? 0.45 : 1.0;
-
-                Brush levelBrush = Res(dotKey, Brushes.Gray);
-                Brush tintBrush = Res(tintKey ?? "Input.Background", Brushes.Transparent);
-
-                // 选中时文字与圆点转深色：实心黄底 / 红底上用同级色写字等于消失。
-                Brush onLevelBrush = active ? Brushes.Black : levelBrush;
-
-                pill.Background = active ? levelBrush : tintBrush;
-                pill.BorderBrush = levelBrush;
-
-                if (inner.Children[0] is System.Windows.Shapes.Ellipse dot)
-                    dot.Fill = onLevelBrush;
-
-                text.Foreground = onLevelBrush;
-            }
-
-            // 副行：条数 + 暂停状态。
-            // 暂停时必须在副行显式说明，否则用户看到"共 500 条"却一直不涨，
-            // 会以为是日志功能坏了 —— 而实际是他自己点了暂停。
-            int total = LogService.Count;
-            string headline = total == 0
-                ? "本次会话暂无记录"
-                : $"本次会话共捕获 {total} 条";
-
-            LogSubText.Text = LogService.Paused
-                ? headline + "　·　已暂停记录，新日志会被丢弃"
-                : headline;
-        }
-
-        /// <summary>点 pill：切换级别筛选。再点一次同一枚 = 取消筛选。</summary>
-        private void Pill_Click(object sender, MouseButtonEventArgs e)
-        {
-            if (sender is not Border pill || pill.Tag is not LogLevel level)
-                return;
-
-            _levelFilter = _levelFilter == level ? null : level;
-            ScheduleRebuild();
-            e.Handled = true;
+            // 致命合并进「错误」：显示为一个数，但两级的竖条颜色各自保留。
+            PillError.Content = $"错误 {LogService.CountError + LogService.CountCritical}";
         }
 
         // ==================== 列表重建 ====================
@@ -258,15 +183,14 @@ namespace ZenForge.Views
         /// <summary>把「过滤 + 重建」合并到一次 Dispatcher 调用里，避免连续输入时反复重建。</summary>
         private void ScheduleRebuild()
         {
-            _rebuildTimer ??= new DispatcherTimer(
+            _rebuildTimer ??= PageTimerManager.Create(
+                PageKey,
                 TimeSpan.FromMilliseconds(120),
-                DispatcherPriority.Background,
                 (_, _) =>
                 {
                     _rebuildTimer?.Stop();
                     RebuildVisibleList();
-                },
-                Dispatcher);
+                });
 
             _rebuildTimer.Stop();
             _rebuildTimer.Start();
@@ -277,7 +201,7 @@ namespace ZenForge.Views
         ///
         /// 先用局部 List 组装好再整体替换内容，而不是逐条 Remove/Insert：
         /// ObservableCollection 每变一次都会让 ListBox 走一轮变更通知，
-        /// 2000 条逐条处理会把界面卡住几百毫秒。
+        /// 500 条逐条处理会把界面卡住几百毫秒。
         /// </summary>
         private void RebuildVisibleList()
         {
@@ -288,7 +212,7 @@ namespace ZenForge.Views
 
             IEnumerable<LogEntry> query = LogService.Entries;
             if (_levelFilter is LogLevel level)
-                query = query.Where(x => x.Level == level);
+                query = query.Where(x => LevelMatches(x, level));
             if (keyword.Length > 0)
                 query = query.Where(x => Matches(x, keyword));
 
@@ -297,7 +221,6 @@ namespace ZenForge.Views
             // 内容一字未变就别重建。
             // Clear + Add 会触发一次 Reset 通知，ListBox 随即重建可视容器、
             // 把滚动位置弹回顶部 —— 表现在界面上就是「闪一下 + 被拽回顶部」。
-            // 定时刷新（每 5 秒）会重复触发这条路，所以这个判断不是省小事。
             if (SameEntries(matched))
             {
                 UpdateStats();
@@ -313,22 +236,13 @@ namespace ZenForge.Views
             foreach (LogEntry entry in matched)
                 VisibleEntries.Add(entry);
 
-            EmptyHint.Visibility = VisibleEntries.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            EmptyHint.Text = LogService.Entries.Count == 0
-                ? "暂无日志"
-                : "没有匹配的日志";
-
+            RefreshEmptyHint();
             UpdateStats();
 
             if (followLatest)
-            {
                 ScrollToLatest();
-            }
             else
-            {
-                // 用户正在往回翻历史，别把他拽回底部
-                ListScrollViewer()?.ScrollToVerticalOffset(keepOffset);
-            }
+                ListScrollViewer()?.ScrollToVerticalOffset(keepOffset);   // 用户正在往回翻历史，别把他拽回底部
         }
 
         /// <summary>当前可见集合与匹配结果是否完全一致（同一批对象、同一顺序）。</summary>
@@ -342,6 +256,12 @@ namespace ZenForge.Views
                     return false;
 
             return true;
+        }
+
+        private void RefreshEmptyHint()
+        {
+            EmptyHint.Visibility = VisibleEntries.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            EmptyHint.Text = LogService.Entries.Count == 0 ? "暂无日志" : "没有匹配的日志";
         }
 
         /// <summary>
@@ -391,10 +311,9 @@ namespace ZenForge.Views
             string haystack = $"{entry.Message} {entry.LevelText} {entry.Time:HH:mm:ss}";
 
             foreach (string part in parts)
-            {
                 if (haystack.IndexOf(part, StringComparison.OrdinalIgnoreCase) < 0)
                     return false;
-            }
+
             return true;
         }
 
@@ -427,7 +346,7 @@ namespace ZenForge.Views
 
             // 单条到达时不整体重建（重建会丢滚动位置），只判断是否命中当前过滤条件
             string keyword = (SearchBox?.Text ?? string.Empty).Trim();
-            bool levelOk = _levelFilter is not LogLevel level || entry.Level == level;
+            bool levelOk = _levelFilter is not LogLevel level || LevelMatches(entry, level);
             bool textOk = keyword.Length == 0 || Matches(entry, keyword);
 
             if (levelOk && textOk)
@@ -438,11 +357,10 @@ namespace ZenForge.Views
 
             // 突发日志（绑一次核就是几十条）逐条 ScrollIntoView 会把每一行
             // 都强制实例化并布局一遍，界面跟着顿。合并成 200ms 一次跟随。
-            _followTimer ??= new DispatcherTimer(
+            _followTimer ??= PageTimerManager.Create(
+                PageKey,
                 TimeSpan.FromMilliseconds(200),
-                DispatcherPriority.Background,
-                OnFollowTick,
-                Dispatcher);
+                OnFollowTick);
 
             _followTimer.Start();
         }
@@ -463,11 +381,7 @@ namespace ZenForge.Views
             ScrollToLatest();
         }
 
-        private void StopFollow()
-        {
-            if (_followTimer != null && _followTimer.IsEnabled)
-                _followTimer.Stop();
-        }
+        private void StopFollow() => _followTimer?.Stop();
 
         // ==================== 搜索框 ====================
 
@@ -488,40 +402,38 @@ namespace ZenForge.Views
                 return;
 
             if (!string.IsNullOrEmpty(SearchBox.Text))
-            {
                 SearchBox.Clear();
-                e.Handled = true;
-            }
             else
-            {
                 LogListBox.Focus();
-                e.Handled = true;
-            }
+
+            e.Handled = true;
         }
 
         // ==================== 工具栏 ====================
+
+        private void VerboseToggle_Checked(object sender, RoutedEventArgs e) => LogService.Verbose = true;
+
+        private void VerboseToggle_Unchecked(object sender, RoutedEventArgs e) => LogService.Verbose = false;
 
         private void PauseButton_Click(object sender, RoutedEventArgs e)
         {
             bool paused = !LogService.Paused;
             LogService.Paused = paused;
-
-            PauseButton.Content = paused ? "恢复日志记录" : "暂停日志记录";
+            PauseButton.Content = paused ? "恢复" : "暂停";
 
             if (paused)
             {
                 // 暂停后 Write() 在入口就 return，OnEntryAdded 不会再被调用，
-                // 列表保持原样，副行会改写成「已暂停记录」。
+                // 列表保持原样。
                 StopFollow();
+                UpdateStats();
 
                 // 这条自己的日志在置 Paused 之后写，会被丢弃 —— 这是预期的：
-                // 暂停就是暂停，不能为了一条"我暂停了"的记录破例。
+                // 暂停就是暂停，不能为了一条「我暂停了」的记录破例。
                 LogService.Info("日志记录已暂停（新日志不再写入内存与文件）");
-                UpdateStats();
                 return;
             }
 
-            // 恢复：重建一次，保证界面与集合一致
             RebuildVisibleList();
             LogService.Info("日志记录已恢复");
         }
@@ -529,7 +441,7 @@ namespace ZenForge.Views
         private void ClearLogButton_Click(object sender, RoutedEventArgs e)
         {
             // 【为什么不给二次确认】
-            // 清空的是"日志"，不是用户数据。日志丢了不会造成任何不可恢复的损失，
+            // 清空的是「日志」，不是用户数据。日志丢了不会造成任何不可恢复的损失，
             // 反而每次都要点两下会让人不愿意清。真正需要确认的是全局重置那种操作。
 
             // 先停掉跟随再清空：否则队列里那次 ScrollIntoView 会在集合已经空了
@@ -555,7 +467,7 @@ namespace ZenForge.Views
             EmptyHint.Visibility = Visibility.Visible;
             EmptyHint.Text = "暂无日志";
 
-            // 磁盘那半是后台删的，这里只报"已发出"，不假装已经删完。
+            // 磁盘那半是后台删的，这里只报「已发出」，不假装已经删完。
             // Clear() 内部把文件删除丢给 Task.Run，UI 线程上拿不到结果。
             ToastService.Info("已清空界面记录与日志文件");
         }
@@ -575,15 +487,15 @@ namespace ZenForge.Views
             }
         }
 
-        // ==================== 资源查找 ====================
+        /// <summary>页面被销毁（退出、全局重置）时释放本页的两个受管定时器。</summary>
+        public void Dispose()
+        {
+            Unsubscribe();
 
-        /// <summary>
-        /// 取画刷，找不到时回落给定值。
-        ///
-        /// 走 TryFindResource 而不是索引器：pill 的配色键（Log.InfoTint 等）
-        /// 是 v12 新增的，旧的主题册里可能还没有 —— 直接索引会抛异常。
-        /// </summary>
-        private static Brush Res(string key, Brush fallback)
-            => Application.Current?.TryFindResource(key) as Brush ?? fallback;
+            _rebuildTimer?.Dispose();
+            _rebuildTimer = null;
+            _followTimer?.Dispose();
+            _followTimer = null;
+        }
     }
 }

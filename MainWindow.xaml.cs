@@ -8,17 +8,38 @@ using System.Windows.Input;
 using System.Windows.Threading;
 using ZenForge.Helpers;
 using ZenForge.Services;
+using ZenForge.Views;
 
 namespace ZenForge
 {
     /// <summary>
     /// 主窗口：导航壳 + 关窗去向判定。
+    ///
+    /// 【v1.0.2 的两处结构性改动】
+    /// 1. Frame → ContentControl + <see cref="NavigationRouter"/>：
+    ///    Frame 的导航日志会强引用已卸载的 Page，切几次页面就是好几份
+    ///    旧视觉树留在内存里；路由只保留一份实例并按 key 复用。
+    /// 2. 定时器统一由 <see cref="PageTimerManager"/> 管：切页时非当前页的
+    ///    定时器全部挂起，窗口隐藏 / 最小化时连全局定时器一起停 ——
+    ///    这是「后台纯待机 0% CPU」的执行点。
     /// </summary>
     public partial class MainWindow : Window
     {
+        /// <summary>启动时停留的页面。</summary>
+        private const string DefaultPage = TuningPage.PageKey;
+
+        /// <summary>唯一的页面切换入口。</summary>
+        private readonly NavigationRouter _router;
+
+        /// <summary>当前停留的页面 key，收进托盘后要凭它恢复。</summary>
+        private string _lastPage = DefaultPage;
+
         public MainWindow()
         {
             InitializeComponent();
+
+            _router = new NavigationRouter(PageHost);
+            RegisterPages();
 
             SourceInitialized += (_, _) =>
             {
@@ -39,11 +60,13 @@ namespace ZenForge
                 // 还原时把最大化补偿的上限放回无限，否则窗口再也拉不高。
                 if (WindowState != WindowState.Maximized)
                     MaxHeight = double.PositiveInfinity;
+
                 UpdateUiPresence();
                 OnWindowStateChangedForLightMode();
             };
 
-            // 显示 / 隐藏（Show、Hide、收托盘）都要同步，后台组件靠它判断能不能弹提示
+            // 显示 / 隐藏（Show、Hide、收托盘）都要同步：
+            // 后台组件靠它判断能不能弹提示，定时器靠它决定要不要停。
             IsVisibleChanged += (_, _) => UpdateUiPresence();
 
             // 侧栏拖拽的边界情况：ToggleButton 自己吃掉 MouseLeftButtonDown（它要处理
@@ -74,6 +97,24 @@ namespace ZenForge
                 Dispatcher.BeginInvoke(new Action(ForceRepaint), DispatcherPriority.Loaded);
         }
 
+        /// <summary>
+        /// 登记七个页面。
+        ///
+        /// 页面在第一次导航到它时才被创建（工厂延迟执行），
+        /// 所以启动时只实例化调校页 —— 进程页那种带几百行模板的页面
+        /// 不会在用户还没点它的时候就把内存吃掉。
+        /// </summary>
+        private void RegisterPages()
+        {
+            _router.Register(TuningPage.PageKey, () => new TuningPage());
+            _router.Register(ProcessBindingPage.PageKey, () => new ProcessBindingPage());
+            _router.Register(ProfilePage.PageKey, () => new ProfilePage());
+            _router.Register(GeneralPage.PageKey, () => new GeneralPage());
+            _router.Register(BehaviorPage.PageKey, () => new BehaviorPage());
+            _router.Register(AdvancedPage.PageKey, () => new AdvancedPage());
+            _router.Register(LogPage.PageKey, () => new LogPage());
+        }
+
         /// <summary>作废并重排一次窗口内容，用来修掉偶发的半截渲染。</summary>
         public void ForceRepaint()
         {
@@ -95,12 +136,20 @@ namespace ZenForge
         }
 
         /// <summary>
-        /// 同步「用户看得见主窗口」的状态。后台组件读这个 bool 判断能否弹提示，
-        /// 这样它们就不必引用 App（那会把 WPF 拖进纯后台进程）。
+        /// 同步「用户看得见主窗口」的状态。
+        ///
+        /// 两件事都挂在这里：
+        ///   · 后台组件读 UiPresence 判断能否弹提示（它们不引用 App，
+        ///     否则会把 WPF 拖进纯后台进程）；
+        ///   · PageTimerManager 据此挂起全部 UI 刷新定时器。
+        /// 窗口看不见时还让定时器跑，就是后台白烧 CPU 与电的来源。
         /// </summary>
         private void UpdateUiPresence()
         {
-            UiPresence.MainWindowVisible = IsVisible && WindowState != WindowState.Minimized;
+            bool visible = IsVisible && WindowState != WindowState.Minimized;
+
+            UiPresence.MainWindowVisible = visible;
+            PageTimerManager.SetHostVisible(visible);
         }
 
         /// <summary>
@@ -115,7 +164,7 @@ namespace ZenForge
         /// </summary>
         protected override void OnClosing(CancelEventArgs e)
         {
-            // 轻量模式走到「仅驻留服务」时由 CloseAndDestroy() 调 Close()，
+            // 轻量模式走到「仅留服务进程」时由 CloseAndDestroy() 调 Close()，
             // 那一次必须真的关掉窗口，不能再被下面的逻辑拦回去。
             if (AllowRealClose || App.AllowExit)
             {
@@ -159,8 +208,11 @@ namespace ZenForge
         ///
         /// 注意「闲置」的语义是**关闭前台**（点 × 或最小化），
         /// 不是系统空闲、不是鼠标不动 —— 用户正盯着窗口发呆时绝不能自己把窗口弄没。
+        ///
+        /// 它不属于任何页面，所以用 <see cref="PageTimerManager.HostScope"/>：
+        /// 窗口还能看见时它必须跑，窗口一隐藏就连它一起停。
         /// </summary>
-        private DispatcherTimer? _lightTimer;
+        private ManagedTimer? _lightTimer;
 
         /// <summary>
         /// 开始 / 重置倒计时。重复调用（连点 ×、反复最小化）以最后一次为准。
@@ -173,12 +225,11 @@ namespace ZenForge
 
             StopLightCountdown();
 
-            _lightTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
-            {
-                Interval = TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 3600))
-            };
+            _lightTimer = PageTimerManager.Create(
+                PageTimerManager.HostScope,
+                TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 3600)),
+                OnLightTimerTick);
 
-            _lightTimer.Tick += OnLightTimerTick;
             _lightTimer.Start();
         }
 
@@ -193,15 +244,7 @@ namespace ZenForge
             if (_lightTimer == null)
                 return;
 
-            try
-            {
-                _lightTimer.Stop();
-            }
-            catch
-            {
-                // 忽略
-            }
-
+            _lightTimer.Dispose();
             _lightTimer = null;
         }
 
@@ -256,10 +299,10 @@ namespace ZenForge
 
             try
             {
-                while (ContentFrame.CanGoBack)
-                    ContentFrame.RemoveBackEntry();
-
-                ContentFrame.Content = null;
+                // 逐个销毁页面，页面自己释放受管定时器并退订服务。
+                // 少了这一步，页面实例会被路由字典一直持有，
+                // 「仅留服务进程」省下的那部分内存一分都回收不了。
+                _router.Clear();
                 ThemeService.StopSystemMonitor();
             }
             catch (Exception ex)
@@ -290,52 +333,29 @@ namespace ZenForge
                 DispatcherPriority.ApplicationIdle);
         }
 
-        /// <summary>启动时停留的页面。</summary>
-        private const string DefaultPage = "Views/TuningPage.xaml";
+        // ==================== 导航 ====================
 
-        /// <summary>当前停留的页面，收进托盘后要凭它恢复。</summary>
-        private string _lastPage = DefaultPage;
-
-        private void NavigateToPage(string relativeUri)
+        private void NavigateToPage(string key)
         {
-            _lastPage = relativeUri;
+            _lastPage = key;
 
-            // 【导航前先清空历史栈】
-            // Frame 默认把每次导航记进 journal，每个条目都强引用着一个已经
-            // Unloaded 的 Page。进程页那种一页带三百多行模板的页面，来回切几次
-            // 就会把好几份旧视觉树一起留在内存里 —— 这是「切页面就涨一截、
-            // 切回来也不降」的直接来源。
-            //
-            // 这里没有后退 UI（NavigationUIVisibility=Hidden），journal 纯粹是
-            // 白白占内存，所以每次导航前把它压平：旧页面失去最后一个引用，
-            // 下一轮 GC 就能回收。
-            try
-            {
-                // 只清后退栈。前进栈不在这里处理：RemoveBackEntry 删不到它，
-                // 而且紧接着的 Navigate 本身就会把前进栈作废。
-                while (ContentFrame.CanGoBack)
-                    ContentFrame.RemoveBackEntry();
-            }
-            catch (Exception ex)
-            {
-                // 导航日志不可用时不能让导航本身失败
-                LogService.Warn($"清理导航历史失败：{ex.Message}");
-            }
+            // 页面切换的全部副作用都在路由里：旧页 OnDeactivated（停定时器）→
+            // 换 Content → SetActivePage（非当前页的定时器一起挂起）→ 新页 OnActivated。
+            _router.Navigate(key);
 
-            ContentFrame.Navigate(new Uri(relativeUri, UriKind.Relative));
-            SetActiveNav(relativeUri);
+            SetActiveNav(key);
         }
 
         /// <summary>
         /// 把某个导航按钮设为选中态，其余取消。
-        /// Tag 里存的就是各按钮对应的页面路径（见 MainWindow.xaml）。
+        /// Tag 里存的就是各按钮对应的路由 key（见 MainWindow.xaml）。
         /// </summary>
-        private void SetActiveNav(string pageUri)
+        private void SetActiveNav(string key)
         {
-            foreach (var child in NavPanel.Children)
+            foreach (object child in NavPanel.Children)
             {
                 if (child is ToggleButton button)
-                    button.IsChecked = button.Tag as string == pageUri;
+                    button.IsChecked = button.Tag as string == key;
             }
         }
 
@@ -345,7 +365,7 @@ namespace ZenForge
                 return;
 
             clicked.IsChecked = true;
-            NavigateToPage((string)clicked.Tag);   // 同时把其余按钮取消选中
+            NavigateToPage(clicked.Tag as string ?? DefaultPage);   // 同时把其余按钮取消选中
         }
 
         /// <summary>
@@ -376,8 +396,8 @@ namespace ZenForge
         }
 
         /// <summary>
-        /// 按住侧栏：拖窗口 / 双击最大化。侧栏整片都挂了这个处理器，导航项在模板层
-        /// 拦掉 Up 事件，所以除了导航项本身，其它位置都能拖动窗口。
+        /// 按住侧栏：拖窗口 / 双击最大化。侧栏整片都挂了这个处理器，导航项在
+        /// MainWindow 的类处理器里拦掉 Up 事件，所以除了导航项本身，其它位置都能拖动窗口。
         /// </summary>
         private void Chrome_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {

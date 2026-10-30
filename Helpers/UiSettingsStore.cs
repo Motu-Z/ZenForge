@@ -10,7 +10,7 @@ namespace ZenForge.Helpers
     /// </summary>
     public sealed class UiSettings
     {
-        /// <summary>出厂强调色。与 ThemeService 的默认色、SettingsPage 的兜底色同一值。</summary>
+        /// <summary>出厂强调色。与 ThemeService 的默认色、通用页色板的兜底色同一值。</summary>
         public const string DefaultAccentHex = "#38BDF8";
 
         [JsonConverter(typeof(JsonStringEnumConverter))]

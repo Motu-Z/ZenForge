@@ -1,0 +1,216 @@
+﻿<Page x:Class="ZenForge.Views.GeneralPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Title="通用"
+      Focusable="False"
+      FocusVisualStyle="{x:Null}">
+
+    <!--
+        ============================================================
+        通用页（v1.0.2）：样式 / 诊断 / 关于
+        ============================================================
+        【主题模式与强调色并排】
+        两者是同一类事：让界面长什么样。上下叠放会白占一行高度，
+        并排之后这一卡只有两行，卡片高度与「诊断」卡接近。
+
+        【自定义颜色行为什么单独一行】
+        「色块 + 彩虹滑杆 + HEX 输入框 + 应用」是一组连贯操作，
+        塞进上面那行的第 3 列会让滑杆短到没法用（<120px 时拖动精度极差）。
+        整行铺开后滑杆能拿到 300px 以上，拖动才有手感。
+    -->
+
+    <Page.Resources>
+        <Style x:Key="GeneralRowStyle" TargetType="Grid" BasedOn="{StaticResource CardRowStyle}"/>
+
+        <Style x:Key="GeneralRowLastStyle" TargetType="Grid" BasedOn="{StaticResource CardRowStyle}">
+            <Setter Property="Margin" Value="0"/>
+        </Style>
+    </Page.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="28,6,28,24">
+            <TextBlock Text="通用"
+                       Style="{StaticResource PageTitleStyle}"
+                       Margin="0,0,0,16"/>
+
+            <!-- ===== 样式 ===== -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="样式" Style="{StaticResource CardTitleStyle}"/>
+
+                    <!-- 第一行：主题模式 | 强调色，两列等分。
+                         刻意不写 SelectedIndex / SelectionChanged 初值：
+                         初值由代码读 ui.json 后按 Tag 赋值，事件在赋值之后才挂载，
+                         否则初始化阶段会反向触发 SelectionChanged，把主题重置回默认值。 -->
+                    <Grid Style="{StaticResource GeneralRowStyle}" Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="48"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Grid Grid.Column="0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="主题模式"
+                                       Style="{StaticResource CardRowLabelStyle}"
+                                       VerticalAlignment="Center"/>
+                            <ComboBox Grid.Column="1" x:Name="ThemeCombo"
+                                      Width="136"
+                                      VerticalAlignment="Center">
+                                <ComboBoxItem Content="跟随系统" Tag="system"/>
+                                <ComboBoxItem Content="深色" Tag="dark"/>
+                                <ComboBoxItem Content="浅色" Tag="light"/>
+                            </ComboBox>
+                        </Grid>
+
+                        <Grid Grid.Column="2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="强调色"
+                                       Style="{StaticResource CardRowLabelStyle}"
+                                       VerticalAlignment="Center"/>
+                            <ComboBox Grid.Column="1" x:Name="AccentModeCombo"
+                                      Width="136"
+                                      VerticalAlignment="Center">
+                                <ComboBoxItem Content="跟随系统" Tag="follow"/>
+                                <ComboBoxItem Content="自定义" Tag="custom"/>
+                            </ComboBox>
+                        </Grid>
+                    </Grid>
+
+                    <!-- 第二行（仅在强调色 = 自定义时出现）：色相选择器。
+                         用 Visibility.Collapsed 而不是 IsEnabled=False：
+                         灰着的控件仍然占位，用户还得去读它、猜它为什么点不动。 -->
+                    <Border x:Name="CustomAccentPanel"
+                            Style="{StaticResource ColorPickerGroupStyle}"
+                            Visibility="Collapsed">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- 当前色预览。Effect 是 Freezable，不能在 XAML 里
+                                 绑到资源字典画刷，发光色由代码按当前强调色赋值。 -->
+                            <Border x:Name="ColorPreviewBorder"
+                                    Grid.Column="0"
+                                    Style="{StaticResource ColorPreviewStyle}"
+                                    VerticalAlignment="Center">
+                                <Border.Effect>
+                                    <DropShadowEffect x:Name="ColorPreviewGlow"
+                                                      BlurRadius="14" ShadowDepth="0" Opacity="0.55"
+                                                      Color="#38BDF8"/>
+                                </Border.Effect>
+                            </Border>
+
+                            <!-- 色相滑杆：0–360，值变化即实时改色 -->
+                            <Slider x:Name="HueSlider"
+                                    Grid.Column="1"
+                                    Margin="16,0,16,0"
+                                    Minimum="0" Maximum="360"
+                                    SmallChange="1" LargeChange="15"
+                                    Style="{StaticResource HueSliderStyle}"
+                                    VerticalAlignment="Center"
+                                    ValueChanged="HueSlider_ValueChanged"/>
+
+                            <!-- 色值输入 + 应用。回车等同点「应用」。
+                                 色值一定要等宽字体，否则 0 与 F 宽窄不一，边打边跳。 -->
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBox x:Name="AccentHexBox" Width="104"
+                                         FontFamily="{StaticResource MonoFontFamily}"
+                                         FontSize="13"
+                                         VerticalContentAlignment="Center"
+                                         ToolTip="支持 #RRGGBB 或 RRGGBB，回车直接应用"
+                                         KeyDown="AccentHexBox_KeyDown"/>
+                                <Button x:Name="ApplyAccentBtn" Content="应用"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Margin="8,0,0,0"
+                                        Click="ApplyAccentBtn_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 诊断 ===== -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="诊断" Style="{StaticResource CardTitleStyle}"/>
+
+                    <Grid Style="{StaticResource GeneralRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Text="导出日志"
+                                   Style="{StaticResource CardRowLabelStyle}"
+                                   VerticalAlignment="Center"/>
+                        <Button Grid.Column="1"
+                                x:Name="ExportLogButton"
+                                Content="导出"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Margin="0"
+                                MinWidth="72"
+                                VerticalAlignment="Center"
+                                Click="ExportLogButton_Click"/>
+                    </Grid>
+
+                    <Grid Style="{StaticResource GeneralRowLastStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Text="SMU 自检"
+                                   Style="{StaticResource CardRowLabelStyle}"
+                                   VerticalAlignment="Center"/>
+                        <Button Grid.Column="1"
+                                x:Name="SmuDiagButton"
+                                Content="运行"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Margin="0"
+                                MinWidth="72"
+                                VerticalAlignment="Center"
+                                Click="SmuDiagButton_Click"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 关于 =====
+                 居中卡片：这一卡没有控件，只回答「我用的是什么、它从哪来」。
+                 内边距放到 32 / 24 —— 比控制卡片稍宽，让三行文字有呼吸，
+                 读起来是「一页说明」而不是「一张待填的表单」。 -->
+            <Border Style="{StaticResource CardBorderStyle}" Padding="32,24">
+                <StackPanel HorizontalAlignment="Center">
+                    <TextBlock Text="ZenForge"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               HorizontalAlignment="Center"
+                               Foreground="{DynamicResource Text.Primary}"/>
+
+                    <TextBlock HorizontalAlignment="Center" Margin="0,8,0,0">
+                        <Hyperlink NavigateUri="https://github.com/Motu-Z/ZenForge"
+                                   RequestNavigate="GitHubLink_RequestNavigate"
+                                   FocusVisualStyle="{x:Null}">
+                            <Run Text="访问 GitHub 项目主页"/>
+                        </Hyperlink>
+                    </TextBlock>
+
+                    <TextBlock x:Name="AboutVersionText"
+                               HorizontalAlignment="Center"
+                               Margin="0,16,0,0"
+                               Style="{StaticResource Text.Meta}"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>
