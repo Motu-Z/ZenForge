@@ -64,7 +64,10 @@ namespace ZenForge.Services
         }
 
         /// <summary>电源监听是否已挂上。</summary>
-        public static bool IsPowerSourceAttached => _powerHooked;
+        public static bool IsPowerSourceAttached
+        {
+            get { lock (Gate) return _powerHooked; }
+        }
 
         /// <summary>
         /// 按当前规则内容对齐监听范围。幂等，任何时刻调用都安全。
@@ -76,39 +79,60 @@ namespace ZenForge.Services
             bool wantProcess = enabled && ScenarioService.HasProcessRules;
             bool wantPower = enabled && ScenarioService.HasPowerRules;
 
+            // 【为什么「判断」和「执行」要分开】
+            // Sync 的调用方不止一个（启动时一次、规则变更后从 Changed 再来一次），
+            // 而 Changed 是在 ProfileService.Apply 里触发的 —— 那可能从 UI 线程、
+            // 也可能从场景自己的切换路径进来。若在锁外做「看了再改」，
+            // 两个线程同时看到 _powerHooked == false 就会各订阅一次，
+            // 同一条电源通知触发两轮评估。
+            // 所以：决策在锁内一次做完（check-and-set 原子），实际订阅挪到锁外 ——
+            // 订阅是外部代码，放在锁内等于让 Gate 保护一段我们管不到的执行。
+            bool startProcess = false, stopProcess = false;
+            bool startPower = false, stopPower = false;
+            bool wasActive;
+
             lock (Gate)
             {
                 if (wantProcess && !_processHooked)
                 {
-                    ProcessWatcher.ProcessSetChanged += OnProcessSetChanged;
                     _processHooked = true;
+                    startProcess = true;
                 }
                 else if (!wantProcess && _processHooked)
                 {
-                    ProcessWatcher.ProcessSetChanged -= OnProcessSetChanged;
                     _processHooked = false;
+                    stopProcess = true;
                 }
+
+                if (wantPower && !_powerHooked)
+                {
+                    _powerHooked = true;
+                    startPower = true;
+                }
+                else if (!wantPower && _powerHooked)
+                {
+                    _powerHooked = false;
+                    stopPower = true;
+                }
+
+                wasActive = _active;
+                _active = wantProcess || wantPower;
             }
 
-            // 电源监听自己管启停与幂等（内部有 Interlocked 闸门 + 轮询兜底）。
-            if (wantPower && !_powerHooked)
+            if (startProcess)
+                ProcessWatcher.ProcessSetChanged += OnProcessSetChanged;
+            else if (stopProcess)
+                ProcessWatcher.ProcessSetChanged -= OnProcessSetChanged;
+
+            if (startPower)
             {
                 PowerStatusWatcher.Changed += OnPowerChanged;
                 PowerStatusWatcher.Start();
-                _powerHooked = true;
             }
-            else if (!wantPower && _powerHooked)
+            else if (stopPower)
             {
                 PowerStatusWatcher.Changed -= OnPowerChanged;
                 PowerStatusWatcher.Stop();
-                _powerHooked = false;
-            }
-
-            bool wasActive;
-            lock (Gate)
-            {
-                wasActive = _active;
-                _active = wantProcess || wantPower;
             }
 
             if (!_active)
