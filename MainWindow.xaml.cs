@@ -333,7 +333,27 @@ namespace ZenForge
         private void NavItem_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => e.Handled = true;
 
         /// <summary>
-        /// 侧栏拖拽 / 双击最大化。侧栏整片都挂了这个处理器，导航项在模板层
+        /// 内容区顶部拖拽栏：按住可拖窗口，双击最大化 / 还原。
+        ///
+        /// 与 <see cref="Chrome_MouseLeftButtonDown"/> 的差别只在「还原后的落点」：
+        /// 拖拽栏横贯内容区，用户在哪一处按下，还原后窗口的左上角就该落在
+        /// 那一点的左侧同样比例的位置。两处共用同一套换算式，避免出现
+        /// 「从侧栏拖和从右上角拖，还原位置不一样」。
+        /// </summary>
+        private void DragBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ClickCount == 2)
+            {
+                SetMaximized(WindowState != WindowState.Maximized);
+                e.Handled = true;
+                return;
+            }
+
+            BeginDrag(e);
+        }
+
+        /// <summary>
+        /// 按住侧栏：拖窗口 / 双击最大化。侧栏整片都挂了这个处理器，导航项在模板层
         /// 拦掉 Up 事件，所以除了导航项本身，其它位置都能拖动窗口。
         /// </summary>
         private void Chrome_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -344,15 +364,29 @@ namespace ZenForge
                 return;
             }
 
+            BeginDrag(e);
+        }
+
+        /// <summary>
+        /// 拖拽的公共实现：最大化状态下先还原，再按鼠标在窗口内的相对位置反推 Left。
+        ///
+        /// 直接对最大化窗口调 DragMove 会把窗口「粘」在鼠标左上角跳一下 ——
+        /// 系统先把它还原成 Normal，尺寸和位置都由系统决定，看起来就是瞬移。
+        /// 这里手动还原并换算 Left，视觉上才连得上。
+        /// </summary>
+        private void BeginDrag(MouseButtonEventArgs e)
+        {
             if (e.ButtonState != MouseButtonState.Pressed)
                 return;
 
             if (WindowState == WindowState.Maximized)
             {
-                // 最大化状态下 DragMove 会把窗口「粘」在鼠标左上角跳一下。
-                // 先还原，再按鼠标在窗口内的相对位置反推 Left，视觉上才连得上。
-                // GetPosition(this) 已折算 DPI，PointToScreen 返回的是物理像素，二者同单位。
+                // GetPosition(this) 已折算 DPI，PointToScreen 返回物理像素，二者同单位。
+                // ratio 夹在 0.05..0.95：鼠标正好压在窗口极边缘时，纯按比例算会把
+                // 还原后的窗口推到屏幕外，留一点余量。
                 double ratio = ActualWidth > 0 ? e.GetPosition(this).X / ActualWidth : 0.5;
+                ratio = Math.Clamp(ratio, 0.05, 0.95);
+
                 WindowState = WindowState.Normal;
                 Left = PointToScreen(e.GetPosition(this)).X - ActualWidth * ratio;
                 Top = 0;
@@ -364,7 +398,7 @@ namespace ZenForge
             }
             catch (InvalidOperationException)
             {
-                // 鼠标在 DragMove 之前就已释放（快速点击），XAML 里忽略即可。
+                // 鼠标在 DragMove 之前就已释放（快速点击），忽略即可。
             }
         }
 

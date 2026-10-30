@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Diagnostics;
@@ -265,8 +265,11 @@ namespace ZenForge.Services
                 }
                 catch (Exception ex)
                 {
-                    // 循环体本身不能因为一次异常就停摆
-                    LogService.Error($"进程快照失败: {ex.Message}");
+                    // 循环体本身不能因为一次异常就停摆。
+                    // WARN 而不是 ERROR：单轮采样失败（某个进程刚退出、句柄失效）
+                    // 下一秒就会自愈，它不构成「操作失败」，只是「这一轮没采全」。
+                    // 记 ERROR 会让日志页红一片，把真正的失败埋掉。
+                    LogService.Warn($"进程快照失败（本轮已跳过）: {ex.Message}");
                 }
 
                 if (!await WaitForNextRoundAsync(token).ConfigureAwait(false))
@@ -378,7 +381,8 @@ namespace ZenForge.Services
             }
             catch (Exception ex)
             {
-                LogService.Error($"进程快照失败: {ex.Message}");
+                // 同上：单次采样失败属于可恢复的瞬时问题。
+                LogService.Warn($"进程快照失败（本次请求已跳过）: {ex.Message}");
                 return;
             }
 

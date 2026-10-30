@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -324,7 +324,7 @@ namespace ZenForge.Views
             // 它在 ItemsControl 上同样可用。
             ProcessListView.LostKeyboardFocus += ProcessListView_LostKeyboardFocus;
 
-            Loaded += (_, _) =>
+            Loaded += async (_, _) =>
             {
                 _pageLoaded = true;
 
@@ -349,7 +349,13 @@ namespace ZenForge.Views
                 // 紧接着第一次采样回来又填满，看起来就是「闪一下」。
                 IReadOnlyList<ProcessRefresher.Entry> latest = ProcessRefresher.Latest;
                 if (latest.Count > 0)
-                    ApplySnapshot(latest);
+                {
+                    // 分组放在后台算：首次进页面往往有 200+ 进程，
+                    // 在 Loaded 里同步分组会让「切到进程页」明显顿一下。
+                    List<GroupedProcess> grouped = await Task.Run(() => GroupEntries(latest));
+                    ApplySnapshot(grouped);
+                }
+
                 // 搜索框占位提示：统一由 UpdateSearchPlaceholder 决定
                 UpdateSearchPlaceholder();
             };
@@ -516,59 +522,120 @@ namespace ZenForge.Views
 
         // ---------- 进程枚举与合并 ----------
 
-        /// <summary>全局后台采样回调：收到新快照就更新列表。</summary>
-        private void OnProcessesRefreshed(IReadOnlyList<ProcessRefresher.Entry> entries)
+        /// <summary>
+        /// 全局后台采样回调：收到新快照就更新列表。
+        ///
+        /// 【为什么分组要挪到后台线程】
+        /// 快照可能有 200+ 个进程，GroupBy + 求和 + 建 ProcessMember 是纯 CPU 工作，
+        /// 在 UI 线程上跑会直接吞掉一帧（低端机上 30~60ms），表现为「切到进程页
+        /// 或每 2 秒卡一下」。搬到线程池后 UI 线程只负责把结果写进 ObservableCollection
+        /// —— 那一步必须回 UI 线程，因为 ObservableCollection 的 CollectionChanged
+        /// 会被 ItemsControl 直接消费，跨线程改会抛 NotSupportedException。
+        ///
+        /// 重入保护：采样周期 1~3 秒，算一次通常几十毫秒，理论上排不到队；
+        /// 但机器很忙时可能出现「上一轮还没算完下一轮又来」，用一个标志丢掉
+        /// 中间的结果，只保证最新一帧落地 —— 列表只需要最新状态。
+        /// </summary>
+        private int _snapshotBusy;
+
+        private async void OnProcessesRefreshed(IReadOnlyList<ProcessRefresher.Entry> entries)
         {
-            Dispatcher.BeginInvoke(() => ApplySnapshot(entries));
+            if (System.Threading.Interlocked.Exchange(ref _snapshotBusy, 1) == 1)
+                return;
+
+            try
+            {
+                List<GroupedProcess> grouped = await Task.Run(() => GroupEntries(entries));
+                ApplySnapshot(grouped);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"进程列表刷新失败：{ex.Message}");
+            }
+            finally
+            {
+                System.Threading.Interlocked.Exchange(ref _snapshotBusy, 0);
+            }
         }
 
-        /// <summary>把快照合并进列表（就地更新，保留用户已选目标，不闪屏）。</summary>
-        private void ApplySnapshot(IReadOnlyList<ProcessRefresher.Entry> entries)
+        /// <summary>后台线程算出来的分组结果（不持有任何 UI 对象）。</summary>
+        private sealed class GroupedProcess
+        {
+            public string Name = string.Empty;
+            public int Count;
+            public double Cpu;
+            public string Path = string.Empty;
+            public string PriorityText = string.Empty;
+            public List<ProcessMember> Members = new();
+        }
+
+        /// <summary>纯计算，可在任意线程调用。</summary>
+        private static List<GroupedProcess> GroupEntries(IReadOnlyList<ProcessRefresher.Entry> entries)
+        {
+            List<GroupedProcess> result = new();
+
+            foreach (IGrouping<string, ProcessRefresher.Entry> grp in
+                     entries.GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                List<ProcessMember> members = grp
+                    .Select(e => new ProcessMember { Pid = e.Pid, Path = e.Path, PriorityClass = e.PriorityClass })
+                    .ToList();
+
+                int count = members.Count;
+
+                result.Add(new GroupedProcess
+                {
+                    Name = grp.Key,
+                    Count = count,
+                    Cpu = count > 0 ? grp.Sum(e => e.Cpu) / count : 0.0,
+                    Path = grp.FirstOrDefault(e => !string.IsNullOrEmpty(e.Path))?.Path ?? string.Empty,
+                    PriorityText = PriorityLabel(members.Count > 0 ? members[0].PriorityClass : 0),
+                    Members = members
+                });
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 把后台算好的分组合并进列表（就地更新，保留用户已选目标，不闪屏）。
+        ///
+        /// 这一步必须在 UI 线程：_groups 是 ObservableCollection，
+        /// 写入会触发 ItemsControl 的集合变更，跨线程操作会抛异常。
+        /// </summary>
+        private void ApplySnapshot(List<GroupedProcess> grouped)
         {
             // 用稳定字典合并：已存在的进程名就地更新（保留用户已选 Selection 与下拉选择），
             // 新名称新增、消失的名称移除，避免每次刷新整体重建导致下拉选择跳回 / 闪屏。
             Dictionary<string, ProcessGroupRow> existing =
                 _allGroups.ToDictionary(r => r.Name, StringComparer.OrdinalIgnoreCase);
-            List<ProcessGroupRow> merged = new();
+            List<ProcessGroupRow> merged = new(grouped.Count);
 
-            IEnumerable<IGrouping<string, ProcessRefresher.Entry>> groups =
-                entries.GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase);
-
-            foreach (IGrouping<string, ProcessRefresher.Entry> grp in groups)
+            foreach (GroupedProcess grp in grouped)
             {
-                int count = grp.Count();
-                List<ProcessMember> members = grp
-                    .Select(e => new ProcessMember { Pid = e.Pid, Path = e.Path, PriorityClass = e.PriorityClass })
-                    .ToList();
-
-                double cpu = count > 0 ? grp.Sum(e => e.Cpu) / count : 0.0;
-
-                // 路径取该名称下首个非空实例（同名的多个实例指向同一个 exe）
-                string groupPath = grp.FirstOrDefault(e => !string.IsNullOrEmpty(e.Path))?.Path ?? string.Empty;
-
-                if (existing.TryGetValue(grp.Key, out ProcessGroupRow? row))
+                if (existing.TryGetValue(grp.Name, out ProcessGroupRow? row))
                 {
                     // 就地更新数值，保留 Selection（含下拉选中项）
-                    row.Count = count;
-                    row.CpuValue = cpu;
-                    row.Members = members;
-                    row.Path = groupPath;
-                    row.PriorityText = PriorityLabel(members.Count > 0 ? members[0].PriorityClass : 0);
+                    row.Count = grp.Count;
+                    row.CpuValue = grp.Cpu;
+                    row.Members = grp.Members;
+                    row.Path = grp.Path;
+                    row.PriorityText = grp.PriorityText;
                 }
                 else
                 {
                     row = new ProcessGroupRow
                     {
-                        Name = grp.Key,
-                        Count = count,
-                        CpuValue = cpu,
-                        Members = members,
-                        Path = groupPath,
+                        Name = grp.Name,
+                        Count = grp.Count,
+                        CpuValue = grp.Cpu,
+                        Members = grp.Members,
+                        Path = grp.Path,
                         CanBind = _topologyAvailable,
-                        PriorityText = PriorityLabel(members.Count > 0 ? members[0].PriorityClass : 0)
+                        PriorityText = grp.PriorityText
                     };
                     // 新建行才用已保存规则回填初始选择（不触发绑定）
-                    row.SetInitialSelection(RuleToSelection(BindingStore.LookupByName(grp.Key)));
+                    row.SetInitialSelection(RuleToSelection(BindingStore.LookupByName(grp.Name)));
                     row.TargetChanged += OnGroupTargetChanged;
                 }
 
@@ -951,6 +1018,8 @@ namespace ZenForge.Views
             ProcessGroupRow group, BindingTarget target, string maskId, ulong mask, string label)
         {
             int bound = 0;
+            int failed = 0;
+
             foreach (ProcessMember m in group.Members)
             {
                 CpuSetBindResult result = BindMember(m.Pid, target, mask);
@@ -962,11 +1031,44 @@ namespace ZenForge.Views
                 }
                 else
                 {
-                    LogService.Warn($"绑定失败 {group.Name}（PID {m.Pid}）→ {label}：{result.Error}");
+                    failed++;
+
+                    // 【级别按成因区分，不是一律 ERROR】
+                    // 「进程在绑定的这一瞬间退出了」是最常见的失败：用户点了应用，
+                    // 某个标签页刚好关掉，PID 不存在。这是竞态，不是执行失败，
+                    // 报 ERROR 会让日志页红一片而用户完全无法行动。
+                    // 只有「进程还活着但拿不到权限 / API 拒绝」才是真正的执行失败。
+                    if (IsTransientBindFailure(result.Error))
+                        LogService.Warn($"绑定跳过 {group.Name}（PID {m.Pid}）：进程已退出");
+                    else
+                        LogService.Error($"绑定失败 {group.Name}（PID {m.Pid}）→ {label}：{result.Error}");
                 }
             }
 
+            if (failed > 0 && bound == 0 && group.Members.Count > 0)
+                LogService.Error($"{group.Name} 的全部 {failed} 个实例均未绑定成功");
+
             return bound;
+        }
+
+        /// <summary>
+        /// 判断一次绑定失败是否属于「瞬时竞态」。
+        ///
+        /// 只认两条判据，都是 OpenProcess / SetProcessDefaultCpuSets 在
+        /// 「目标进程已退出」时给出的确定信号：
+        ///   · 错误 87  (ERROR_INVALID_PARAMETER) —— PID 已不存在；
+        ///   · 错误 1168 (ERROR_NOT_FOUND)        —— PID 不匹配任何进程。
+        /// 权限不足（错误 5）不在此列：那是真实的执行失败，必须报 ERROR
+        /// 让用户知道要去开管理员。
+        /// </summary>
+        private static bool IsTransientBindFailure(string? error)
+        {
+            if (string.IsNullOrEmpty(error))
+                return false;
+
+            return error.Contains("错误 87", StringComparison.Ordinal)
+                || error.Contains("错误 1168", StringComparison.Ordinal)
+                || error.Contains("进程已退出", StringComparison.Ordinal);
         }
 
         /// <summary>

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -10,6 +10,9 @@ namespace ZenForge.Helpers
     /// </summary>
     public sealed class UiSettings
     {
+        /// <summary>出厂强调色。与 ThemeService 的默认色、SettingsPage 的兜底色同一值。</summary>
+        public const string DefaultAccentHex = "#38BDF8";
+
         [JsonConverter(typeof(JsonStringEnumConverter))]
         public AppThemeMode ThemeMode { get; set; } = AppThemeMode.System;
 
@@ -141,6 +144,23 @@ namespace ZenForge.Helpers
             // 延迟目前不在界面暴露，一律回到默认 3 秒（旧配置里可能是 1 或 30）。
             // 等输入框加回来，这里再改成只做区间收敛。
             Settings.LightModeDelaySeconds = 3;
+        }
+
+        /// <summary>
+        /// 恢复出厂：整份设置换回默认实例并落盘。
+        ///
+        /// 刻意逐字段赋值而不是 new 一个再替换：
+        ///   · 逐字段写漏一个，就是「重置后仍保留上一台机器的设置」；
+        ///   · 整体替换更彻底，且将来新增字段自动被带上默认值。
+        ///
+        /// 顺便清掉 FollowSystemAccentExplicit：重置后不该再带着
+        /// 「用户曾显式设过强调色」的历史标记，否则下次读盘时会跳过迁移逻辑。
+        /// </summary>
+        public static void ResetToFactory()
+        {
+            Settings = new UiSettings();
+            Settings.FollowSystemAccentExplicit = false;
+            Save();
         }
 
         public static void Save()

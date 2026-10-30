@@ -1,4 +1,4 @@
-<Page x:Class="ZenForge.Views.SettingsPage"
+﻿<Page x:Class="ZenForge.Views.SettingsPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       Title="设置"
@@ -11,7 +11,7 @@
         ============================================================
         设置页版式规格（v12）
         ============================================================
-        三张卡片：外观 / 行为 / 容错。每张都是 .card-title + 若干 .row，
+        四张卡片：外观 / 行为 / 安全 / 诊断。每张都是 .card-title + 若干 .row，
         .row = 左「标签 + 弱化说明」/ 右「控件」，行间 22px。
 
         外观卡：
@@ -21,7 +21,8 @@
 
         行为卡：开机静默自启 / 自动应用调校 / 开启后台服务 / 后台常驻调度 /
                 后台轻量模式 / 显示托盘图标
-        容错卡：智能休眠感知 / 软硬双重防砖保护 / 出错时通知我
+        安全卡：设备防砖保护 / 智能休眠感知 / 出错时通知我
+        诊断卡：详细日志 / SMU 自检 / 全局重置
 
         为什么保留页面级滚动而不是卡内滚动：
           三张卡总高度约 900px，窗口最小高 620。卡内各自滚动会让"哪一屏滚到哪"
@@ -254,41 +255,27 @@
                 </StackPanel>
             </Border>
 
-            <!-- ===== 容错 =====
-                 v12 的三项里，只有「出错时通知我」是真实已实现的开关；
-                 「智能休眠感知」「软硬双重防砖保护」目前是固定开启的保护逻辑，
-                 没有可关的入口 —— 按 v12 显示为开启态且不可点，
-                 并在 ToolTip 里说清为什么不能关。不假装成可切换的开关。 -->
+            <!-- ===== 安全 =====
+                 「容错」改成「安全」：这一卡里三件事都不是「出错了怎么办」，
+                 而是「别让机器坏掉 / 别在用户不知情时改动状态」。
+                 「容错」听起来像兜底日志，改叫「安全」才对得上内容。
+
+                 两项固定开启的保护：v12 把它们画成了可点的开关，
+                 但它们背后是写 SMU 前的最后一道闸，不提供关闭入口。
+                 这里显示为开启态且不可点，ToolTip 说清为什么不能关 ——
+                 不假装成可切换的开关。 -->
             <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
                 <StackPanel>
-                    <TextBlock Text="容错" Style="{StaticResource CardTitleStyle}"/>
+                    <TextBlock Text="安全" Style="{StaticResource CardTitleStyle}"/>
 
+                    <!-- 设备防砖保护 -->
                     <Grid Style="{StaticResource SettingRowStyle}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                            <TextBlock Text="智能休眠感知" Style="{StaticResource CardRowLabelStyle}"/>
-                            <TextBlock Text="系统唤醒后自动重新下发硬件调校"
-                                       Style="{StaticResource CardRowDescStyle}"/>
-                        </StackPanel>
-                        <ToggleButton Grid.Column="1" x:Name="SleepResumeToggle"
-                                      Style="{StaticResource ToggleSwitchStyle}"
-                                      IsChecked="True"
-                                      IsHitTestVisible="False"
-                                      Opacity="0.55"
-                                      VerticalAlignment="Center"
-                                      ToolTip="唤醒后重新下发是保证调校不丢的必要动作，不提供关闭入口"/>
-                    </Grid>
-
-                    <Grid Style="{StaticResource SettingRowStyle}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                            <TextBlock Text="软/硬双重防砖保护" Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock Text="设备防砖保护" Style="{StaticResource CardRowLabelStyle}"/>
                             <TextBlock Text="异常蓝屏重启后，自动跳过危险调校"
                                        Style="{StaticResource CardRowDescStyle}"/>
                         </StackPanel>
@@ -301,6 +288,27 @@
                                       ToolTip="防砖保护是写 SMU 前的最后一道闸，不允许关闭"/>
                     </Grid>
 
+                    <!-- 智能休眠感知 -->
+                    <Grid Style="{StaticResource SettingRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="智能休眠感知" Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock Text="系统唤醒后，自动重新下发硬件调校"
+                                       Style="{StaticResource CardRowDescStyle}"/>
+                        </StackPanel>
+                        <ToggleButton Grid.Column="1" x:Name="SleepResumeToggle"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      IsChecked="True"
+                                      IsHitTestVisible="False"
+                                      Opacity="0.55"
+                                      VerticalAlignment="Center"
+                                      ToolTip="唤醒后重新下发是保证调校不丢的必要动作，不提供关闭入口"/>
+                    </Grid>
+
+                    <!-- 出错时通知我 -->
                     <Grid Style="{StaticResource SettingRowStyle}" Margin="0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -319,13 +327,42 @@
                 </StackPanel>
             </Border>
 
-            <!-- ===== 维护 =====
-                 v12 没有这一块，但 SMU 自检与全局重置是排查问题的唯一入口，
-                 删掉它们等于让用户失去自救手段。放在最后、视觉上压一级。 -->
+            <!-- ===== 诊断 =====
+                 原「维护」改名「诊断」。三件事的共同点是「我遇到问题了，需要查」：
+                 详细日志、SMU 自检、全局重置。前置一个开关、两个按钮，
+                 而不是把它们散落在不同页面 —— 出问题时人只想去一个地方。
+
+                 「详细日志」从日志页挪过来（方案 A）：
+                   日志页是「看日志」的地方，开关放那儿等于让用户在翻日志时
+                   才发现有个开关；而开关的语义是「以后要不要记细一点」，
+                   属于设置。挪过来后日志页只剩阅读与筛选，专注做一件事。
+
+                 注意：这个开关控制的是「Debug 级日志要不要写入」
+                 （内存与磁盘都不写），不是「显示时过滤」。关闭时
+                 LogService.Debug() 里的 Write 直接不执行，对排查能力
+                 是真实影响，所以必须保留这个入口而不是直接删掉。 -->
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel>
-                    <TextBlock Text="维护" Style="{StaticResource CardTitleStyle}"/>
+                    <TextBlock Text="诊断" Style="{StaticResource CardTitleStyle}"/>
 
+                    <!-- 详细日志 -->
+                    <Grid Style="{StaticResource SettingRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="详细日志" Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock Text="记录每次点击、焦点变化与列表刷新，用于排查问题（日志文件增长较快）"
+                                       Style="{StaticResource CardRowDescStyle}"/>
+                        </StackPanel>
+                        <ToggleButton Grid.Column="1" x:Name="VerboseToggle"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      VerticalAlignment="Center"
+                                      Click="VerboseToggle_Click"/>
+                    </Grid>
+
+                    <!-- SMU 自检 -->
                     <Grid Style="{StaticResource SettingRowStyle}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -339,10 +376,15 @@
                         <Button Grid.Column="1" x:Name="SmuDiagButton"
                                 Content="运行"
                                 Style="{StaticResource SecondaryButtonStyle}"
+                                Margin="0"
+                                MinWidth="72"
                                 VerticalAlignment="Center"
                                 Click="SmuDiagButton_Click"/>
                     </Grid>
 
+                    <!-- 全局重置。文案里的「出厂状态」必须真的说到做到：
+                         配置文件删掉、SMU 索引写回基线、电源计划档位回默认，
+                         见 GlobalResetButton_Click。 -->
                     <Grid Style="{StaticResource SettingRowStyle}" Margin="0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -350,12 +392,14 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
                             <TextBlock Text="全局重置" Style="{StaticResource CardRowLabelStyle}"/>
-                            <TextBlock Text="清空调校与调度配置，回到出厂状态"
+                            <TextBlock Text="清空全局配置，回到出厂状态"
                                        Style="{StaticResource CardRowDescStyle}"/>
                         </StackPanel>
                         <Button Grid.Column="1" x:Name="GlobalResetButton"
                                 Content="重置"
                                 Style="{StaticResource SecondaryButtonStyle}"
+                                Margin="0"
+                                MinWidth="72"
                                 VerticalAlignment="Center"
                                 Click="GlobalResetButton_Click"/>
                     </Grid>

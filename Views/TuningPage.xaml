@@ -1,4 +1,4 @@
-<Page x:Class="ZenForge.Views.TuningPage"
+﻿<Page x:Class="ZenForge.Views.TuningPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       Title="调校"
@@ -49,7 +49,8 @@
                      让按钮先压缩的话，「应用全部」会被压成「应用全」再被截断。
                    · 两行文字用垂直居中而非顶部对齐：卡片有上下 Padding，
                      顶部对齐会在下方留一条空带，卡片看起来「上重下轻」。
-                   · 右列控件顺序按「读 → 写」的心智模型：加载 / 保存 / 重读 / 应用。 -->
+                   · 右列按「配置 / 辅助 / 主操作」分三组，组内 8px、组间 16px，
+                     详见下方注释。 -->
             <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -75,32 +76,53 @@
                                    TextTrimming="CharacterEllipsis"/>
                     </StackPanel>
 
-                    <!-- 右列四控件：加载 / 保存 / 重读 / 应用全部。
-                         间距统一 8，由每个按钮的 Margin="0,0,8,0" 承担；
-                         最后一个按钮 Margin 归零，否则卡片右侧会多出 8px 幽灵内缩。 -->
+                    <!-- ===== 右列：三组控件，组内紧、组间松 =====
+                         分组依据是「一次操作的最小闭环」，不是按钮个数：
+                           ① 配置组  加载 / 保存 —— 只和 tuning.json 打交道，两个动作为一对；
+                           ② 辅助组  刷新（图标）—— 从 SMU 重读，独立动作，跟配置文件无关；
+                           ③ 主操作  应用全部   —— 唯一的写入口，必须视觉最重。
+
+                         间距规则（对齐用户给的 CSS 规范）：
+                           组内 8px（.btn 之间）
+                           组间 8px 额外 → 合计 16px（.btn-group + .btn-group 的 margin-left）
+                         之所以组间要 16 而不是 12：三个按钮各 8px 的间隔，
+                         和「组与组」的 16px，肉眼能立刻分出两个层级 ——
+                         12px 只比 8 大 4，边框线又在视野里，读不出分组。
+
+                         尺寸统一 32 高：普通按钮由 SecondaryButtonStyle 的 Height=32
+                         提供，图标按钮由 SquareIconButtonStyle 的 32×32 提供，
+                         三者基线天然对齐，不需要 VerticalAlignment 微调。 -->
                     <StackPanel Grid.Column="1"
                                 Orientation="Horizontal"
                                 VerticalAlignment="Center">
+
+                        <!-- ① 配置组 -->
                         <Button x:Name="LoadConfigButton" Content="加载"
                                 Style="{StaticResource SecondaryButtonStyle}"
-                                Margin="0,0,8,0"
+                                Margin="0"
+                                MinWidth="64"
                                 Click="LoadConfigButton_Click"/>
                         <Button x:Name="SaveConfigButton" Content="保存"
                                 Style="{StaticResource SecondaryButtonStyle}"
-                                Margin="0,0,8,0"
+                                Margin="8,0,0,0"
+                                MinWidth="64"
                                 Click="SaveConfigButton_Click"/>
 
-                        <!-- SMU 重读：撤销原来的页脚文字链，改为图标按钮。
-                             图标是「圆圈箭头」，24×24 viewBox 内的 2px 描边路径：
+                        <!-- ② 辅助组：SMU 重读。
+                             Margin 左 16 = 组间距；透明底 + 无边框 = 辅助动作，
+                             不与两个文字按钮争视觉重量，只在 hover 时浮出浅底。
+                             图标是「圆圈箭头」，24×24 viewBox 内的 2.2px 描边路径：
                                弧线 M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8
                                箭头 M21 3v5h-5
                              用 Viewbox 缩放到 15×15 —— 直接改 Path 的 Width/Height
                              不会缩放笔画，只会裁切。 -->
                         <Button x:Name="RefreshButton"
                                 Style="{StaticResource SquareIconButtonStyle}"
-                                Margin="0,0,8,0"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Margin="16,0,0,0"
                                 IsEnabled="False"
-                                ToolTip="从 SMU 重新读取当前值"
+                                ToolTip="从 SMU 重新读取当前值（不写入、不保存）"
                                 Click="RefreshButton_Click">
                             <Viewbox Width="15" Height="15">
                                 <Canvas Width="24" Height="24">
@@ -121,9 +143,14 @@
                             </Viewbox>
                         </Button>
 
+                        <!-- ③ 主操作：应用全部。Margin 左 16 = 组间距。
+                             15% 淡底 + 1px 实色强调色边 + 强调色字（PrimaryButtonStyle 已实现），
+                             hover 反转成实底深字 —— 它是这一页唯一的「真正生效」入口，
+                             视觉必须压过前面所有按钮。 -->
                         <Button x:Name="ApplyAllButton" Content="应用全部"
                                 Style="{StaticResource PrimaryButtonStyle}"
-                                Margin="0"
+                                Margin="16,0,0,0"
+                                MinWidth="88"
                                 IsEnabled="False"
                                 Click="ApplyAllButton_Click"/>
                     </StackPanel>
@@ -177,24 +204,22 @@
                 </Grid>
             </Border>
 
-            <!-- ======= PBO 策略（放在 FMax 下方） =======
-                 【这里能做什么、不能做什么】
+            <!-- ======= 电源计划策略（原 PBO 策略，放在 FMax 下方） =======
+                 【为什么改名】
+                 「PBO」在 AMD 语境里特指 SMU 固件层的 Precision Boost Overdrive
+                 （功耗墙 / 曲线优化 / Boost 上限）。那一层没有公开 API，只有 BIOS
+                 与 AMD 驱动能写 —— 这个下拉框从来就不是它。继续叫 PBO，是在承诺
+                 一件做不到的事。改叫「电源计划策略」，名字与它实际控制的
+                 Windows 电源方案一一对应，用户去「控制面板 → 电源选项」也能对得上。
 
-                 不能做：AMD SMU 固件层的 PBO（功耗墙 / 曲线优化 / Boost 上限）。
-                 那一层没有公开 API，只有主板 BIOS 与 AMD 驱动能碰，硬发 SMU 消息
-                 属于拿用户机器赌博（消息号或载荷错一位就是黑屏 + 清 CMOS）。
-
-                 能做：Windows 电源策略层里的「处理器性能提升模式」
-                 （GUID_PROCESSOR_PERF_BOOST_MODE）。它同样决定处理器能否超出
-                 标称频率运行，可读可写、有错误码、可一键还原，失败最多是
-                 「设置没生效」。两者是两套机制 —— 说明行必须讲清楚，
-                 不能让用户以为改了 SMU。
-
-                 取值映射：
-                   Auto     → 清除该子组索引，交回 Windows 默认
-                   Enabled  → 处理器性能提升模式 = 已启用
-                   Disabled → 处理器性能提升模式 = 已停用 -->
-            <Border x:Name="PboCard" Style="{StaticResource CardBorderStyle}">
+                 【这一档到底动了什么】
+                 四个 powrprof 索引，全部有返回码、可读可写、可一键换档：
+                   · 处理器性能提升模式（PERFBOOSTMODE）
+                   · 最大处理器状态（PROCTHROTTLEMAX，百分比上限）
+                   · 能效偏好（PERFEPP，0=性能 100=能效）
+                   · 处理器空闲禁用（IDLEDISABLE）
+                 具体每档的取值见 Services/ProcessorPowerPolicy.cs。 -->
+            <Border x:Name="PowerPlanCard" Style="{StaticResource CardBorderStyle}">
                 <StackPanel>
                     <Grid Style="{StaticResource CardRowStyle}">
                         <Grid.ColumnDefinitions>
@@ -203,30 +228,34 @@
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
-                            <TextBlock Text="PBO 策略 (Precision Boost Overdrive)"
+                            <TextBlock Text="电源计划策略"
                                        Style="{StaticResource CardRowLabelStyle}"/>
-                            <TextBlock Text="控制处理器的自动超频与功耗策略"
+                            <TextBlock Text="改写 Windows 电源方案中的处理器策略，即时生效"
                                        Style="{StaticResource CardRowDescStyle}"/>
                         </StackPanel>
 
-                        <!-- 初值 IsEnabled=False：策略是读出来才知道的，
-                             读完前不能按（否则用户点了一个「我以为能改」的控件）。 -->
-                        <ComboBox Grid.Column="1" x:Name="PboCombo"
+                        <!-- 初值 IsEnabled=False：档位是读出来才知道的，
+                             读完前不能按（否则用户点了一个「我以为能改」的控件）。
+                             宽度 150 是为容纳「解除限制」四个字 + 下拉箭头。 -->
+                        <ComboBox Grid.Column="1" x:Name="PlanCombo"
                                   Width="150" Height="32"
                                   VerticalAlignment="Center"
                                   IsEnabled="False"
-                                  SelectionChanged="PboCombo_SelectionChanged">
-                            <ComboBoxItem Content="Auto"/>
-                            <ComboBoxItem Content="Enabled"/>
-                            <ComboBoxItem Content="Disabled"/>
+                                  SelectionChanged="PlanCombo_SelectionChanged">
+                            <ComboBoxItem Content="解除限制"/>
+                            <ComboBoxItem Content="温和"/>
+                            <ComboBoxItem Content="均衡"/>
+                            <ComboBoxItem Content="静音"/>
                         </ComboBox>
                     </Grid>
 
-                    <!-- 分层说明。12px 次要色，不抢正文。
-                         这一行是「不骗用户」的底线：写明改的是 OS 策略层。 -->
-                    <TextBlock x:Name="PboHint"
-                               Text="调节 Windows 电源策略中的「处理器性能提升模式」，与 SMU 固件层 PBO 为两套机制。"
+                    <!-- 说明行随档位切换（由 LoadPowerPlanPolicy / PlanCombo_SelectionChanged
+                         写入）。这一行是「不骗用户」的底线：必须说清每档付出什么代价。
+                         12px 次要色，不抢正文。 -->
+                    <TextBlock x:Name="PlanHint"
+                               Text="正在读取当前电源方案…"
                                Style="{StaticResource HintTextStyle}"
+                               Margin="0,10,0,0"
                                TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -56,11 +56,7 @@ namespace ZenForge.Views
             // 订阅/解绑成对绑定在 Loaded/Unloaded 上。
             // 早先只在构造函数里 +=、在 Unloaded 里 -=：页面离开一次后
             // 就再也不订阅了，回到日志页时不再自动跟随新条目、计数也不刷新
-            Loaded += (_, _) =>
-            {
-                Subscribe();
-                SyncVerboseToggle();
-            };
+            Loaded += (_, _) => Subscribe();
             Unloaded += (_, _) => Unsubscribe();
         }
 
@@ -392,28 +388,6 @@ namespace ZenForge.Views
         }
 
         // ==================== 工具栏 ====================
-
-        /// <summary>
-        /// 把开关状态同步成日志服务的真实状态。
-        /// 开关不持久化 —— 详细日志是排查工具，不该在用户不知情时长期开着，
-        /// 下次启动回到默认（诊断版为开、常规版为关）。
-        /// </summary>
-        private void SyncVerboseToggle()
-        {
-            if (VerboseToggle != null)
-                VerboseToggle.IsChecked = LogService.Verbose;
-        }
-
-        private void VerboseToggle_Click(object sender, RoutedEventArgs e)
-        {
-            bool on = VerboseToggle.IsChecked == true;
-            LogService.Verbose = on;
-
-            // 这条 Info 一定会落盘，作为「从此刻起有详细日志」的分界线
-            LogService.Info(on
-                ? "详细日志已开启（本次运行有效）"
-                : "详细日志已关闭");
-        }
 
         private void PauseButton_Click(object sender, RoutedEventArgs e)
         {

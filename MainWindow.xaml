@@ -1,4 +1,4 @@
-<Window x:Class="ZenForge.MainWindow"
+﻿<Window x:Class="ZenForge.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
@@ -15,7 +15,8 @@
 
     <!-- 无边框外壳。CaptionHeight 必须为 0：
          只要保留非零值，系统就把这块当 HTCAPTION 吃掉 WM_NCLBUTTONDOWN，
-         我们在侧栏上挂的 MouseLeftButtonDown 根本不会触发，DragMove 成了死代码。
+         我们自己挂在拖拽栏上的 MouseLeftButtonDown 根本不会触发，DragMove 成死代码。
+         真实的可拖拽区域由下面那层 40px 高的 DragBar 承担。
          ResizeBorderThickness=6 留出边缘拉伸热区；CornerRadius 系统上限就是 8。 -->
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="0"
@@ -24,49 +25,72 @@
                             ResizeBorderThickness="6"/>
     </shell:WindowChrome.WindowChrome>
 
-    <!-- 只有两列、没有行：窗口边缘到内容之间不再有任何一条「栏」。
-         侧栏本身就是标题栏——顶部品牌、中部导航、底部版本号与窗口按钮。 -->
+    <!-- =====================================================================
+         骨架（v13）：侧栏 200px + 右侧「拖拽栏 40px / 内容 *」
+         =====================================================================
+         为什么要多出这一条 40px 的拖拽栏：
+           窗口按钮挪到右上角之后，侧栏不再是唯一的拖动来源。如果只把按钮移走、
+           不给内容区一条能按住拖动、能双击最大化的横条，用户就只剩侧栏那一条
+           200px 宽的窄带可以拖窗口 —— 窗口拉宽以后，这个比例会越用越别扭。
+
+         关于 8px 窗口圆角：
+           无边框窗口在系统层面仍是直角。CornerRadius=8 只是 GlassFrameThickness=0
+           时 WindowChrome 的裁剪提示，实际到边到角的部分会露出背景色。
+           侧栏底色 #18181A 是实色，露角时看不出问题；右侧内容区同理。
+           这里不再额外做圆角遮罩 —— 遮罩要么吃掉 8px 的内容，要么引入
+           一个跟随主题变化的 Border，成本大于收益。
+
+         列定义不能放进这一层：拖拽栏必须只覆盖右列（不能压在侧栏上，
+         否则侧栏顶部的品牌区会被拖拽条吃掉命中），所以先在根 Grid 分两列，
+         再在右列内部竖着分两行。 -->
     <Grid Background="{DynamicResource Window.Background}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="200"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- ===================== 侧栏（整块可拖） =====================
-             拖拽事件挂在最外层 Border 上，而不是只挂在品牌区：
-             200×56 减去品牌文字只剩不到 100px，用户十次有九次点空。
-             导航项在模板层把 MouseLeftButtonUp 拦掉（见 SideNavItemStyle），
-             所以导航之外的每一寸——含导航下方整片空白——都能拖。 -->
+        <!-- ===================== 侧栏 =====================
+             侧栏仍然整块可拖（品牌区 + 导航下方空白），这样「想拖窗口」的
+             老习惯不会因为按钮移走而失效。导航项在模板层拦掉了
+             MouseLeftButtonUp，所以点导航不会变成拖拽（详见 MainWindow.xaml.cs）。
+
+             横向 Padding 必须为 0：SideNavItemStyle 的选中竖条要贴在
+             x=0 这条线上，侧栏 Border 只要带一点左右 Padding，竖条就会被推进来。
+             原来底部窗口按钮放在这里，那层 Border 的 Padding="12,8" 不参与
+             导航的布局，所以没暴露问题；现在导航项自己负责左右内边，
+             外框不需要任何横向内边。 -->
         <Border Grid.Column="0"
                 Background="{DynamicResource SideBar.Background}"
                 BorderBrush="{DynamicResource SideBar.Border}"
                 BorderThickness="0,0,1,0"
+                Padding="0"
                 SnapsToDevicePixels="True"
                 MouseLeftButtonDown="Chrome_MouseLeftButtonDown">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="56"/>   <!-- 品牌 -->
                     <RowDefinition Height="*"/>    <!-- 导航 -->
-                    <RowDefinition Height="Auto"/> <!-- 版本号 + 窗口按钮 -->
+                    <RowDefinition Height="Auto"/> <!-- 版本号 -->
                 </Grid.RowDefinitions>
 
-                <!-- 品牌：全窗口唯一一处 ZenForge -->
+                <!-- 品牌：全窗口唯一一处 ZenForge。
+                     18px / Bold。原来是 15px，和侧栏导航项（13px）只差 2px，
+                     读起来像「一个稍大一点的导航项」而不是品牌。 -->
                 <TextBlock Grid.Row="0"
                            Text="ZenForge"
-                           Margin="24,0,16,0"
+                           Margin="18,0,16,0"
                            VerticalAlignment="Center"
-                           FontSize="15"
+                           FontSize="18"
                            FontWeight="Bold"
                            Foreground="{DynamicResource Text.Primary}"/>
 
                 <!-- 导航。分组标题是 TextBlock 不是 ToggleButton ——
                      SetActiveNav 里 `if (child is ToggleButton)` 会自动跳过它，
-                     选中逻辑一行不用改。 -->
-                <!-- 【左边距必须是 0】
-                     12px 的左边距是「指示条贴不到边」的第一个成因（另一个在
-                     SideNavItemStyle 模板里）。归零后竖条才能压到侧栏最左边缘。
-                     右侧仍留 12：选中背景块不贴右边界，保留呼吸。
-                     纵向 8 保留，与品牌区之间留出分组间隔。 -->
+                     选中逻辑一行不用改。
+
+                     【左边距必须是 0】SideNavItemStyle 的模板里竖条在 0 列、
+                     自身 Margin 也是 0，只要这里给一点左边距，竖条就永远
+                     贴不到侧栏边缘。右侧留 12：选中背景块不贴右边界，保留呼吸。 -->
                 <StackPanel x:Name="NavPanel"
                             Grid.Row="1"
                             Orientation="Vertical"
@@ -98,83 +122,96 @@
                                   Click="NavButton_Click"/>
                 </StackPanel>
 
-                <!-- 底部：版本号 + 最小化 / 最大化 / 关闭 -->
-                <Border Grid.Row="2"
-                        BorderBrush="{DynamicResource SideBar.Border}"
-                        BorderThickness="0,1,0,0"
-                        Padding="12,8"
-                        Margin="0,12,0,0">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-
-                        <TextBlock x:Name="VersionText"
-                                   Grid.Column="0"
-                                   VerticalAlignment="Center"
-                                   Margin="8,0,0,0"
-                                   FontSize="11"
-                                   Foreground="{DynamicResource Text.Disabled}"/>
-
-                        <StackPanel Grid.Column="1" Orientation="Horizontal">
-                            <Button Style="{StaticResource WindowButtonStyle}"
-                                    ToolTip="最小化"
-                                    Click="MinimizeButton_Click">
-                                <TextBlock Text="&#xE921;" FontFamily="Segoe MDL2 Assets" FontSize="10"/>
-                            </Button>
-                            <Button Style="{StaticResource WindowButtonStyle}"
-                                    ToolTip="最大化 / 还原"
-                                    Click="MaximizeButton_Click">
-                                <TextBlock x:Name="MaximizeGlyph" Text="&#xE922;" FontFamily="Segoe MDL2 Assets" FontSize="10"/>
-                            </Button>
-                            <Button Style="{StaticResource WindowCloseButtonStyle}"
-                                    ToolTip="关闭"
-                                    Click="CloseButton_Click">
-                                <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="10"/>
-                            </Button>
-                        </StackPanel>
-                    </Grid>
-                </Border>
+                <!-- 底部只留版本号。窗口按钮已经挪到右上角的拖拽栏，
+                     这里不再有 Border 顶边线 —— 一条只有一行小字的竖排尾巴，
+                     加横线反而像「被截断的内容」。 -->
+                <TextBlock x:Name="VersionText"
+                           Grid.Row="2"
+                           Margin="18,0,16,16"
+                           FontSize="11"
+                           Foreground="{DynamicResource Text.Disabled}"/>
             </Grid>
         </Border>
 
-        <!-- ===== 内容区 ===== -->
-        <!--
-            FocusVisualStyle / IsTabStop 全部清空的原因：
-            Frame 与 Page 都是可聚焦控件，默认 FocusVisualStyle 是系统那套
-            「1px 黑色圆角虚线框」。鼠标点过导航按钮后按 Tab、或程序内部
-            把焦点交给 Frame 时，这条虚线会横贯整个内容区；同时 Page 本身
-            也会在内容四周画出虚线 —— 就是截图里那两条"丑陋虚线"的真正来源。
-            这里彻底断掉：Frame 不参与 Tab、不显示焦点框，Page 也不显示。
-        -->
-        <Frame Grid.Column="1"
-               x:Name="ContentFrame"
-               NavigationUIVisibility="Hidden"
-               Focusable="False"
-               IsTabStop="False"
-               FocusVisualStyle="{x:Null}"
-               Background="{DynamicResource Window.Background}"/>
+        <!-- ===================== 右列：拖拽栏 + 内容 ===================== -->
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="40"/>   <!-- 拖拽栏 -->
+                <RowDefinition Height="*"/>    <!-- 内容 -->
+            </Grid.RowDefinitions>
 
-        <!-- ===================== Toast 叠加层 =====================
-             刻意不用独立 Window：
-               · 弹窗会抢焦点，用户正在某个输入框里打字时会被打断；
-               · 无边框小窗在任务栏里会闪一下，看起来像程序出了问题；
-               · 独立窗口还要单独处理 DPI 与多屏定位。
+            <!-- ===== 拖拽栏 =====
+                 背景透明：它坐在内容区顶部，任何底色都会形成一条「横杠」，
+                 把页面大标题往下推、让顶部显得笨重。透明之后视觉上不存在
+                 这条栏，但它实实在在占着 40px 的命中区。
 
-             放在主窗口 Grid 的最后一层（覆盖在 Frame 之上），
-             HorizontalAlignment=Center + VerticalAlignment=Top 让它浮在内容区顶部。
-             Grid.ColumnSpan=2：Toast 应该相对整个窗口居中，而不是相对内容区 ——
-             侧栏占 200px，只对内容区居中的话视觉上会明显偏右。
+                 Grid.ColumnSpan 不存在（这里只有一列），三颗按钮靠
+                 HorizontalAlignment=Right 贴到窗口右上角。
 
-             IsHitTestVisible=False：Toast 是纯提示，绝不能挡住底下的按钮。
-             用户点「应用全部」的瞬间弹出一条提示，如果它拦截点击，
-             连续操作就会「点一次没反应」，比没有提示更糟。 -->
-        <controls:ToastHost x:Name="ToastLayer"
-                            Grid.Column="0"
-                            Grid.ColumnSpan="2"
-                            HorizontalAlignment="Center"
+                 MouseLeftButtonDown 挂在这一层：按住任意空白处可拖，
+                 双击可最大化 / 还原。按钮是自己的 Button，会先吃掉点击，
+                 不会顺手把窗口拖走。 -->
+            <Grid x:Name="DragBar"
+                  Grid.Row="0"
+                  Background="Transparent"
+                  MouseLeftButtonDown="DragBar_MouseLeftButtonDown">
+
+                <!-- 窗口按钮组：右缘留 8px，与窗口 8px 圆角呼应；
+                     上缘留 6px，让 30px 高的按钮在 40px 栏里上下留白均衡
+                     （6 + 30 + 4）。 -->
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Right"
                             VerticalAlignment="Top"
-                            IsHitTestVisible="False"/>
+                            Margin="0,6,8,0">
+                    <Button Style="{StaticResource TitleBarButtonStyle}"
+                            ToolTip="最小化"
+                            Click="MinimizeButton_Click">
+                        <TextBlock Text="&#xE921;" FontFamily="Segoe MDL2 Assets" FontSize="10"/>
+                    </Button>
+                    <Button Style="{StaticResource TitleBarButtonStyle}"
+                            ToolTip="最大化 / 还原"
+                            Click="MaximizeButton_Click">
+                        <TextBlock x:Name="MaximizeGlyph" Text="&#xE922;" FontFamily="Segoe MDL2 Assets" FontSize="10"/>
+                    </Button>
+                    <Button Style="{StaticResource TitleBarCloseButtonStyle}"
+                            ToolTip="关闭"
+                            Click="CloseButton_Click">
+                        <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="10"/>
+                    </Button>
+                </StackPanel>
+            </Grid>
+
+            <!-- ===== 内容区 =====
+                 FocusVisualStyle / IsTabStop 全部清空的原因：
+                 Frame 与 Page 都是可聚焦控件，默认 FocusVisualStyle 是系统那套
+                 「1px 黑色圆角虚线框」。鼠标点过导航按钮后按 Tab、或程序内部
+                 把焦点交给 Frame 时，这条虚线会横贯整个内容区；同时 Page 本身
+                 也会在内容四周画出虚线 —— 就是截图里那两条"丑陋虚线"的真正来源。
+                 这里彻底断掉：Frame 不参与 Tab、不显示焦点框，Page 也不显示。 -->
+            <Frame Grid.Row="1"
+                   x:Name="ContentFrame"
+                   NavigationUIVisibility="Hidden"
+                   Focusable="False"
+                   IsTabStop="False"
+                   FocusVisualStyle="{x:Null}"
+                   Background="{DynamicResource Window.Background}"/>
+
+            <!-- Toast 也放在右列：它应该相对「用户正在看的页面」居中。
+                 早先写在根 Grid 上跨两列，视觉中心会偏移到整个窗口
+                 （含 200px 侧栏）的中心，比用户注意力所在的位置偏右约 100px。
+                 现在挂在内容区这一列，正中就是页面正中。
+
+                 只占第 1 行（内容区）：Toast 浮在页面内，不能压住拖拽栏上那三颗
+                 窗口按钮 —— ToastHost 自带 IsHitTestVisible=False，但它若覆盖
+                 按钮所在区域，视觉上仍会盖住按钮的 hover 底色，看着像糊了一层。
+                 Margin="0,0,0,26"：ToastHost 模板顶端本来就留了 16，
+                 再 +10 让第一条 Toast 落在页面标题的上方空档里，而不是压在标题字上。 -->
+            <controls:ToastHost x:Name="ToastLayer"
+                                Grid.Row="1"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Top"
+                                Margin="0,0,0,26"
+                                IsHitTestVisible="False"/>
+        </Grid>
     </Grid>
 </Window>

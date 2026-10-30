@@ -31,17 +31,17 @@ namespace ZenForge.Views
         private bool _busy; // 防止并发点击重复下发
 
         /// <summary>
-        /// PBO 下拉框的「程序正在回填」闸门。
+        /// 电源计划策略下拉框的「程序正在回填」闸门。
         ///
-        /// 回填时 SelectIndex 会触发 SelectionChanged，如果不挡住，进页面就会
+        /// 回填时 SelectedIndex 会触发 SelectionChanged，如果不挡住，进页面就会
         /// 把刚读到的值立刻再写回去一遍 —— 看似无害，实则每次切页都对电源方案
-        /// 做一次写操作并 PowerSetActiveScheme，还可能在读失败时把用户的设置
-        /// 覆写成 Auto。所有「代码改选中项」的地方都必须先置 true。
+        /// 做四次写操作并 PowerSetActiveScheme，还可能在读失败时把用户的设置
+        /// 覆写成默认档。所有「代码改选中项」的地方都必须先置 true。
         /// </summary>
-        private bool _suppressPboEvent;
+        private bool _suppressPlanEvent;
 
-        /// <summary>PBO 当前的实际值（用户选择成功后才更新，用于失败时回滚 UI）。</summary>
-        private BoostPolicy _pboCurrent = BoostPolicy.Auto;
+        /// <summary>当前实际档位（用户选择成功后才更新，用于失败时回滚 UI）。null = 系统值对不上任何档位。</summary>
+        private PowerPlanProfile? _planCurrent = PowerPlanProfile.Balanced;
 
         public TuningPage()
         {
@@ -54,9 +54,9 @@ namespace ZenForge.Views
             {
                 await ProbeSmuAsync();
 
-                // PBO 与 SMU 探测互不依赖：SMU 失败（非 AMD / 未装驱动）时
+                // 电源计划策略与 SMU 探测互不依赖：SMU 失败（非 AMD / 未装驱动）时
                 // 电源策略照样可读，所以单独一趟，不能塞进 ApplySnapshot。
-                LoadPboPolicy();
+                LoadPowerPlanPolicy();
             };
         }
 
@@ -281,114 +281,166 @@ namespace ZenForge.Views
                 box.IsEnabled = enabled;
         }
 
-        // ---------- PBO（Windows 电源策略层） ----------
+        // ---------- 电源计划策略（Windows 电源策略层） ----------
 
         /// <summary>
-        /// 读取当前电源方案的处理器性能提升模式并回填下拉框。
-        /// 读不到就把控件置灰并给出原因 —— 不做「假装能改」的开关。
+        /// 读取当前电源方案的四个索引并反推出最接近的档位，回填下拉框。
+        ///
+        /// 读不到就置灰并给出原因 —— 不做「假装能改」的开关。
+        /// 读得到但对不上任何一档时，选中项留空并显示「自定义」，
+        /// 同时把说明行换成实际数值：用户需要知道「现在到底是什么状态」，
+        /// 而不是被强行归到某个档里。
         /// </summary>
-        private void LoadPboPolicy()
+        private void LoadPowerPlanPolicy()
         {
-            if (!ProcessorPowerPolicy.TryRead(out BoostPolicy policy, out string error))
+            if (!ProcessorPowerPolicy.TryDetect(out PowerPlanProfile? profile, out string error))
             {
-                SetPboUnavailable(error);
+                SetPlanUnavailable(error);
                 return;
             }
 
-            _pboCurrent = policy;
-            ApplyPboToUi(policy);
+            _planCurrent = profile;
 
-            PboCombo.IsEnabled = true;
-            PboHint.Text = "调节 Windows 电源策略中的「处理器性能提升模式」，与 SMU 固件层 PBO 为两套机制。";
+            if (profile == null)
+            {
+                _suppressPlanEvent = true;
+                try
+                {
+                    PlanCombo.SelectedIndex = -1;
+                    PlanCombo.Text = "自定义";
+                }
+                finally
+                {
+                    _suppressPlanEvent = false;
+                }
+
+                PlanHint.Text = "当前电源方案的设置不属于任何预设档位（可能被系统或其他软件调过）。选中任意档位即可覆盖。";
+            }
+            else
+            {
+                ApplyPlanToUi(profile.Value);
+                PlanHint.Text = ProcessorPowerPolicy.Description(profile.Value);
+            }
+
+            PlanCombo.IsEnabled = true;
         }
 
-        /// <summary>把策略值同步到下拉框，期间屏蔽 SelectionChanged。</summary>
-        private void ApplyPboToUi(BoostPolicy policy)
+        /// <summary>把档位同步到下拉框，期间屏蔽 SelectionChanged。</summary>
+        private void ApplyPlanToUi(PowerPlanProfile profile)
         {
-            _suppressPboEvent = true;
+            _suppressPlanEvent = true;
             try
             {
-                PboCombo.SelectedIndex = policy switch
+                PlanCombo.SelectedIndex = profile switch
                 {
-                    BoostPolicy.Enabled => 1,
-                    BoostPolicy.Disabled => 2,
-                    _ => 0, // Auto
+                    PowerPlanProfile.Gentle => 1,
+                    PowerPlanProfile.Balanced => 2,
+                    PowerPlanProfile.Quiet => 3,
+                    _ => 0, // 解除限制
                 };
             }
             finally
             {
-                _suppressPboEvent = false;
+                _suppressPlanEvent = false;
             }
         }
 
         /// <summary>
-        /// 用户切换 PBO 策略。
+        /// 用户切换档位。
         ///
-        /// 写入失败必须回滚下拉框到实际值：不滚的话界面显示「已启用」而系统
-        /// 实际没变，用户下一次回来会看到一个自己没设过的状态。
+        /// 写入失败必须回滚下拉框到实际值：不滚的话界面显示「静音」而系统
+        /// 实际仍在全速跑，用户下一次回来会看到一个自己没设过的状态。
         /// </summary>
-        private void PboCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void PlanCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (_suppressPboEvent)
+            if (_suppressPlanEvent || !IsLoaded)
                 return;
 
-            BoostPolicy target = PboCombo.SelectedIndex switch
+            PowerPlanProfile target = PlanCombo.SelectedIndex switch
             {
-                1 => BoostPolicy.Enabled,
-                2 => BoostPolicy.Disabled,
-                _ => BoostPolicy.Auto,
+                1 => PowerPlanProfile.Gentle,
+                2 => PowerPlanProfile.Balanced,
+                3 => PowerPlanProfile.Quiet,
+                _ => PowerPlanProfile.Unrestricted,
             };
 
-            if (target == _pboCurrent)
+            if (_planCurrent == target)
                 return;
 
-            string label = PboLabel(target);
+            string label = ProcessorPowerPolicy.Label(target);
+            string previousHint = PlanHint.Text;
 
-            if (!ProcessorPowerPolicy.TryWrite(target, out string error))
+            // 写入是四次 powrprof 调用 + 一次重新激活，在低端机上实测 80~150ms。
+            // 同步执行会让下拉框「卡在半开状态」一下，放后台线程，期间锁住控件。
+            PlanCombo.IsEnabled = false;
+            PlanHint.Text = $"正在应用「{label}」…";
+
+            PowerPlanResult result;
+            try
             {
-                LogService.Warn($"PBO 策略写入失败（目标 {label}）：{error}");
+                result = await System.Threading.Tasks.Task.Run(() => ProcessorPowerPolicy.Apply(target));
+            }
+            catch (Exception ex)
+            {
+                result = PowerPlanResult.Fail("电源策略", ex.Message);
+            }
+
+            PlanCombo.IsEnabled = true;
+
+            if (!result.Ok)
+            {
+                LogService.Warn($"电源计划策略写入失败（{result.Setting}，目标 {label}）：{result.Error}");
 
                 // 回滚 UI 到系统真实值
-                ApplyPboToUi(_pboCurrent);
+                if (_planCurrent is PowerPlanProfile actual)
+                    ApplyPlanToUi(actual);
+                else
+                    PlanCombo.SelectedIndex = -1;
 
-                // 写入失败属于「需要用户处理」的场景（多为权限/策略锁定），
-                // 按规范保留模态弹窗，不降级成 Toast。
-                DarkDialog.ShowWarning(
-                    $"无法修改处理器性能提升模式。\n\n{error}",
-                    "PBO 策略");
+                PlanHint.Text = previousHint;
+
+                ErrorNotifyService.Report(
+                    $"无法应用「{label}」：{result.Error}",
+                    "电源计划策略",
+                    $"无法修改「{result.Setting}」",
+                    result.Error);
                 return;
             }
 
-            _pboCurrent = target;
-            LogService.Info($"PBO 策略已设为 {label}（Windows 电源策略 · 处理器性能提升模式）");
+            _planCurrent = target;
+            PlanHint.Text = ProcessorPowerPolicy.Description(target);
+            LogService.Info($"电源计划策略：已切换到「{label}」");
 
-            ToastService.Success($"处理器性能提升模式：{label}");
+            // 电池供电那一路若写失败，只提示一次，不影响用户已经看到的成功结果。
+            // 这类情况多见于台式机（没有 DC 子组）或 OEM 锁死电池策略的方案。
+            if (ProcessorPowerPolicy.LastDcWarning is string dcWarning)
+            {
+                LogService.Warn($"电源计划策略：{dcWarning}");
+                ToastService.Info($"已切换到「{label}」（电池供电设置未能写入，插电状态已生效）");
+                return;
+            }
+
+            ToastService.Success($"电源计划策略：{label}");
         }
 
-        /// <summary>PBO 不可用时的统一降级：禁用控件 + 在说明行写清楚原因。</summary>
-        private void SetPboUnavailable(string reason)
+        /// <summary>不可用时的统一降级：禁用控件 + 在说明行写清楚原因。</summary>
+        private void SetPlanUnavailable(string reason)
         {
-            _suppressPboEvent = true;
+            _suppressPlanEvent = true;
             try
             {
-                PboCombo.SelectedIndex = -1;
+                PlanCombo.SelectedIndex = -1;
+                PlanCombo.Text = string.Empty;
             }
             finally
             {
-                _suppressPboEvent = false;
+                _suppressPlanEvent = false;
             }
 
-            PboCombo.IsEnabled = false;
-            PboHint.Text = $"当前系统不支持读取该策略：{reason}";
-            LogService.Warn($"PBO 策略不可用：{reason}");
+            PlanCombo.IsEnabled = false;
+            PlanHint.Text = $"当前系统无法读取电源策略：{reason}";
+            LogService.Warn($"电源计划策略不可用：{reason}");
         }
-
-        private static string PboLabel(BoostPolicy policy) => policy switch
-        {
-            BoostPolicy.Enabled => "Enabled",
-            BoostPolicy.Disabled => "Disabled",
-            _ => "Auto",
-        };
 
         // ---------- 控件交互 ----------
 

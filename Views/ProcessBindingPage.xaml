@@ -1,4 +1,4 @@
-<Page x:Class="ZenForge.Views.ProcessBindingPage"
+﻿<Page x:Class="ZenForge.Views.ProcessBindingPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:local="clr-namespace:ZenForge.Views"
@@ -179,9 +179,21 @@
                          注意 ScrollViewer 外层已经有页面级滚动条，这里再套一个内层滚动条
                          是必要的：进程数量可能上百，不内滚会把整页撑成几千像素。 -->
                     <Grid Height="320">
+                        <!-- 【虚拟化三件套】
+                             ScrollViewer.CanContentScroll=True + VirtualizingStackPanel.IsVirtualizing
+                             + VirtualizingPanel.VirtualizationMode=Recycling
+                             缺一不可：CanContentScroll 为 False 时（默认物理滚动），
+                             ItemsControl 会把每一项都实测一遍高度，虚拟化直接失效。
+                             开启后 200+ 进程只创建可见的那十几行容器，滚动时复用，
+                             切页与滚动不再每秒卡一下。
+                             Recycling 而不是 Standard：Standard 每次滚动都新建容器
+                             （下拉框 + 3 个 TextBlock），复用能把分配量降一个数量级。 -->
                         <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled">
-                            <ItemsControl x:Name="ProcessListView" Focusable="False">
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      CanContentScroll="True">
+                            <ItemsControl x:Name="ProcessListView" Focusable="False"
+                                          VirtualizingStackPanel.IsVirtualizing="True"
+                                          VirtualizingStackPanel.VirtualizationMode="Recycling">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Border x:Name="Row" Style="{StaticResource ProcessRowStyle}"
@@ -309,9 +321,14 @@
                     </Grid>
 
                     <Grid Height="300">
+                        <!-- 同上的虚拟化三件套。规则通常只有几条，
+                             但用户可能导入几十条，成本一致，没理由不做。 -->
                         <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled">
-                            <ItemsControl x:Name="SavedRulesList" Focusable="False">
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      CanContentScroll="True">
+                            <ItemsControl x:Name="SavedRulesList" Focusable="False"
+                                          VirtualizingStackPanel.IsVirtualizing="True"
+                                          VirtualizingStackPanel.VirtualizationMode="Recycling">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Border Style="{StaticResource ProcessRowStyle}" Margin="0,0,0,2">

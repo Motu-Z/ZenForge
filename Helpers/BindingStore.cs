@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
@@ -155,6 +155,22 @@ namespace ZenForge.Helpers
                     Services.LogService.Error($"保存绑核规则失败: {ex.Message}");
                 }
             }
+        }
+
+        /// <summary>
+        /// 恢复出厂：清空全部绑核规则。
+        ///
+        /// 只清规则，不动进程页的掩码 —— 两者是独立概念，
+        /// 一个管「哪个进程绑到哪」，一个管「绑的区域长什么样」。
+        /// 掩码由 <see cref="MaskStore.ResetToFactory"/> 单独清。
+        /// </summary>
+        public static void ResetToFactory()
+        {
+            if (Profile.Rules.Count == 0)
+                return;
+
+            Save(Array.Empty<BindingRule>());
+            Services.LogService.Info("全局重置：绑核规则已清空");
         }
 
         /// <summary>

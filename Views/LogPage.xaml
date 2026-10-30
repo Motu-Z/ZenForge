@@ -1,4 +1,4 @@
-<Page x:Class="ZenForge.Views.LogPage"
+﻿<Page x:Class="ZenForge.Views.LogPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:local="clr-namespace:ZenForge.Views"
@@ -58,26 +58,51 @@
         </Style>
     </Page.Resources>
 
+    <!-- ==================================================================
+         【顶部必须四行，不能挤在同一个格子】
+
+         历史问题：页头 Grid、PillHost、搜索 Grid 三个元素**全都写了
+         Grid.Row="0"**，而且后两者还带了 VerticalAlignment="Bottom"。
+         外层 Grid 当时只有两行（Auto / *），这三个东西就被叠在同一格里，
+         底边对齐 → 标题、副标题、搜索占位符、四枚 pill 全部压在一起。
+
+         WPF 的 Grid 不会因为「子元素太多」而自动换行或报错，它只会安静地
+         把后来的元素盖在先来的元素上。这类重叠编译器查不出来，只能靠
+         布局结构本身保证「一格一件事」。
+
+         现在一行一个区块，各占各的行：
+           Row 0  页头：左标题 + 右操作按钮
+           Row 1  级别 pill
+           Row 2  搜索框
+           Row 3  日志列表（占满剩余高度）
+         ================================================================== -->
     <Grid Margin="24,24,32,24">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>   <!-- 页头 + pill + 搜索 -->
+            <RowDefinition Height="Auto"/>   <!-- 页头 -->
+            <RowDefinition Height="Auto"/>   <!-- 级别 pill -->
+            <RowDefinition Height="Auto"/>   <!-- 搜索 -->
             <RowDefinition Height="*"/>      <!-- 日志列表 -->
         </Grid.RowDefinitions>
 
-        <!-- ======= 页头 ======= -->
-        <Grid Grid.Row="0" Margin="0,0,0,20">
+        <!-- ======= Row 0：页头（左标题 + 右操作） ======= -->
+        <Grid Grid.Row="0" Margin="0,0,0,16">
             <Grid.ColumnDefinitions>
+                <!-- 左列 * 吃掉剩余宽度：窗口拉窄时先压缩标题区（标题有
+                     TextTrimming 兜底），三个操作按钮永远完整可见。 -->
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" VerticalAlignment="Bottom">
                 <TextBlock Text="日志" Style="{StaticResource PageTitleStyle}"/>
+                <!-- PageSubStyle 自带 Margin="0,6,0,0"，这里不再叠加 -->
                 <TextBlock x:Name="LogSubText"
                            Text="本次会话暂无记录"
                            Style="{StaticResource PageSubStyle}"/>
             </StackPanel>
 
+            <!-- 操作按钮与副标题底边对齐：视觉上贴着标题块的下沿，
+                 而不是浮在标题右侧的垂直中央。 -->
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom">
                 <Button x:Name="PauseButton" Content="暂停"
                         Style="{StaticResource SecondaryButtonStyle}"
@@ -91,40 +116,24 @@
                         ToolTip="在资源管理器中打开日志目录"/>
                 <Button Content="清空"
                         Style="{StaticResource SecondaryButtonStyle}"
-                        Margin="0,0,8,0"
+                        Margin="0"
                         Click="ClearLogButton_Click"
                         ToolTip="清空内存中的日志（文件保留，便于事后追溯）"/>
-
-                <!-- 详细日志开关：v12 原稿没有，但这是排查现场的唯一入口。
-                     过去 Debug 级只在启动参数 / 环境变量里开，用户遇到问题
-                     得知道去哪儿加参数才有日志，等于没有。这里给一个当场可切的开关。 -->
-                <Border Background="{DynamicResource Input.Background}"
-                        BorderBrush="{DynamicResource Input.Border}"
-                        BorderThickness="1"
-                        CornerRadius="6"
-                        Padding="12,0"
-                        Height="32"
-                        Margin="0">
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <ToggleButton x:Name="VerboseToggle"
-                                      Style="{StaticResource ToggleSwitchStyle}"
-                                      VerticalAlignment="Center"
-                                      Click="VerboseToggle_Click"/>
-                        <TextBlock Text="详细日志" Margin="8,0,0,0"
-                                   FontSize="12"
-                                   VerticalAlignment="Center"
-                                   Foreground="{DynamicResource Text.Secondary}"
-                                   ToolTip="记录每次点击、焦点变化、列表刷新等细节。&#10;只在排查问题时临时打开，日志文件增长较快。"/>
-                    </StackPanel>
-                </Border>
             </StackPanel>
         </Grid>
 
-        <!-- ======= 级别统计 pill ======= -->
-        <WrapPanel x:Name="PillHost" Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,16" VerticalAlignment="Bottom"/>
+        <!-- ======= Row 1：级别 pill =======
+             列为独立一行，去掉原来的 VerticalAlignment="Bottom" ——
+             在 Auto 行里再写 Bottom 没有意义，反而会在 pill 为空时
+             把 WrapPanel 拉到该行底边，和下面的搜索框贴到一起。 -->
+        <WrapPanel x:Name="PillHost"
+                   Grid.Row="1"
+                   Orientation="Horizontal"
+                   Margin="0,0,0,12"/>
 
-        <!-- ======= 搜索 ======= -->
-        <Grid Grid.Row="0" Margin="0,0,0,16" VerticalAlignment="Bottom">
+        <!-- ======= Row 2：搜索 =======
+             同样去掉 VerticalAlignment="Bottom"。 -->
+        <Grid Grid.Row="2" Margin="0,0,0,16">
             <TextBox x:Name="SearchBox"
                      Style="{StaticResource SearchBoxStyle}"
                      TextChanged="SearchBox_TextChanged"
@@ -140,8 +149,8 @@
                        Foreground="{DynamicResource Text.Disabled}"/>
         </Grid>
 
-        <!-- ======= 日志列表 ======= -->
-        <Grid Grid.Row="1">
+        <!-- ======= Row 3：日志列表（占满剩余高度） ======= -->
+        <Grid Grid.Row="3">
             <ListBox x:Name="LogListBox"
                      ItemsSource="{Binding Source={x:Static local:LogPage.VisibleEntries}}"
                      HorizontalContentAlignment="Stretch"

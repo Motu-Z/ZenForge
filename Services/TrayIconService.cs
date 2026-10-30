@@ -191,6 +191,46 @@ namespace ZenForge.Services
             LogService.Info("托盘图标已隐藏（后台仍常驻，双击 ZenForge.exe 打开界面）");
         }
 
+        /// <summary>
+        /// 弹一条系统托盘气泡（非阻塞，点一下消失，不进操作中心历史）。
+        ///
+        /// 只在「主窗口不可见」时由 <see cref="ErrorNotifyService"/> 调用 ——
+        /// 界面就在眼前时弹气泡是打扰，界面上一条 Toast 更合适。
+        ///
+        /// 系统气泡有两个硬性前提，缺一个就什么都看不见：
+        ///   1. 托盘图标存在且 Visible=true。图标被用户关掉时不弹。
+        ///   2. 通知时间必须显式给一个正数。WinForms 的 ShowBalloonTip(timeout)
+        ///      传 0 会被当成「用系统默认」，在某些 Windows 版本上默认值是 0 秒，
+        ///      结果是气泡一闪而过甚至完全不出现。
+        ///
+        /// 返回 false 表示没弹出去（托盘不在），调用方据此决定要不要退化成其他通道。
+        /// </summary>
+        public static bool ShowBalloon(string title, string text, string detail = "", bool isError = false)
+        {
+            try
+            {
+                if (_icon == null || !_icon.Visible)
+                    return false;
+
+                _icon.BalloonTipTitle = string.IsNullOrWhiteSpace(title) ? "ZenForge" : title;
+                // 正文只放一行话；把 detail 塞进气泡会让它被系统截断成一句半截话。
+                // detail 已经进了日志，需要细节的用户会去日志页看。
+                _icon.BalloonTipText = string.IsNullOrWhiteSpace(text) ? "操作失败，详见日志" : text;
+                _icon.BalloonTipIcon = isError
+                    ? System.Windows.Forms.ToolTipIcon.Error
+                    : System.Windows.Forms.ToolTipIcon.Info;
+
+                // 8 秒：够读两行字，又不至于赖在屏幕上挡视线。
+                _icon.ShowBalloonTip(8000);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"托盘气泡显示失败：{ex.Message}");
+                return false;
+            }
+        }
+
         private static void DisposeIcon()
         {
             try

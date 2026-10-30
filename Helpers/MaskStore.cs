@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -123,6 +123,24 @@ namespace ZenForge.Helpers
         /// 重名与套数上限也放在这里，而不是只写在窗口里 —— 窗口是可以绕过的
         /// （以后加导入 / 迁移入口就会绕过去），存储层才是唯一可信的关卡。
         /// </remarks>
+        /// <summary>
+        /// 恢复出厂：清空全部自定义掩码并落盘。
+        ///
+        /// 出厂状态 = 没有任何自定义掩码（只剩内置的 CCD0 / CCD1）。
+        /// 走 Save() 而不是直接删文件：Save 会触发 Changed，
+        /// 进程页的下拉框与已保存规则才会跟着同步，不会留下一堆
+        /// 指向已删除掩码的悬空规则。
+        /// </summary>
+        public static void ResetToFactory()
+        {
+            if (_masks.Count == 0)
+                return;
+
+            _masks.Clear();
+            Save();
+            LogService.Info("全局重置：自定义掩码已清空");
+        }
+
         public static bool Upsert(CustomMask mask, out UpsertError error)
         {
             string name = (mask.Name ?? string.Empty).Trim();

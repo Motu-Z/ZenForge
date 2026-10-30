@@ -17,3 +17,7 @@ session_handover.md
 # 系统
 Thumbs.db
 .DS_Store
+
+# 临时发布目录
+publish_tmp/
+publish_out/

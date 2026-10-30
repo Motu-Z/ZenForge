@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
@@ -149,6 +149,10 @@ namespace ZenForge.Views
 
             ShowTrayToggle.IsChecked = settings.ShowTrayIcon;
             ErrorNotifyToggle.IsChecked = settings.NotifyOnError;
+
+            // 详细日志不持久化（理由见 VerboseToggle_Click），回填的是本次运行的实际状态。
+            // 用户如果带 -debug 启动，这里显示为开，不会与事实相反。
+            VerboseToggle.IsChecked = LogService.Verbose;
 
             // 最后再算一遍显隐：上面的 IsChecked 赋值不会触发 Click，
             // 但也不会自动刷新依赖行的可见性。
@@ -807,90 +811,109 @@ namespace ZenForge.Views
         // ==================== 其他：全局重置 ====================
 
         /// <summary>
-        /// 全局重置：先确认，再恢复出厂配置。
-        /// SMU 可用时把 CO（全 0）/ FMax（基线或 5400）写回 SMU；
-        /// 不可用时仅重置本地配置，提示下次启动按出厂值应用。
+        /// 全局重置：二次确认后执行完整的出厂恢复。
+        ///
+        /// 「恢复出厂」不是删两个 JSON —— 完整清单与执行顺序见
+        /// <see cref="FactoryResetService"/>，这里只负责：
+        ///   确认 → 转后台 → 汇总结果 → 反馈。
+        ///
+        /// 为什么必须有二次确认：这一步会删掉全部调校、规则、掩码与日志，
+        /// 并且把 SMU 里的 CO / FMax 写回出厂值，不可撤销。
+        /// 确认框里必须把「不可撤销」写出来，而不只是问「确定吗」。
         /// </summary>
         private async void GlobalResetButton_Click(object sender, RoutedEventArgs e)
         {
             if (!DarkDialog.Confirm(
-                    "确定要将所有调校恢复出厂设置吗？\n此操作会清除已保存的 CO / FMax 设定。",
-                    "全局重置"))
+                    "确定要恢复出厂设置吗？\n\n" +
+                    "将会执行：\n" +
+                    "· 停止后台监听、解除所有进程的绑核限制\n" +
+                    "· 删除开机自启计划任务\n" +
+                    "· 把 SMU 的 CO / FMax 与电源计划策略写回出厂值\n" +
+                    "· 清空全部调校、规则、掩码配置与日志文件\n" +
+                    "· 界面设置恢复默认（主题与强调色跟随系统）\n\n" +
+                    "此操作不可撤销。",
+                    "恢复出厂设置"))
                 return;
 
-            uint effectiveFMax = TuningStore.ResetToFactory();
-
-            SmuReader reader = SmuReader.Shared;
-            if (!reader.IsAvailable)
-            {
-                DarkDialog.Show("已重置本地配置，下次启动时将按出厂值应用。", "全局重置");
-                LogService.Info("全局重置：SMU 不可用，仅重置本地配置");
-                return;
-            }
-
-            // 写入期间禁用按钮：这条路径不经过调校页的 _busy 闸门，
-            // 点了没反应总比连点两次并发下发好（SmuReader 内部虽然串行化，
-            // 但两次重置会各写一遍、日志也重复）。
             GlobalResetButton.IsEnabled = false;
+            GlobalResetButton.Content = "重置中…";
+
+            FactoryResetReport? report = null;
             try
             {
-                await WriteFactoryToSmuAsync(reader, effectiveFMax);
-            }
-            finally
-            {
-                GlobalResetButton.IsEnabled = true;
-            }
-        }
-
-        private static async Task WriteFactoryToSmuAsync(SmuReader reader, uint effectiveFMax)
-        {
-            // 核数拿不到就不要猜。以前回落 16，在非 16 核机器上会
-            // 要么漏核（写入不完整）、要么对不存在的核下发 0。
-            int coreCount = reader.CoreCount;
-            if (coreCount <= 0)
-            {
-                DarkDialog.Show(
-                    "已重置本地配置，但读不到 CPU 核心数，未写回 SMU。\n" +
-                    "请先到「调校」页刷新一次再重试。",
-                    "全局重置");
-                LogService.Error("全局重置：CoreCount 未知，跳过 SMU 写回");
-                return;
-            }
-
-            try
-            {
-                SmuWriteResult co = await Task.Run(() => reader.WriteCurveOptimizer(new int[coreCount]));
-
-                // FMax 基线未知（从未探测到）时只归零 CO，不拿猜来的值写 FMax
-                SmuFMaxResult fm = effectiveFMax > 0
-                    ? await Task.Run(() => reader.WriteFMax(effectiveFMax))
-                    : new SmuFMaxResult { AllSucceeded = true, ReadBack = 0 };
-
-                if (!co.AllSucceeded || !fm.AllSucceeded)
-                {
-                    LogService.Error(co.AllSucceeded
-                        ? $"全局重置：FMax 写回 SMU 失败（回读 {fm.ReadBack}）"
-                        : "全局重置：CO 写回 SMU 失败");
-                    DarkDialog.Show("已重置本地配置，但写回 SMU 部分失败，详见日志。", "全局重置");
-                    return;
-                }
-
-                string fmaxLine = effectiveFMax > 0
-                    ? $"FMax：{effectiveFMax} MHz（回读 {fm.ReadBack}）"
-                    : "FMax：基线未知，未写回";
-
-                DarkDialog.Show(
-                    $"已恢复出厂设置并写回 SMU。\n\nCO：{coreCount} 核归零\n{fmaxLine}",
-                    "全局重置");
-
-                LogService.Info("全局重置：CO 归零" +
-                    (effectiveFMax > 0 ? $" + FMax {effectiveFMax} MHz 已写回 SMU" : "（FMax 未写回）"));
+                report = await FactoryResetService.ResetToFactoryAsync();
             }
             catch (Exception ex)
             {
-                LogService.Error($"全局重置写回 SMU 失败: {ex.Message}");
-                DarkDialog.Show("已重置本地配置，但写回 SMU 失败，详见日志。", "全局重置");
+                LogService.Critical($"全局重置过程异常：{ex}");
+                DarkDialog.ShowError($"重置过程中出现异常：\n{ex.Message}\n\n请查看日志确认已完成的部分。",
+                                     "恢复出厂设置");
             }
+            finally
+            {
+                GlobalResetButton.Content = "重置";
+                GlobalResetButton.IsEnabled = true;
+            }
+
+            if (report == null)
+                return;
+
+            // 重置把 ui.json 换成了默认实例，本页控件还停在旧值上。
+            // 重新回填一次，否则用户会看到「开关还是我刚才那个样子」，
+            // 以为重置没生效。
+            Suppressed(LoadSettings);
+
+            // 进程监听被停掉了，开关要跟着熄灭。
+            ProcessWatchToggle.IsChecked = ProcessWatcher.IsRunning;
+
+            if (report.AllSucceeded)
+            {
+                ToastService.Success("已恢复出厂设置");
+                return;
+            }
+
+            // 有失败项：Toast 装不下细节，改用模态把失败清单念清楚。
+            // 成功的那部分照常生效，不需要用户再做什么。
+            ToastService.Warning($"已恢复出厂设置，但 {report.Failed.Count} 项未完成");
+            DarkDialog.ShowWarning(
+                "已恢复出厂设置，以下项目未能完成：\n\n" +
+                string.Join("\n", report.Failed.Select(f => "· " + f)) +
+                "\n\n其余项目均已生效。详细信息见日志页。",
+                "恢复出厂设置");
+        }
+
+        // ==================== 诊断：详细日志 ====================
+
+        /// <summary>
+        /// 启用详细日志（原在日志页，按方案 A 挪到设置页）。
+        ///
+        /// 这个开关控制的是 <see cref="LogService.Verbose"/>：
+        /// Debug 级日志「写不写」，不是「显示时过不过滤」。
+        /// 关闭时 LogService.Debug() 里的 Write 整个不执行，内存与磁盘都没有记录。
+        ///
+        /// 【为什么不持久化】
+        /// 详细日志会把每次点击、焦点变化、列表刷新都写进去，日志文件增长很快
+        /// （重度操作下一次会话几十 MB）。如果它记住「上次开着」，
+        /// 用户排查完忘了关，磁盘就会被慢慢吃掉，而他从没主动选择长期开启。
+        /// 所以设计成「本次运行有效」：重启回到默认（诊断版为开、常规版为关）。
+        /// </summary>
+        private void VerboseToggle_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_initialized || _suppress)
+                return;
+
+            bool enabled = VerboseToggle.IsChecked == true;
+            LogService.Verbose = enabled;
+
+            // 这条 Info 一定会落盘，作为「从此刻起有详细日志」的分界线，
+            // 事后翻日志时能一眼看出哪一段是详细采集的。
+            LogService.Info(enabled
+                ? "详细日志：已开启（本次运行有效，重启后回到默认）"
+                : "详细日志：已关闭");
+
+            ToastService.Info(enabled
+                ? "详细日志已开启（本次运行有效）"
+                : "详细日志已关闭");
         }
     }
 }

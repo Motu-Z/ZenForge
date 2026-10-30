@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -335,6 +335,60 @@ namespace ZenForge.Services
         }
 
         /// <summary>
+        /// 清除进程的默认 CPU Set 限制，让进程回到「系统默认调度」。
+        ///
+        /// 这是 <see cref="SetProcessDefaultCpuSets"/> 的逆操作用法：
+        /// 传空集（count = 0）不是「绑到 0 个核」，而是「删掉这条限制」。
+        /// 语义容易搞混，所以在 API 名上写明白。
+        ///
+        /// 用于恢复出厂：只解绑我们自己设过的那些限制，不去动用户
+        /// 用任务管理器 / 其他工具设的亲和性 —— 本程序从不使用
+        /// SetProcessAffinityMask，所以「清默认 CPU Set」恰好只会影响我们。
+        /// </summary>
+        public static bool ClearDefaultCpuSets(int processId, out string? error)
+        {
+            error = null;
+
+            IntPtr handle = OpenProcess(
+                PROCESS_SET_LIMITED_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+
+            if (handle == IntPtr.Zero)
+            {
+                handle = OpenProcess(
+                    PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+            }
+
+            if (handle == IntPtr.Zero)
+            {
+                error = $"OpenProcess 失败（错误 {Marshal.GetLastWin32Error()}）";
+                return false;
+            }
+
+            try
+            {
+                // 空数组 + 长度 0：清除默认 CPU Set。
+                // 不能传 null（封送器会当成无效指针），要给一个「非空但长度为 0」的数组。
+                bool ok = SetProcessDefaultCpuSets(handle, Array.Empty<uint>(), 0);
+                if (!ok)
+                {
+                    error = $"SetProcessDefaultCpuSets 失败（错误 {Marshal.GetLastWin32Error()}）";
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+            finally
+            {
+                CloseHandle(handle);
+            }
+        }
+
+        /// <summary>
         /// 判断 CCD 是否可用（用于 UI 提示与规则校验）。
         /// </summary>
         public static bool IsCcdAvailable(int ccdIndex)
@@ -371,7 +425,10 @@ namespace ZenForge.Services
                     {
                         LastTopologyError ??= "CPU Sets 枚举返回 0 条（未解析到任何逻辑处理器）";
                         ClearCache();
-                        LogService.Error($"CPU Sets 拓扑不可用：{LastTopologyError}");
+                        // WARN 而不是 ERROR：这是「这台机器/这个权限下拿不到拓扑」，
+                        // 属于环境能力缺失，程序本身没有出错，绑核功能按设计降级为不可用。
+                        // 记 ERROR 会让用户以为软件坏了，去翻一堆其实正常的堆栈。
+                        LogService.Warn($"CPU Sets 拓扑不可用：{LastTopologyError}");
                         return;
                     }
 
@@ -382,7 +439,7 @@ namespace ZenForge.Services
                 {
                     LastTopologyError = $"CPU Sets 拓扑解析异常：{ex.Message}";
                     ClearCache();
-                    LogService.Error(LastTopologyError);
+                    LogService.Warn(LastTopologyError);
                 }
             }
         }
@@ -565,7 +622,9 @@ namespace ZenForge.Services
             }
 
             LastTopologyError = $"GetSystemCpuSetInformation 在 {bufferSize} 字节下仍失败";
-            LogService.Error(LastTopologyError);
+            // 反复放大缓冲区仍拿不到 → 系统状态异常（少见），按 WARN 记录：
+            // 结论仍然是「功能不可用」，不是「本次操作失败」。
+            LogService.Warn(LastTopologyError);
             return false;
         }
 
