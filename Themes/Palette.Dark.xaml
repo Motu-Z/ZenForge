@@ -30,6 +30,13 @@
 
     <SolidColorBrush x:Key="Toggle.Off" Color="#1AFFFFFF"/>
 
+    <!-- 弹出菜单的实心底色。
+         不能复用 Card.Background（#08FFFFFF，8/255 白）—— 那是给"叠在窗口上"的卡片用的，
+         菜单浮在桌面，没有窗口垫底，alpha 会直接透出壁纸。
+         #1F1F21 比 Card 的等效观感略亮一档，边框用 0.16 alpha 的白。 -->
+    <SolidColorBrush x:Key="Menu.Background" Color="#1F1F21"/>
+    <SolidColorBrush x:Key="Menu.Border" Color="#29FFFFFF"/>
+
     <SolidColorBrush x:Key="List.Background" Color="#252526"/>
     <SolidColorBrush x:Key="List.Header" Color="#1E1E1E"/>
     <SolidColorBrush x:Key="List.Hover" Color="#0FFFFFFF"/>

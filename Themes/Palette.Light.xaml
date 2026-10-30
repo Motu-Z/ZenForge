@@ -27,6 +27,11 @@
 
     <SolidColorBrush x:Key="Toggle.Off" Color="#1F000000"/>
 
+    <!-- 与深色册同键名。浅色下菜单用纯白比页面底色（#F3F3F4）更亮，
+         才能和桌面上的其他白色窗口区分开。 -->
+    <SolidColorBrush x:Key="Menu.Background" Color="#FBFBFC"/>
+    <SolidColorBrush x:Key="Menu.Border" Color="#1A000000"/>
+
     <SolidColorBrush x:Key="List.Background" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="List.Header" Color="#F2F2F4"/>
     <SolidColorBrush x:Key="List.Hover" Color="#0D000000"/>

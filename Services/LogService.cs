@@ -70,8 +70,15 @@ namespace ZenForge.Services
         ///
         /// 程序现在是常驻的（关窗收进托盘后一直活着），日志集合只增不减会把内存
         /// 一点点吃光。超限后从头部丢弃，保证内存有界。
+        ///
+        /// 【从 2000 降到 800】
+        /// 2000 条按每条约 200 字节的字符串 + 对象头，常驻约 500KB～1MB；
+        /// 更贵的是 UI 侧：ListBox 的每一项都要参与布局计算，2000 条时
+        /// 筛选重建要几百毫秒。而实际上没人会翻到第 800 条以前 ——
+        /// 要看历史有磁盘日志，界面上只承担"最近发生了什么"。
+        /// 800 条 ≈ 满屏 30 行的 26 屏，足够定位刚刚发生的问题。
         /// </summary>
-        private const int MaxEntries = 2000;
+        private const int MaxEntries = 800;
 
         /// <summary>
         /// 单次丢弃的批量。
@@ -79,7 +86,7 @@ namespace ZenForge.Services
         /// 每删一条，界面上的列表就要整体下移一次。逐条删等于每条日志都让
         /// UI 重排整个列表，攒够一批再删就只有批量那一刻有开销。
         /// </summary>
-        private const int TrimBatch = 256;
+        private const int TrimBatch = 128;
 
         /// <summary>日志文件最长留存天数，超过的启动即删。</summary>
         private const int MaxRetentionDays = 14;
@@ -126,6 +133,58 @@ namespace ZenForge.Services
         public static ObservableCollection<LogEntry> Entries => EntriesInternal;
 
         public static event Action<LogEntry>? EntryAdded;
+
+        // ---------------- 增量计数 ----------------
+        //
+        // 【为什么要有这个】
+        // 之前日志页在每一条新日志到达时都调 UpdateStats()，而那个方法会
+        // `foreach (LogEntry e in EntriesInternal)` 把 2000 条全遍历一遍 ——
+        // 绑一次核产生几十条日志，就是几十次 × 2000 的遍历，全在 UI 线程上。
+        // 界面卡顿的主因不是渲染，是这些看不见的全量扫描。
+        //
+        // 现在把计数维护在写入路径上：加一条就 +1，丢弃一条就 -1，
+        // 页面直接读这四个属性，复杂度 O(1)。清空时一起归零。
+        //
+        // 用 long 而不是 int：常驻进程跑几天，Info 级累计到 21 亿虽不现实，
+        // 但类型选错要改一遍所有调用点，不如一开始就用 long。
+
+        private static long _countInfo;
+        private static long _countWarn;
+        private static long _countError;
+        private static long _countCritical;
+
+        public static long CountInfo => Interlocked.Read(ref _countInfo);
+        public static long CountWarn => Interlocked.Read(ref _countWarn);
+        public static long CountError => Interlocked.Read(ref _countError);
+        public static long CountCritical => Interlocked.Read(ref _countCritical);
+
+        /// <summary>界面集合的总条数（读的是集合本身，不是计数缓存）。</summary>
+        public static int Count => EntriesInternal.Count;
+
+        /// <summary>
+        /// 暂停日志记录。
+        ///
+        /// 【与旧版「暂停」的区别】
+        /// 旧版只冻结界面刷新，日志照写文件。那个语义叫「暂停」很容易被误解成
+        /// 「不再记录」，用户以为关掉了、实际磁盘还在涨。
+        /// 现在是真的停：Write() 在入口直接返回，既不进内存也不写文件。
+        ///
+        /// 代价要说清楚 —— 暂停期间的日志是真的丢了，事后无法追溯。
+        /// 所以设置页与日志页的文案都写明「丢弃」，而不是含糊的「暂停」。
+        /// </summary>
+        public static bool Paused { get; set; }
+
+        /// <summary>写一条就更新对应计数。Debug 不进集合，因此也不计数。</summary>
+        private static void BumpCount(LogLevel level, int delta)
+        {
+            switch (level)
+            {
+                case LogLevel.Info: Interlocked.Add(ref _countInfo, delta); break;
+                case LogLevel.Warn: Interlocked.Add(ref _countWarn, delta); break;
+                case LogLevel.Error: Interlocked.Add(ref _countError, delta); break;
+                case LogLevel.Critical: Interlocked.Add(ref _countCritical, delta); break;
+            }
+        }
 
         /// <summary>
         /// 是否记录 Debug 级详细日志。
@@ -211,6 +270,10 @@ namespace ZenForge.Services
                 else
                 {
                     EntriesInternal.Clear();
+                    Interlocked.Exchange(ref _countInfo, 0);
+                    Interlocked.Exchange(ref _countWarn, 0);
+                    Interlocked.Exchange(ref _countError, 0);
+                    Interlocked.Exchange(ref _countCritical, 0);
                 }
             }
             finally
@@ -317,6 +380,11 @@ namespace ZenForge.Services
 
         private static void Write(LogLevel level, string message)
         {
+            // 暂停期间一条都不记：不进集合、不排队、不落盘。
+            // Critical 例外 —— 程序要坏了，这时静默丢日志等于让用户永远查不出原因。
+            if (Paused && level != LogLevel.Critical)
+                return;
+
             LogEntry entry = new()
             {
                 Time = DateTime.Now,
@@ -346,12 +414,18 @@ namespace ZenForge.Services
             lock (EntriesGate)
             {
                 EntriesInternal.Add(entry);
+                BumpCount(entry.Level, +1);
 
                 // 攒够一批再丢头部，别每条日志都让列表整体下移一次
                 if (EntriesInternal.Count > MaxEntries + TrimBatch)
                 {
                     for (int i = 0; i < TrimBatch && EntriesInternal.Count > 0; i++)
+                    {
+                        // 丢弃时必须同步减计数，否则 pill 上的数字会越涨越高、
+                        // 和实际能看到的条数对不上 —— 比不显示数字更糟。
+                        BumpCount(EntriesInternal[0].Level, -1);
                         EntriesInternal.RemoveAt(0);
+                    }
                 }
             }
 

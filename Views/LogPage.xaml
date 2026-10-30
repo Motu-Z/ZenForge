@@ -40,7 +40,8 @@
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Foreground" Value="{DynamicResource Text.Disabled}"/>
             <Setter Property="VerticalAlignment" Value="Top"/>
-            <Setter Property="Margin" Value="0,2,0,0"/>
+            <!-- 徽章基线比正文高 1px（徽章内有 2px padding），时间跟它对齐 -->
+            <Setter Property="Margin" Value="0,3,0,0"/>
         </Style>
 
         <!-- 级别徽章：2,6 内边距 + 圆角 4 + 12% 级别色底。底色由触发器按级别切换 -->
@@ -101,35 +102,56 @@
                            Style="{StaticResource PageSubStyle}"/>
             </StackPanel>
 
-            <!-- 操作按钮与副标题底边对齐：视觉上贴着标题块的下沿，
-                 而不是浮在标题右侧的垂直中央。 -->
-            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom">
-                <Button x:Name="PauseButton" Content="暂停"
+            <!-- 【页头右侧现在什么都不放】
+                 三个工具按钮下移到 pill 行（Row 1）右侧。原来的位置是页头右端，
+                 和「本次会话共 N 条」同一水平线 —— 但那行主要信息是"标题 + 条数"，
+                 按钮悬在最右边孤零零的，视线要走一个来回。
+                 挪到 pill 行之后，「筛什么 / 看多少 / 怎么操作」三件事在一行里解决，
+                 高度也天然对齐（见下面 Row 1 的说明）。 -->
+        </Grid>
+
+        <!-- ======= Row 1：级别 pill + 工具按钮 =======
+             左 pill / 右按钮，同一个 Grid 里的两个格子 —— 这是"等高"最省事的写法：
+             行高由两者中较高的那个决定，两列各自 VerticalAlignment=Center，
+             不需要给任何一方写死高度去凑。
+
+             【按钮为什么不再写 Height】
+             三个按钮走 SecondaryButtonStyle，那个样式给的是 Height=32；
+             pill 是 26 高。32 与 26 放在同一行，行高取 32，pill 垂直居中 ——
+             视觉上是 pill 悬浮在一条 32 高的带子里，上下各留 3px，读起来是"对齐的"。
+             反过来把按钮压到 26 会把文字挤到贴边，得不偿失。 -->
+        <Grid Grid.Row="1" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <WrapPanel x:Name="PillHost"
+                       Grid.Column="0"
+                       Orientation="Horizontal"
+                       VerticalAlignment="Center"/>
+
+            <StackPanel Grid.Column="1"
+                        Orientation="Horizontal"
+                        VerticalAlignment="Center"
+                        Margin="16,0,0,0">
+                <Button x:Name="PauseButton" Content="暂停日志记录"
                         Style="{StaticResource SecondaryButtonStyle}"
                         Margin="0,0,8,0"
                         Click="PauseButton_Click"
-                        ToolTip="暂停只冻结界面刷新，日志仍照常写入文件"/>
+                        ToolTip="暂停后会丢弃新产生的日志：既不进界面，也不写文件"/>
                 <Button Content="目录"
                         Style="{StaticResource SecondaryButtonStyle}"
                         Margin="0,0,8,0"
                         Click="OpenLogFolderButton_Click"
                         ToolTip="在资源管理器中打开日志目录"/>
-                <Button Content="清空"
+                <Button Content="清空文件和内存"
                         Style="{StaticResource SecondaryButtonStyle}"
                         Margin="0"
                         Click="ClearLogButton_Click"
-                        ToolTip="清空内存中的日志（文件保留，便于事后追溯）"/>
+                        ToolTip="删除全部日志文件，并清空当前界面上的记录"/>
             </StackPanel>
         </Grid>
-
-        <!-- ======= Row 1：级别 pill =======
-             列为独立一行，去掉原来的 VerticalAlignment="Bottom" ——
-             在 Auto 行里再写 Bottom 没有意义，反而会在 pill 为空时
-             把 WrapPanel 拉到该行底边，和下面的搜索框贴到一起。 -->
-        <WrapPanel x:Name="PillHost"
-                   Grid.Row="1"
-                   Orientation="Horizontal"
-                   Margin="0,0,0,12"/>
 
         <!-- ======= Row 2：搜索 =======
              同样去掉 VerticalAlignment="Bottom"。 -->
@@ -188,6 +210,14 @@
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <Border x:Name="Card" Style="{StaticResource LogItemBorderStyle}">
+                            <!-- 【列序：级别 → 时间 → 正文】
+                                 以前是「时间 → 级别 → 正文」，时间占住最左边的 84px，
+                                 级别徽章被推到右边 —— 于是每一行的"这是什么级别"都要
+                                 先跳过一段时间才能看到，扫视时眼睛没有落点。
+                                 级别是这一行最需要一眼分辨的信息（尤其在看警告的时候），
+                                 必须贴在最左侧。
+                                 时间挪到级别后面，宽度收到 78（HH:mm:ss.fff 在 Consolas
+                                 12px 下实测 74px，留 4px 余量），比原来的 84 更紧凑。 -->
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
@@ -195,18 +225,18 @@
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
 
-                                <TextBlock Grid.Column="0"
-                                           Text="{Binding Time, StringFormat='HH:mm:ss.fff'}"
-                                           Width="84"
-                                           Style="{StaticResource LogTimeTextStyle}"/>
-
-                                <Border x:Name="Badge" Grid.Column="1"
+                                <Border x:Name="Badge" Grid.Column="0"
                                         Style="{StaticResource LogBadgeBorderStyle}"
-                                        Margin="0,0,12,0">
+                                        Margin="0,1,10,0">
                                     <TextBlock x:Name="BadgeText"
                                                Text="{Binding LevelText}"
                                                Style="{StaticResource LogBadgeTextStyle}"/>
                                 </Border>
+
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding Time, StringFormat='HH:mm:ss.fff'}"
+                                           Width="78"
+                                           Style="{StaticResource LogTimeTextStyle}"/>
 
                                 <TextBlock Grid.Column="2"
                                            Text="{Binding Message}"

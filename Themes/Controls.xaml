@@ -3,10 +3,17 @@
 
     <!-- ===================== 通用文本样式 ===================== -->
     <!-- 全局唯一标题样式：所有页面/卡片标题统一 16px，不再区分大标题与小标题 -->
+    <!-- 【标题与正文之间的距离】
+         以前 CardTitleStyle 没有 Margin，标题紧贴着下面第一行 —— 16px 的标题
+         与 13px 的正文只隔一个默认行高，视觉上像同一段文字被加粗了半句。
+         给一个 18px 的下外边距，标题自成一层，正文另起一层。
+         18 这个值不是拍的：卡片内容区上内边距是 16，标题下留 18 比它略大一点，
+         才不会出现「上紧下松」或「上松下紧」的错觉。 -->
     <Style x:Key="CardTitleStyle" TargetType="TextBlock">
         <Setter Property="FontSize" Value="16"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
+        <Setter Property="Margin" Value="0,0,0,18"/>
     </Style>
 
     <Style x:Key="HintTextStyle" TargetType="TextBlock">
@@ -959,9 +966,16 @@
          MenuItem 的默认模板把颜色写死在模板里，只改 Foreground / Background
          不生效，必须整份模板重写。 -->
 
+    <!-- 托盘右键菜单。
+         【必须用不透明底色】
+         Card.Background 是 #08FFFFFF —— 8/255 的白色，它是给"叠在窗口底色上的卡片"
+         设计的。菜单浮在桌面上，没有窗口底色垫着，这个值会让桌面壁纸直接透上来：
+         浅色壁纸上菜单看不见，杂色壁纸上文字糊成一片。截图里那个"背景透明"
+         就是这么来的。
+         这里改用 Menu.Background（两个主题册里都是实色），边框用 Menu.Border。 -->
     <Style x:Key="DarkContextMenuStyle" TargetType="ContextMenu">
-        <Setter Property="Background" Value="{DynamicResource Card.Background}"/>
-        <Setter Property="BorderBrush" Value="{DynamicResource Card.Border}"/>
+        <Setter Property="Background" Value="{DynamicResource Menu.Background}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Menu.Border}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Padding" Value="0,4"/>
         <Setter Property="MinWidth" Value="150"/>
@@ -972,6 +986,12 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ContextMenu">
+                    <!-- 【为什么这个 Border 不能省】
+                         ContextMenu 的 Popup 是 AllowsTransparency=True，
+                         系统不会在它后面画任何东西。也就是说：这个 Border 不画底，
+                         后面就是桌面。模板里必须有且只有一个不透明的填充层，
+                         一旦这里写成 Transparent 或缺省，菜单就变成浮在壁纸上的字。
+                         底色来自 Menu.Background（两个主题册都是 6 位实色）。 -->
                     <Border Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
@@ -1085,8 +1105,14 @@
     </Style>
 
     <!-- 卡片内的一行：左文字块、右控件，行间 24。v12 的 .row -->
+    <!-- 【行距统一 22】
+         以前这里是 24，而设置页又在自己页面里定义了 22（SettingRowStyle），
+         同一个概念两个数 —— 调校页与设置页并排看，行距就是不一样。
+         现在统一到 22，两个页面都直接引用这一个键。
+         22 的依据：行内容是「13px 标签 + 12px 说明」两行，合计约 34px；
+         行距 22 ≈ 内容高度的 65%，肉眼能分清组，又不会散成一堆条目。 -->
     <Style x:Key="CardRowStyle" TargetType="Grid">
-        <Setter Property="Margin" Value="0,0,0,24"/>
+        <Setter Property="Margin" Value="0,0,0,22"/>
     </Style>
 
     <Style x:Key="CardRowLabelStyle" TargetType="TextBlock">

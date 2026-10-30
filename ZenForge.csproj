@@ -31,8 +31,8 @@
 
          第四段跟发版次序走，不与后缀数字对齐。
          改 Version 时这两行必须一起改，别让资源管理器里的数字和 Release 标题对不上。 -->
-    <Version>1.0.0-can4</Version>
-    <FileVersion>1.0.0.4</FileVersion>
+    <Version>1.0.0-can5</Version>
+    <FileVersion>1.0.0.5</FileVersion>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <Product>ZenForge</Product>
 
@@ -57,7 +57,10 @@
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <SelfContained>false</SelfContained>
-    <DebugType>embedded</DebugType>
+
+    <!-- 发布版不带符号表。旧值 embedded 会随程序集一起装进单文件，
+         白白多几 MB，用户也用不到 PDB。本地 debug 构建不受影响。 -->
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
   </PropertyGroup>
 
   <ItemGroup>

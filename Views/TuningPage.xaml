@@ -204,8 +204,7 @@
                 </Grid>
             </Border>
 
-            <!-- ======= 电源计划策略（原 PBO 策略，放在 FMax 下方） =======
-                 【为什么改名】
+            <!-- ======= 电源计划策略（原 PBO 策略，放在 FMax 下方） =======                 【为什么改名】
                  「PBO」在 AMD 语境里特指 SMU 固件层的 Precision Boost Overdrive
                  （功耗墙 / 曲线优化 / Boost 上限）。那一层没有公开 API，只有 BIOS
                  与 AMD 驱动能写 —— 这个下拉框从来就不是它。继续叫 PBO，是在承诺
@@ -257,6 +256,110 @@
                                Style="{StaticResource HintTextStyle}"
                                Margin="0,10,0,0"
                                TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <!-- ======= 升频模式 =======
+                 Windows 电源管理里「处理器性能提升模式」那一项，值即位掩码
+                 （0 停用 / 1 启用 / 2 积极 / 3 高效 / 4 积极且高效）。
+                 与上面那张卡的档位相互独立：换档位不会改这一项，改这一项也不会换档位 ——
+                 两个旋钮管的是不同的事（档位是整套策略，这项只是升频行为）。
+                 读写实现在 Services/ProcessorPowerTuning.cs。 -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
+                <StackPanel>
+                    <Grid Style="{StaticResource CardRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                            <TextBlock Text="升频模式" Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock Text="处理器性能提升模式，决定频率能否超出标称值"
+                                       Style="{StaticResource CardRowDescStyle}"/>
+                        </StackPanel>
+
+                        <!-- 初值禁用：读到系统值之前不提供选择，避免「点了却不知道原本是什么」 -->
+                        <ComboBox Grid.Column="1" x:Name="BoostCombo"
+                                  Width="150" Height="32"
+                                  VerticalAlignment="Center"
+                                  IsEnabled="False"
+                                  SelectionChanged="BoostCombo_SelectionChanged">
+                            <ComboBoxItem Content="积极且高效"/>
+                            <ComboBoxItem Content="积极"/>
+                            <ComboBoxItem Content="已启用"/>
+                            <ComboBoxItem Content="高效"/>
+                            <ComboBoxItem Content="已停用"/>
+                        </ComboBox>
+                    </Grid>
+
+                    <TextBlock x:Name="BoostHint"
+                               Text="正在读取当前升频模式…"
+                               Style="{StaticResource HintTextStyle}"
+                               Margin="0,10,0,0"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <!-- ======= 核心停放 =======
+                 powrprof 的范围型索引 CPMINMAX（0cc5b647-…），滑杆同时写 Min 与 Max。
+                 为什么不做两条滑杆：Min > Max 会被 Windows 判为非法并静默钳制，
+                 用户拖完看到数值跳回去，比只有一个旋钮更困惑。
+
+                 数值语义要写在界面上，不能指望用户猜：
+                   0%   = 允许全部核心停放（最省电）
+                   100% = 禁止停放（全部核心常驻，延迟最低）
+                 所以滑杆往右拖是「更激进地保持唤醒」，与「省电」方向相反 ——
+                 右侧文案必须明确写「禁止停放」，否则用户会以为往右是更省电。 -->
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel>
+                    <Grid Style="{StaticResource CardRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                            <TextBlock Text="核心停放" Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock Text="控制空闲核心可以被停掉的比例，数值越高越倾向保持全部核心唤醒"
+                                       Style="{StaticResource CardRowDescStyle}"/>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Slider x:Name="ParkingSlider"
+                                    Width="200" Height="32"
+                                    Minimum="0" Maximum="100"
+                                    TickFrequency="5"
+                                    IsSnapToTickEnabled="True"
+                                    SmallChange="5" LargeChange="20"
+                                    VerticalAlignment="Center"
+                                    IsEnabled="False"
+                                    PreviewMouseUp="ParkingSlider_PreviewMouseUp"
+                                    ValueChanged="ParkingSlider_ValueChanged"/>
+                            <TextBox x:Name="ParkingBox"
+                                     Width="64" Height="32"
+                                     Margin="12,0,0,0"
+                                     Style="{StaticResource TuningBoxStyle}"
+                                     IsEnabled="False"
+                                     KeyDown="ParkingBox_KeyDown"
+                                     LostFocus="ParkingBox_LostFocus"/>
+                            <TextBlock Text="%"
+                                       Margin="8,0,0,0"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource Text.Secondary}"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- 说明行 = 端点语义 + 当前档位的实际影响 -->
+                    <TextBlock x:Name="ParkingHint"
+                               Text="正在读取当前核心停放设置…"
+                               Style="{StaticResource HintTextStyle}"
+                               Margin="0,4,0,0"
+                               TextWrapping="Wrap"/>
+                    <TextBlock Text="0% 允许全部核心停放 · 100% 禁止停放"
+                               Style="{StaticResource HintTextStyle}"
+                               Margin="0,4,0,0"
+                               Foreground="{DynamicResource Text.Secondary}"/>
                 </StackPanel>
             </Border>
         </StackPanel>

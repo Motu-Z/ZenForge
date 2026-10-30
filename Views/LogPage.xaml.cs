@@ -41,8 +41,11 @@ namespace ZenForge.Views
         /// <summary>过滤条件变化后延迟合并重建，避免连续输入时每条日志都重建一次。</summary>
         private DispatcherTimer? _rebuildTimer;
 
-        /// <summary>暂停：只停止界面刷新，LogService 仍照常写文件。</summary>
-        private bool _paused;
+        /// <summary>
+        /// 暂停状态直接读 <see cref="LogService.Paused"/>，不在页面里另存一份。
+        /// 两份状态一定会不同步：用户从托盘或别处改了，页面这份就永远停在旧值。
+        /// </summary>
+        private bool Paused => LogService.Paused;
 
         /// <summary>当前级别筛选（null = 全部）。点同一枚 pill 再点一次可取消。</summary>
         private LogLevel? _levelFilter;
@@ -65,6 +68,12 @@ namespace ZenForge.Views
             if (_subscribed) return;
             LogService.EntryAdded += OnEntryAdded;
             _subscribed = true;
+
+            // 暂停状态是进程级的（LogService.Paused），离开页面再回来仍是暂停态。
+            // 不在这里同步按钮文案的话，界面会显示「暂停日志记录」而实际已在暂停，
+            // 点一下反而变成"暂停"——按钮说的和做的不一致。
+            PauseButton.Content = LogService.Paused ? "恢复日志记录" : "暂停日志记录";
+
             UpdateStats();
         }
 
@@ -155,28 +164,25 @@ namespace ZenForge.Views
             }
         }
 
-        /// <summary>按当前计数刷新 pill 文案与选中态（选中 = 描边加粗 + 不降透明度）。</summary>
+        /// <summary>
+        /// 按当前计数刷新 pill 文案与选中态（选中 = 描边加粗 + 不降透明度）。
+        ///
+        /// 【这里不再遍历 Entries】
+        /// 旧实现每刷新一次就把整个集合走一遍。日志页每收到一条新日志都要刷新，
+        /// 绑核一次产生几十条就是几十次全量扫描，全在 UI 线程上 ——
+        /// 这是「日志页越用越卡」的真正原因，比渲染开销大得多。
+        /// 现在数字直接从 LogService 的增量计数读，O(1)。
+        /// </summary>
         private void UpdateStats()
         {
-            int info = 0, warn = 0, error = 0, critical = 0;
-            foreach (LogEntry e in LogService.Entries)
-            {
-                // 必须把四个级别全部列全。原实现用 `default: info++` 兜底，
-                // 新增 Critical 时会被静默算进「信息」——致命错误显示成 Info 数量 +1，
-                // 是那种不报错、但统计永远对不上的隐蔽 bug。
-                switch (e.Level)
-                {
-                    case LogLevel.Warn: warn++; break;
-                    case LogLevel.Error: error++; break;
-                    case LogLevel.Critical: critical++; break;
-                    case LogLevel.Info: info++; break;
-                    // Debug 不计入任何 pill（没有对应筛选器），但仍计入下方总数。
-                    default: break;
-                }
-            }
-
             // 顺序必须与 PillSpecs 一一对应：信息 / 警告 / 错误 / 致命
-            int[] counts = { info, warn, error, critical };
+            long[] counts =
+            {
+                LogService.CountInfo,
+                LogService.CountWarn,
+                LogService.CountError,
+                LogService.CountCritical,
+            };
 
             for (int i = 0; i < PillHost.Children.Count && i < PillSpecs.Length; i++)
             {
@@ -196,11 +202,17 @@ namespace ZenForge.Views
                 pill.BorderBrush = Res(tintKey != null ? dotKey : "Input.Border", Brushes.Transparent);
             }
 
-            // 副行：本次会话共 N 条（含被过滤掉的部分）
-            int total = LogService.Entries.Count;
-            LogSubText.Text = total == 0
+            // 副行：条数 + 暂停状态。
+            // 暂停时必须在副行显式说明，否则用户看到"共 500 条"却一直不涨，
+            // 会以为是日志功能坏了 —— 而实际是他自己点了暂停。
+            int total = LogService.Count;
+            string headline = total == 0
                 ? "本次会话暂无记录"
                 : $"本次会话共捕获 {total} 条";
+
+            LogSubText.Text = LogService.Paused
+                ? headline + "　·　已暂停记录，新日志会被丢弃"
+                : headline;
         }
 
         /// <summary>点 pill：切换级别筛选。再点一次同一枚 = 取消筛选。</summary>
@@ -242,7 +254,7 @@ namespace ZenForge.Views
         /// </summary>
         private void RebuildVisibleList()
         {
-            if (_paused)
+            if (Paused)
                 return;
 
             string keyword = (SearchBox?.Text ?? string.Empty).Trim();
@@ -307,7 +319,7 @@ namespace ZenForge.Views
         {
             UpdateStats();
 
-            if (_paused)
+            if (Paused)
                 return;
 
             // 单条到达时不整体重建（重建会丢滚动位置），只判断是否命中当前过滤条件
@@ -336,7 +348,7 @@ namespace ZenForge.Views
         {
             StopFollow();
 
-            if (!_subscribed || !IsLoaded || _paused)
+            if (!_subscribed || !IsLoaded || Paused)
                 return;
 
             ScrollToLatest();
@@ -391,22 +403,35 @@ namespace ZenForge.Views
 
         private void PauseButton_Click(object sender, RoutedEventArgs e)
         {
-            _paused = !_paused;
-            PauseButton.Content = _paused ? "继续" : "暂停";
+            bool paused = !LogService.Paused;
+            LogService.Paused = paused;
 
-            if (_paused)
+            PauseButton.Content = paused ? "恢复日志记录" : "暂停日志记录";
+
+            if (paused)
             {
+                // 暂停后 Write() 在入口就 return，OnEntryAdded 不会再被调用，
+                // 列表保持原样，副行会改写成「已暂停记录」。
                 StopFollow();
-                LogService.Info("日志界面已暂停刷新（文件仍在写入）");
+
+                // 这条自己的日志在置 Paused 之后写，会被丢弃 —— 这是预期的：
+                // 暂停就是暂停，不能为了一条"我暂停了"的记录破例。
+                LogService.Info("日志记录已暂停（新日志不再写入内存与文件）");
+                UpdateStats();
                 return;
             }
 
-            // 恢复时整体重建一次，把暂停期间攒下的条目一次性补上
+            // 恢复：重建一次，保证界面与集合一致
             RebuildVisibleList();
+            LogService.Info("日志记录已恢复");
         }
 
         private void ClearLogButton_Click(object sender, RoutedEventArgs e)
         {
+            // 【为什么不给二次确认】
+            // 清空的是"日志"，不是用户数据。日志丢了不会造成任何不可恢复的损失，
+            // 反而每次都要点两下会让人不愿意清。真正需要确认的是全局重置那种操作。
+
             // 先停掉跟随再清空：否则队列里那次 ScrollIntoView 会在集合已经空了
             // 之后才执行，对着一个不存在的项做定位，界面就此卡住。
             StopFollow();
@@ -429,6 +454,10 @@ namespace ZenForge.Views
             UpdateStats();
             EmptyHint.Visibility = Visibility.Visible;
             EmptyHint.Text = "暂无日志";
+
+            // 磁盘那半是后台删的，这里只报"已发出"，不假装已经删完。
+            // Clear() 内部把文件删除丢给 Task.Run，UI 线程上拿不到结果。
+            ToastService.Info("已清空界面记录与日志文件");
         }
 
         private void OpenLogFolderButton_Click(object sender, RoutedEventArgs e)

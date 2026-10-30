@@ -30,11 +30,12 @@
     -->
 
     <Page.Resources>
-        <!-- 设置行：与 Controls.xaml 的 CardRowStyle 同构，但行距略收（24 → 22），
-             因为设置项密度比调校页高，24 会让三卡总高溢出太多。 -->
-        <Style x:Key="SettingRowStyle" TargetType="Grid">
-            <Setter Property="Margin" Value="0,0,0,22"/>
-        </Style>
+        <!-- 设置页的行样式已并入 Controls.xaml 的 CardRowStyle（行距统一 22）。
+             这里保留一个别名而不是删掉：XAML 里七十多处引用都写着 SettingRowStyle，
+             改名只是为了少一层间接，收益抵不上改动风险。
+             别名必须用 BasedOn 指向全局键 —— 直接把 Margin 抄一遍，
+             下次全局改行距时这个页面又会悄悄跟不上。 -->
+        <Style x:Key="SettingRowStyle" TargetType="Grid" BasedOn="{StaticResource CardRowStyle}"/>
     </Page.Resources>
 
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -45,53 +46,81 @@
                 <TextBlock Text="设置" Style="{StaticResource PageTitleStyle}"/>
             </StackPanel>
 
-            <!-- ===== 外观 ===== -->
+            <!-- ===== 外观 =====
+                 【版式：主题模式与强调色并排一行】
+                 以前是两个上下叠放的行，每行右边一个下拉 —— 两个"二选一"的控制
+                 占了整整两行高度，而它们其实是同一类事：让界面长什么样。
+                 并排之后一屏能多放两个行为开关，也更容易看出两者是并列关系。
+
+                 【为什么只有强调色选「自定义」才出第二行】
+                 跟随系统时，色相滑杆、色值输入、预览色块全都用不上 ——
+                 摆在那里是让人以为可以调，拖了却没反应（值会被系统色覆盖）。
+                 用 Visibility.Collapsed 而不是 IsEnabled=False：
+                 灰着的控件仍然占位，用户还是要去读它、去猜为什么点不动。
+
+                 【说明行】
+                 外观卡原本唯独这两项没有说明，与下面「行为」「安全」的每一行
+                 风格不一致（那些都有「标签 + 12px 弱化说明」两行结构）。
+                 补上之后四张卡的行高节奏才统一。 -->
             <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
                 <StackPanel>
                     <TextBlock Text="外观" Style="{StaticResource CardTitleStyle}"/>
 
-                    <!-- 主题模式 -->
-                    <Grid Style="{StaticResource SettingRowStyle}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="主题模式"
-                                   Style="{StaticResource CardRowLabelStyle}"
-                                   VerticalAlignment="Center"/>
-                        <!-- 顺序与 NvForge 一致：跟随系统 / 深色 / 浅色。
-                             刻意不写 SelectedIndex / SelectionChanged，
-                             初值在代码里读 ui.json 后按 Tag 赋值，事件在赋值之后才挂载，
-                             否则初始化阶段会反向触发 SelectionChanged 把主题重置成默认值。 -->
-                        <ComboBox Grid.Column="1" x:Name="ThemeCombo"
-                                  Width="150"
-                                  VerticalAlignment="Center">
-                            <ComboBoxItem Content="跟随系统" Tag="system"/>
-                            <ComboBoxItem Content="深色" Tag="dark"/>
-                            <ComboBoxItem Content="浅色" Tag="light"/>
-                        </ComboBox>
-                    </Grid>
-
-                    <!-- 强调色模式 -->
+                    <!-- 第一行：主题模式 + 强调色，两列等分 -->
                     <Grid Style="{StaticResource SettingRowStyle}" Margin="0,0,0,16">
                         <Grid.ColumnDefinitions>
+                            <!-- 两列都写 *，中间 24px：左对齐标签、右对齐下拉，
+                                 两半各自内部再用同样的 左* / 右Auto 结构。 -->
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="24"/>
+                            <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="强调色"
-                                   Style="{StaticResource CardRowLabelStyle}"
-                                   VerticalAlignment="Center"/>
-                        <ComboBox Grid.Column="1" x:Name="AccentModeCombo"
-                                  Width="150"
-                                  VerticalAlignment="Center">
-                            <ComboBoxItem Content="跟随系统" Tag="follow"/>
-                            <ComboBoxItem Content="自定义" Tag="custom"/>
-                        </ComboBox>
+
+                        <!-- 主题模式 -->
+                        <Grid Grid.Column="0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0">
+                                <TextBlock Text="主题模式" Style="{StaticResource CardRowLabelStyle}"/>
+                                <TextBlock Text="跟随系统时随 Windows 的浅色/深色自动切换"
+                                           Style="{StaticResource CardRowDescStyle}"/>
+                            </StackPanel>
+                            <!-- 顺序与 NvForge 一致：跟随系统 / 深色 / 浅色。
+                                 刻意不写 SelectedIndex / SelectionChanged，
+                                 初值在代码里读 ui.json 后按 Tag 赋值，事件在赋值之后才挂载，
+                                 否则初始化阶段会反向触发 SelectionChanged 把主题重置成默认值。 -->
+                            <ComboBox Grid.Column="1" x:Name="ThemeCombo"
+                                      Width="140"
+                                      VerticalAlignment="Center">
+                                <ComboBoxItem Content="跟随系统" Tag="system"/>
+                                <ComboBoxItem Content="深色" Tag="dark"/>
+                                <ComboBoxItem Content="浅色" Tag="light"/>
+                            </ComboBox>
+                        </Grid>
+
+                        <!-- 强调色 -->
+                        <Grid Grid.Column="2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0">
+                                <TextBlock Text="强调色" Style="{StaticResource CardRowLabelStyle}"/>
+                                <TextBlock Text="按钮、开关与选中态使用的颜色"
+                                           Style="{StaticResource CardRowDescStyle}"/>
+                            </StackPanel>
+                            <ComboBox Grid.Column="1" x:Name="AccentModeCombo"
+                                      Width="140"
+                                      VerticalAlignment="Center">
+                                <ComboBoxItem Content="跟随系统" Tag="follow"/>
+                                <ComboBoxItem Content="自定义" Tag="custom"/>
+                            </ComboBox>
+                        </Grid>
                     </Grid>
 
-                    <!-- 色相选择器：色块预览 + 彩虹滑杆 + 色值输入。
-                         v12 原稿只有这三件，没有 8 个预设圆点 —— 圆点行已按用户要求移除，
-                         滑杆本身就是全部色相，比 8 个固定色更自由。 -->
+                    <!-- 第二行（仅在强调色 = 自定义时出现）：色相选择器 -->
                     <Border x:Name="CustomAccentPanel" Style="{StaticResource ColorPickerGroupStyle}"
                             Visibility="Collapsed">
                         <Grid>

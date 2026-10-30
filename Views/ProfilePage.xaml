@@ -5,15 +5,356 @@
       Focusable="False"
       FocusVisualStyle="{x:Null}">
 
-    <!-- 0.10.0 第一步：只有页头骨架。
-         第二步把「场景自动切换 / 总体方案 / 规则双列」三个卡填进来，
-         第三步接上 profiles.json 的读写与方案切换。 -->
+    <!--
+        ============================================================
+        配置页（1.0.0-can4：先做界面，功能暂不实装）
+        ============================================================
+        三张卡，从上到下：
+
+          ① 场景自动切换 —— 总开关 + 「启动某进程 → 切换到某方案」规则列表 + 新建
+          ② 总体配置方案 —— 方案名 / 含的调校规则 / 含的调度规则 + 保存当前方案
+          ③ 规则库双列  —— 左「调校规则」右「调度规则」，**强制等高**
+
+        【为什么 ③ 要单独强调等高】
+        两个卡片的条目数天然不等（调校 2 条、调度 2 条是巧合，用户可能存 5 条调校
+        和 1 条调度）。如果各自按内容高度排，底部就会一高一低，中间裂出一条缝，
+        看起来像"右边的卡没加载完"。用 Grid 的两列 + 两卡各自 VerticalAlignment=Stretch
+        把高度绑在一起，谁内容多谁说了算，另一个留白到底 —— 留白是可接受的，
+        错位不是。
+
+        【当前状态：界面已成型，交互尚未接线】
+        开关、按钮、下拉都在，点击只会弹一条「功能尚未实装」的提示。
+        这样做是为了让版式先被评审通过，再接数据层 —— 顺序反过来的话，
+        版式一改，刚写好的读写逻辑全要跟着返工。
+    -->
+
+    <Page.Resources>
+        <!-- 方案行 / 规则行的容器：比 ConfigItemBorderStyle 更紧凑（12,10），
+             因为这里一行只有两行字，14 的上下内边距会让列表显得松散。 -->
+        <Style x:Key="ProfileItemStyle" TargetType="Border" BasedOn="{StaticResource ConfigItemBorderStyle}">
+            <Setter Property="Padding" Value="14,11"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+
+        <!-- 行内次要按钮：只用于「编辑」「切换」「新建」这类动作，
+             尺寸比页面级 SecondaryButtonStyle 小一档，避免在一行文字旁边显得笨重。 -->
+        <Style x:Key="RowActionButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+            <Setter Property="Height" Value="26"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+        <!-- 虚线「+ 新建」整行按钮：明确表示"这里还缺一条"，与实线按钮区分开 -->
+        <Style x:Key="AddRowButtonStyle" TargetType="Button" BasedOn="{StaticResource RowActionButtonStyle}">
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Margin" Value="0,2,0,0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Input.BorderHover}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <!-- 用 Border + 虚线矩形画边框：WPF 的 Border 不支持 StrokeDashArray，
+                             只有 Shape 系列支持，所以这里用 Rectangle 叠一层。 -->
+                        <Grid>
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6"/>
+                            <Rectangle RadiusX="6" RadiusY="6"
+                                       Stroke="{TemplateBinding BorderBrush}"
+                                       StrokeThickness="1"
+                                       StrokeDashArray="3 3"
+                                       SnapsToDevicePixels="True"/>
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Page.Resources>
+
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="24,24,32,24">
 
+            <!-- ======= 页头 ======= -->
             <StackPanel Margin="0,0,0,20">
                 <TextBlock Text="配置" Style="{StaticResource PageTitleStyle}"/>
             </StackPanel>
+
+            <!-- ===== 一、场景自动切换 =====
+                 总开关关掉时，下面的规则列表整块 Collapsed（不是灰显）——
+                 关掉之后这些规则确实不会被执行，留着占位只会让人以为它们还在生效。 -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
+                <StackPanel>
+                    <Grid Style="{StaticResource CardRowStyle}" Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                            <TextBlock Text="场景自动切换" Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock Text="当指定进程启动或退出时，自动切换到对应的配置方案"
+                                       Style="{StaticResource CardRowDescStyle}"/>
+                        </StackPanel>
+
+                        <!-- 开关已打开：功能尚未实装，但版式上要展示"开启后是什么样"，
+                             所以先按开启态呈现，点击提示见 ProfilePage.xaml.cs -->
+                        <ToggleButton Grid.Column="1" x:Name="AutoSwitchToggle"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      IsChecked="True"
+                                      VerticalAlignment="Center"
+                                      Click="NotImplemented_Click"/>
+                    </Grid>
+
+                    <StackPanel x:Name="SceneRulePanel">
+                        <!-- 触发规则行 1 -->
+                        <Border Style="{StaticResource ProfileItemStyle}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                                    <TextBlock Text="启动 cs2.exe" Style="{StaticResource CardRowLabelStyle}"/>
+                                    <TextBlock Text="切换到 方案 B：极限游戏"
+                                               Style="{StaticResource CardRowDescStyle}"/>
+                                </StackPanel>
+                                <Button Grid.Column="1" Content="编辑"
+                                        Style="{StaticResource RowActionButtonStyle}"
+                                        Click="NotImplemented_Click"/>
+                            </Grid>
+                        </Border>
+
+                        <!-- 触发规则行 2 -->
+                        <Border Style="{StaticResource ProfileItemStyle}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                                    <TextBlock Text="退出 cs2.exe" Style="{StaticResource CardRowLabelStyle}"/>
+                                    <TextBlock Text="切换到 方案 A：日常/办公"
+                                               Style="{StaticResource CardRowDescStyle}"/>
+                                </StackPanel>
+                                <Button Grid.Column="1" Content="编辑"
+                                        Style="{StaticResource RowActionButtonStyle}"
+                                        Click="NotImplemented_Click"/>
+                            </Grid>
+                        </Border>
+
+                        <Button Content="+ 新建触发规则"
+                                Style="{StaticResource AddRowButtonStyle}"
+                                Click="NotImplemented_Click"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 二、总体配置方案 =====
+                 「保存当前方案」放在卡片标题行右侧，而不是列表底部：
+                 它是这一整张卡的唯一写入口，位置固定在标题行才不会被列表长度带走。 -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
+                <StackPanel>
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="总体配置方案"
+                                   Style="{StaticResource CardTitleStyle}"
+                                   Margin="0"
+                                   VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Content="保存当前方案"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                Height="30"
+                                MinWidth="0"
+                                Padding="14,0"
+                                FontSize="12"
+                                VerticalAlignment="Center"
+                                Click="NotImplemented_Click"/>
+                    </Grid>
+
+                    <!-- 当前生效的方案：描边强调色 + 右侧「当前生效」禁用态按钮 -->
+                    <Border Style="{StaticResource ProfileItemStyle}"
+                            BorderBrush="{DynamicResource AccentBrush}"
+                            Background="{DynamicResource AccentSoftBrush}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                                <TextBlock Text="方案 A：日常/办公" Style="{StaticResource CardRowLabelStyle}"/>
+                                <TextBlock Text="调校：日常低功耗　·　调度：后台隔离"
+                                           Style="{StaticResource CardRowDescStyle}"/>
+                            </StackPanel>
+                            <!-- 「当前生效」不给点击：它已经在生效，点它没有任何事可做。
+                                 用 IsEnabled=False 而不是 Collapsed —— 保留占位，
+                                 让两个方案的按钮在同一列上对齐。 -->
+                            <Button Grid.Column="1" Content="当前生效"
+                                    Style="{StaticResource RowActionButtonStyle}"
+                                    IsEnabled="False"/>
+                        </Grid>
+                    </Border>
+
+                    <Border Style="{StaticResource ProfileItemStyle}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                                <TextBlock Text="方案 B：极限游戏" Style="{StaticResource CardRowLabelStyle}"/>
+                                <TextBlock Text="调校：电竞满血　·　调度：游戏绑定"
+                                           Style="{StaticResource CardRowDescStyle}"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="切换至此方案"
+                                    Style="{StaticResource RowActionButtonStyle}"
+                                    Click="NotImplemented_Click"/>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 三、规则库双列 =====
+                 【等高怎么做到】
+                 Grid 的两个 ColumnDefinition 都是 *，默认 VerticalAlignment 就是 Stretch，
+                 卡片写在 Grid 里就会被拉满整行高度。行高由内容多的那一个决定。
+                 两个卡片**不能再各自写 Margin-bottom** —— ProfileItemStyle 的最后一项
+                 自带 8px 下边距，卡片底部会多出一截，两列就错位了；
+                 所以最后一个 Border 单独把 Margin 改成 0。 -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- 左：调校规则库 -->
+                <Border Grid.Column="0" Style="{StaticResource CardBorderStyle}" VerticalAlignment="Stretch">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <Grid Grid.Row="0" Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="调校规则库"
+                                       Style="{StaticResource CardTitleStyle}"
+                                       Margin="0"
+                                       VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Content="新建"
+                                    Style="{StaticResource RowActionButtonStyle}"
+                                    Click="NotImplemented_Click"/>
+                        </Grid>
+
+                        <StackPanel Grid.Row="1">
+                            <Border Style="{StaticResource ProfileItemStyle}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                        <TextBlock Text="日常低功耗" Style="{StaticResource CardRowLabelStyle}"/>
+                                        <TextBlock Text="CO -20　·　FMax 4.5G"
+                                                   Style="{StaticResource CardRowDescStyle}"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="编辑"
+                                            Style="{StaticResource RowActionButtonStyle}"
+                                            Click="NotImplemented_Click"/>
+                                </Grid>
+                            </Border>
+
+                            <Border Style="{StaticResource ProfileItemStyle}" Margin="0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                        <TextBlock Text="电竞满血" Style="{StaticResource CardRowLabelStyle}"/>
+                                        <TextBlock Text="CO -30　·　FMax 5.2G"
+                                                   Style="{StaticResource CardRowDescStyle}"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="编辑"
+                                            Style="{StaticResource RowActionButtonStyle}"
+                                            Click="NotImplemented_Click"/>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- 右：调度规则库 -->
+                <Border Grid.Column="2" Style="{StaticResource CardBorderStyle}" VerticalAlignment="Stretch">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <Grid Grid.Row="0" Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="调度规则库"
+                                       Style="{StaticResource CardTitleStyle}"
+                                       Margin="0"
+                                       VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Content="新建"
+                                    Style="{StaticResource RowActionButtonStyle}"
+                                    Click="NotImplemented_Click"/>
+                        </Grid>
+
+                        <StackPanel Grid.Row="1">
+                            <Border Style="{StaticResource ProfileItemStyle}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                        <TextBlock Text="游戏绑定" Style="{StaticResource CardRowLabelStyle}"/>
+                                        <TextBlock Text="cs2.exe → CCD0　·　High"
+                                                   Style="{StaticResource CardRowDescStyle}"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="编辑"
+                                            Style="{StaticResource RowActionButtonStyle}"
+                                            Click="NotImplemented_Click"/>
+                                </Grid>
+                            </Border>
+
+                            <Border Style="{StaticResource ProfileItemStyle}" Margin="0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                        <TextBlock Text="后台隔离" Style="{StaticResource CardRowLabelStyle}"/>
+                                        <!-- 内容可能很长（多个进程名），允许换行而不是截断 -->
+                                        <TextBlock Text="QQ.exe、msedge.exe → CCD1"
+                                                   Style="{StaticResource CardRowDescStyle}"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="编辑"
+                                            Style="{StaticResource RowActionButtonStyle}"
+                                            Click="NotImplemented_Click"/>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
 
         </StackPanel>
     </ScrollViewer>

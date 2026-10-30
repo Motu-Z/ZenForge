@@ -63,12 +63,21 @@ namespace ZenForge.Views
         private string _priorityText = "—";
 
         /// <summary>
-        /// 进程优先级（只读展示）。取该名称下首个实例的 pcPriClassBase 映射成
-        /// Idle / Normal / High / RealTime 这类可读标签。
+        /// 进程优先级。
         ///
-        /// 为什么只读：把任意进程提到 High 以上，如果它对 CPU 是忙等型，
-        /// 会把桌面响应一起饿死。这条能力只有做完全链路测试才敢开，
-        /// 当前先把真实值显示出来，用户至少能看出「这个进程已经跑在 High 上」。
+        /// 【为什么从只读改成可改】
+        /// 早期注释担心「把忙等型进程提到 High 会把桌面饿死」。这个担心只对
+        /// RealTime 成立 —— 它高于系统输入线程，一旦某个忙等进程拿到 RealTime，
+        /// 鼠标键盘会直接卡住。High 只是「优先于普通进程」，任务管理器本来就能改，
+        /// 我们拦着不给改，用户只会去任务管理器绕一圈，顺带绕开我们所有的说明。
+        ///
+        /// 下拉里刻意不含 RealTime，理由见 <see cref="ProcessBindingPage.PriorityOptions"/>。
+        ///
+        /// 【保留 PriorityText 的原因】
+        /// 系统返回的优先级值不一定落在四个标准档上（有的进程是 13 = High
+        /// 的变体，有的驱动进程是 24）。下拉的 SelectedItem 绑不上时会显示空白，
+        /// 那看起来像"这个进程没有优先级"。PriorityText 保留原始标签，
+        /// 由 SelectedItem 绑不上时的兜底显示承担解释职责。
         /// </summary>
         public string PriorityText
         {
@@ -82,9 +91,70 @@ namespace ZenForge.Views
             }
         }
 
+        private string _prioritySelection = ProcessBindingPage.PriorityNormal;
+
+        /// <summary>
+        /// 优先级下拉的选中项。
+        ///
+        /// 选中即下发（不需要「应用」）：优先级只作用于进程的当前实例，
+        /// 不落盘、不写规则，进程退出后自然回到默认，不存在"只改了一半"的状态。
+        /// 这正是它和掩码下拉的区别 —— 掩码要落盘，所以必须显式确认。
+        /// </summary>
+        public string PrioritySelection
+        {
+            get => _prioritySelection;
+            set
+            {
+                if (value == _prioritySelection || string.IsNullOrEmpty(value))
+                    return;
+
+                _prioritySelection = value;
+                OnPropertyChanged(nameof(PrioritySelection));
+
+                // 初始回填阶段不触发下发（与 Selection 的 _suppress 同一套路）
+                if (!_suppressPriority)
+                    PriorityChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        /// <summary>回填优先级时不触发下发。两条下拉共用 <see cref="_suppress"/>。</summary>
+        private bool _suppressPriority;
+
+        /// <summary>优先级下拉的悬停说明：把当前档位的实际含义写清楚。</summary>
+        public string PriorityHint => _prioritySelection switch
+        {
+            ProcessBindingPage.PriorityHigh =>
+                "High：优先于普通进程获得 CPU 时间。适合游戏、实时音频等对延迟敏感的程序。",
+            ProcessBindingPage.PriorityAboveNormal =>
+                "Above Normal：比普通略高，但仍会让位于 High。适合前台工作程序。",
+            ProcessBindingPage.PriorityBelowNormal =>
+                "Below Normal：让位于普通进程，适合后台同步、下载。",
+            ProcessBindingPage.PriorityLow =>
+                "Low：只在系统空闲时获得 CPU 时间。适合压缩、索引等纯后台任务。",
+            _ => "Normal：系统默认优先级。",
+        };
+
+        /// <summary>用户改了优先级（参数是新的档位标签）。</summary>
+        public event EventHandler? PriorityChanged;
+
+        /// <summary>回填优先级（不触发下发）。</summary>
+        public void SetInitialPriority(string label)
+        {
+            _suppressPriority = true;
+            try
+            {
+                _prioritySelection = label;
+                OnPropertyChanged(nameof(PrioritySelection));
+                OnPropertyChanged(nameof(PriorityHint));
+            }
+            finally
+            {
+                _suppressPriority = false;
+            }
+        }
+
         /// <summary>该名称下的全部进程实例（PID + 路径）。</summary>
         public List<ProcessMember> Members { get; set; } = new();
-
         /// <summary>该进程名下的可执行文件路径（取首个实例，同名多实例路径相同）。</summary>
         private string _path = string.Empty;
         public string Path
@@ -197,8 +267,43 @@ namespace ZenForge.Views
 
         private string _selection = "不绑定";
 
-        /// <summary>下拉框当前值与已保存值不一致 → 表示有待应用的改动。</summary>
-        public bool IsDirty => !string.Equals(_selection, Label, StringComparison.Ordinal);
+        /// <summary>
+        /// 已保存的优先级档位。空串 = 这条规则不管优先级（旧规则 / 只做了掩码调度）。
+        /// </summary>
+        public string Priority { get; set; } = string.Empty;
+
+        private string _prioritySelection = ProcessBindingPage.PriorityNormal;
+
+        /// <summary>
+        /// 优先级下拉的选中项。
+        ///
+        /// 与运行中进程那边的区别：这里改的是「下次启动时应用的值」，
+        /// 必须点「应用」才落盘并下发 —— 和掩码下拉的行为保持一致。
+        /// 两条下拉一个即时生效、一个要点确认，看似不一致，但那是刻意的：
+        /// 掩码要写文件、要影响所有未来实例，优先级只影响当前活着的进程。
+        /// </summary>
+        public string PrioritySelection
+        {
+            get => _prioritySelection;
+            set
+            {
+                if (value == _prioritySelection || string.IsNullOrEmpty(value))
+                    return;
+                _prioritySelection = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PrioritySelection)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsDirty)));
+            }
+        }
+
+        /// <summary>
+        /// 下拉当前值与已保存值不一致 → 表示有待应用的改动。
+        ///
+        /// 优先级也算在内：只改优先级不改掩码时，「应用」按钮应当可用。
+        /// 否则用户改完优先级发现点不了应用，会以为改动没被接受。
+        /// </summary>
+        public bool IsDirty =>
+            !string.Equals(_selection, Label, StringComparison.Ordinal)
+            || (!string.IsNullOrEmpty(Priority) && !string.Equals(_prioritySelection, Priority, StringComparison.Ordinal));
 
         /// <summary>名称下方的次要信息：路径 + （停用时）状态说明。</summary>
         public string SubText
@@ -265,6 +370,110 @@ namespace ZenForge.Views
     {
         /// <summary>下拉选项（不绑定 / CCD0 / CCD1 / 各自定义掩码名称），全局共享并通知所有 ComboBox。</summary>
         public static ObservableCollection<string> TargetOptions { get; } = new();
+
+        // ---------------- 优先级下拉 ----------------
+        //
+        // 【为什么不给 RealTime】
+        // RealTime（pcPriClassBase = 24）高于系统输入线程。一个忙等的 RealTime 进程
+        // 可以让鼠标键盘完全失去响应，用户只能等它自己结束或按电源键。
+        // 任务管理器里那个「实时」选项我们也刻意不提供 —— 不是能力做不到，
+        // 是这个选项的失败代价与它的收益完全不成比例。
+        //
+        // 四个标签必须与 PriorityLabel() 的输出严格一致：
+        // 下拉是双向绑定，回填时拿 PriorityLabel 的结果去匹配选项，
+        // 少一个字就匹配不上、下拉显示空白。
+
+        public const string PriorityHigh = "High";
+        public const string PriorityAboveNormal = "Above Normal";
+        public const string PriorityNormal = "Normal";
+        public const string PriorityBelowNormal = "Below Normal";
+        public const string PriorityLow = "Low";
+
+        /// <summary>优先级下拉的选项，顺序由高到低（与页面其他下拉一致）。</summary>
+        public static ObservableCollection<string> PriorityOptions { get; } = new()
+        {
+            PriorityHigh,
+            PriorityAboveNormal,
+            PriorityNormal,
+            PriorityBelowNormal,
+            PriorityLow,
+        };
+
+        /// <summary>
+        /// 档位标签 → SetPriorityClass 常量。
+        /// 返回 0 表示这个标签不对应任何可写档位（自定义数值 / 未知值），调用方应跳过下发。
+        /// </summary>
+        private const uint PRIORITY_CLASS_IDLE = 0x00000040;
+        private const uint PRIORITY_CLASS_BELOW_NORMAL = 0x00004000;
+        private const uint PRIORITY_CLASS_NORMAL = 0x00000020;
+        private const uint PRIORITY_CLASS_ABOVE_NORMAL = 0x00008000;
+        private const uint PRIORITY_CLASS_HIGH = 0x00000080;
+
+        private static uint PriorityClassOf(string label) => label switch
+        {
+            PriorityHigh => PRIORITY_CLASS_HIGH,
+            PriorityAboveNormal => PRIORITY_CLASS_ABOVE_NORMAL,
+            PriorityNormal => PRIORITY_CLASS_NORMAL,
+            PriorityBelowNormal => PRIORITY_CLASS_BELOW_NORMAL,
+            PriorityLow => PRIORITY_CLASS_IDLE,
+            _ => 0,
+        };
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetPriorityClass(IntPtr hProcess, uint priorityClass);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr OpenProcess(uint access, bool inheritHandle, int processId);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr handle);
+
+        private const uint PROCESS_SET_INFORMATION = 0x0200;
+        private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+        /// <summary>
+        /// 把一家子进程都设成指定优先级。
+        ///
+        /// 只提升不降级？不 —— 用户选什么就设什么，包括降级。
+        /// 「后台隔离」这类用法本来就是把 QQ / 浏览器降到 Below Normal，
+        /// 只给升不给降等于砍掉一半用途。
+        ///
+        /// 返回 (成功数, 失败数)。失败通常是权限不足（系统进程、受保护进程）
+        /// 或进程已退出，两种情况都不需要向用户弹窗。
+        /// </summary>
+        private static (int Ok, int Failed) ApplyPriority(IEnumerable<ProcessMember> members, string label)
+        {
+            uint cls = PriorityClassOf(label);
+            if (cls == 0)
+                return (0, 0);
+
+            int ok = 0, failed = 0;
+
+            foreach (ProcessMember member in members)
+            {
+                IntPtr handle = OpenProcess(PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION,
+                                            false, member.Pid);
+                if (handle == IntPtr.Zero)
+                {
+                    failed++;
+                    continue;
+                }
+
+                try
+                {
+                    if (SetPriorityClass(handle, cls))
+                        ok++;
+                    else
+                        failed++;
+                }
+                finally
+                {
+                    CloseHandle(handle);
+                }
+            }
+
+            return (ok, failed);
+        }
 
         private readonly ObservableCollection<ProcessGroupRow> _groups = new();
         private readonly List<ProcessGroupRow> _allGroups = new();
@@ -637,6 +846,22 @@ namespace ZenForge.Views
                     // 新建行才用已保存规则回填初始选择（不触发绑定）
                     row.SetInitialSelection(RuleToSelection(BindingStore.LookupByName(grp.Name)));
                     row.TargetChanged += OnGroupTargetChanged;
+                    row.PriorityChanged += OnGroupPriorityChanged;
+
+                    // 回填优先级：规则里存过就用规则的值，没存过用进程的实时值。
+                    // 「规则优先」是有意的 —— 用户上次设成 High，进程重启后仍是 Normal，
+                    // 这时显示进程实时值会让用户以为自己的设置丢了。
+                    SavedRuleRow? saved = _savedRules.FirstOrDefault(
+                        r => string.Equals(r.Name, grp.Name, StringComparison.OrdinalIgnoreCase));
+
+                    // 【这里必须走映射，不能直接把 grp.PriorityText 塞进去】
+                    // 实时值可能是 "RealTime"、裸数字或 "—"，都不在下拉选项里；
+                    // 直接塞的话 SelectedItem 绑不上，下拉显示空白 —— 看起来像
+                    // "这个进程没有优先级"。PriorityLabelToOption 会把它们归到 Normal。
+                    row.SetInitialPriority(
+                        saved != null && !string.IsNullOrEmpty(saved.Priority)
+                            ? saved.Priority
+                            : PriorityLabelToOption(grp.PriorityText));
                 }
 
                 merged.Add(row);
@@ -986,6 +1211,55 @@ namespace ZenForge.Views
         }
 
         /// <summary>
+        /// 用户改了某一行进程的优先级：立刻对名下所有实例下发。
+        ///
+        /// 【为什么不落盘】优先级不是"绑定规则"的一部分，它是进程的运行属性。
+        /// 进程退出后 OS 会回收，下次启动自然回到 Normal。
+        /// 如果把它存进 bindings.json，就会变成"我明明改了游戏，怎么重启又变回去了"
+        /// 这种更难解释的问题 —— 存了但只在启动时才同步，等于没存。
+        ///
+        /// 例外：如果这个进程名本来就有保存的调度规则，则顺手把优先级写进规则，
+        /// 让"后台常驻调度"在新实例起来时一起应用。这条路径见 UpsertRule 的调用方。
+        /// </summary>
+        private void OnGroupPriorityChanged(object? sender, EventArgs e)
+        {
+            if (sender is not ProcessGroupRow group)
+                return;
+
+            (int ok, int failed) = ApplyPriority(group.Members, group.PrioritySelection);
+
+            if (ok == 0 && failed == 0)
+                return;
+
+            if (ok == 0)
+            {
+                // 全部失败：通常是系统进程 / 受保护进程，没有权限改。
+                // 不弹窗 —— 用户点一下就知道结果，弹窗反而打断。
+                LogService.Warn($"设置优先级失败：{group.Name}（{failed} 个实例）");
+                ToastService.Error($"无法修改 {group.Name} 的优先级（权限不足或进程已退出）");
+                return;
+            }
+
+            LogService.Info($"优先级已设置：{group.Name} → {group.PrioritySelection}（{ok} 个实例）");
+
+            if (failed > 0)
+                ToastService.Info($"{group.Name} → {group.PrioritySelection}：{ok} 个成功，{failed} 个无权修改");
+            else
+                ToastService.Success($"{group.Name} → {group.PrioritySelection}");
+
+            // 有保存规则的进程，把优先级一并记进规则，新实例启动时会被 ProcessWatcher 应用。
+            if (_savedRules.Any(r => string.Equals(r.Name, group.Name, StringComparison.OrdinalIgnoreCase)))
+            {
+                UpsertRule(group.Name, SelectionToTarget(group.Selection).Target,
+                           SelectionToTarget(group.Selection).MaskId,
+                           SelectionToTarget(group.Selection).Mask,
+                           group.Path,
+                           group.PrioritySelection);
+                ReloadRulesAfterChange();
+            }
+        }
+
+        /// <summary>
         /// 拓扑可用性拦截。不可用时弹出明确警告并返回 false，绝不静默失败。
         /// </summary>
         private bool EnsureTopologyOrWarn()
@@ -1183,7 +1457,8 @@ namespace ZenForge.Views
             LoadSavedRules();
         }
 
-        private static void UpsertRule(string name, BindingTarget target, string maskId, ulong mask, string path = "")
+        private static void UpsertRule(string name, BindingTarget target, string maskId, ulong mask,
+                                       string path = "", string priority = "")
         {
             List<BindingRule> rules = BindingStore.Profile.Rules;
             BindingRule? existing = BindingStore.LookupByName(name);
@@ -1207,6 +1482,12 @@ namespace ZenForge.Views
             existing.Mask = mask;
             if (!string.IsNullOrWhiteSpace(path))
                 existing.Path = path;
+
+            // 空串 = 本次调用不碰优先级（仅改掩码时走这条路径），
+            // 非空才覆盖 —— 否则改个掩码会把之前设好的优先级一起抹掉。
+            if (!string.IsNullOrEmpty(priority))
+                existing.Priority = priority;
+
             BindingStore.Save(rules);
         }
 
@@ -1231,6 +1512,13 @@ namespace ZenForge.Views
                 // 下拉框回显：与「运行中进程」同一套映射（CCD0 / CCD1 / 掩码名 / 不绑定）
                 row.Selection = RuleToSelection(rule);
 
+                // 优先级回显：规则里没存过（旧配置）就显示进程当前的实时值，
+                // 而不是硬塞一个 Normal —— 用户看到 Normal 会以为规则把它的 High 改掉了。
+                row.Priority = rule.Priority;
+                row.PrioritySelection = string.IsNullOrEmpty(rule.Priority)
+                    ? PriorityLabelToOption(FindGroup(rule.Name)?.PriorityText ?? string.Empty)
+                    : rule.Priority;
+
                 row.EnabledChanged += (s, _) => OnRuleEnabledChanged(s as SavedRuleRow);
                 _savedRules.Add(row);
             }
@@ -1238,6 +1526,39 @@ namespace ZenForge.Views
 
             RuleCountText.Text = $"{_savedRules.Count} 条规则";
             EmptyRulesHint.Visibility = _savedRules.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        /// <summary>
+        /// 把进程实时优先级的标签映射到下拉选项。
+        ///
+        /// 实时值可能是 "RealTime"（24/32）或裸数字 —— 这两个都不在下拉里，
+        /// 一律显示 Normal。理由：下拉表示的是「我们要设成什么」，
+        /// 一个我们不会去写的档位（RealTime）出现在下拉里，会让用户
+        /// 以为点了能保持，实际点「应用」时 PriorityClassOf 返回 0 直接被跳过。
+        /// </summary>
+        private static string PriorityLabelToOption(string label) => label switch
+        {
+            PriorityHigh => PriorityHigh,
+            PriorityAboveNormal => PriorityAboveNormal,
+            PriorityNormal => PriorityNormal,
+            PriorityBelowNormal => PriorityBelowNormal,
+            PriorityLow => PriorityLow,
+            _ => PriorityNormal,
+        };
+
+        /// <summary>优先级下拉展开 / 收起：与掩码下拉共用同一套「别在用户操作时重排」的保护。</summary>
+        private void PriorityCombo_DropDownOpened(object? sender, EventArgs e) => _comboOpen = true;
+
+        private void PriorityCombo_DropDownClosed(object? sender, EventArgs e)
+        {
+            _comboOpen = false;
+
+            // 收起后补做一次被推迟的刷新（否则列表会一直停在旧数据上）
+            if (_pendingListRefresh)
+            {
+                _pendingListRefresh = false;
+                ApplyFilter();
+            }
         }
 
         /// <summary>
@@ -1265,7 +1586,24 @@ namespace ZenForge.Views
             // 这样「改掩码 → 应用」是一条完整闭环，而不是改了却无处生效。
             string selection = string.IsNullOrWhiteSpace(row.Selection) ? row.Label : row.Selection;
 
-            if (!string.Equals(selection, row.Label, StringComparison.Ordinal))
+            // 掩码与优先级都可能被改过，两者都要落盘 —— 只判断掩码的话，
+            // 「只改了优先级 → 点应用」会走进死胡同：界面显示改了，文件里还是旧的。
+            bool maskChanged = !string.Equals(selection, row.Label, StringComparison.Ordinal);
+            bool priorityChanged = !string.Equals(row.PrioritySelection, row.Priority, StringComparison.Ordinal);
+
+            if (!maskChanged && priorityChanged)
+            {
+                // 只改优先级：掩码部分要保持原样，走空串让 UpsertRule 不动 Target。
+                // 这里必须把原有的 target 传进去，不能传 None（None 会被当成删除规则）。
+                BindingRule? keep = BindingStore.LookupByName(row.Name);
+                if (keep != null)
+                {
+                    UpsertRule(row.Name, keep.Target, keep.MaskId, keep.Mask, row.Path, row.PrioritySelection);
+                    ReloadRulesAfterChange();
+                }
+            }
+
+            if (maskChanged)
             {
                 (BindingTarget newTarget, string newMaskId, ulong newMask) = SelectionToTarget(selection);
 
@@ -1276,7 +1614,7 @@ namespace ZenForge.Views
                     return;
                 }
 
-                UpsertRule(row.Name, newTarget, newMaskId, newMask, row.Path);
+                UpsertRule(row.Name, newTarget, newMaskId, newMask, row.Path, row.PrioritySelection);
                 ReloadRulesAfterChange();
             }
 
@@ -1296,10 +1634,24 @@ namespace ZenForge.Views
             // 上方「运行中进程」的同名下拉框同步到最新值，避免两处显示不一致
             FindGroup(row.Name)?.SetInitialSelection(selection);
 
+            // 优先级与绑核一起下发：一条规则 = 一套完整调度，
+            // 只恢复掩码不恢复优先级，用户会觉得「改了 High 怎么又变回 Normal」。
+            int priorityOk = 0;
+            if (!string.IsNullOrEmpty(rule.Priority))
+            {
+                ProcessGroupRow? live = FindGroup(row.Name);
+                if (live != null)
+                    priorityOk = ApplyPriority(live.Members, rule.Priority).Ok;
+            }
+
             int bound = HotApplyRule(row.Name);
+
+            // 提示里带上优先级，否则用户看不出「应用」到底做了两件事还是一件
+            string prioNote = priorityOk > 0 ? $"，优先级 {rule.Priority}" : string.Empty;
+
             string msg = bound > 0
-                ? $"已重新应用规则：{row.Name} → {rule.Label}，对 {bound} 个正在运行的进程生效。"
-                : $"规则已就绪：{row.Name} → {rule.Label}。当前该进程没有正在运行的实例，启动后会自动生效。";
+                ? $"已重新应用规则：{row.Name} → {rule.Label}{prioNote}，对 {bound} 个正在运行的进程生效。"
+                : $"规则已就绪：{row.Name} → {rule.Label}{prioNote}。当前该进程没有正在运行的实例，启动后会自动生效。";
 
             LogService.Info(msg);
             ToastService.Success(msg);
@@ -1386,7 +1738,17 @@ namespace ZenForge.Views
             if (row.Enabled)
             {
                 // 热绑定：开关一打开就立刻对正在运行的实例下发，不等后台轮询
-                int bound = HotApplyRule(row.Name);
+                // 优先级与绑核一起下发：一条规则 = 一套完整调度，
+            // 只恢复掩码不恢复优先级，用户会觉得「改了 High 怎么又变回 Normal」。
+            int priorityOk = 0;
+            if (!string.IsNullOrEmpty(rule.Priority))
+            {
+                ProcessGroupRow? live = FindGroup(row.Name);
+                if (live != null)
+                    priorityOk = ApplyPriority(live.Members, rule.Priority).Ok;
+            }
+
+            int bound = HotApplyRule(row.Name);
                 LogService.Info(bound > 0
                     ? $"规则已启用：{row.Name} → {row.Label}，并对 {bound} 个正在运行的进程立即生效"
                     : $"规则已启用：{row.Name} → {row.Label}（当前无运行实例，启动后自动生效）");

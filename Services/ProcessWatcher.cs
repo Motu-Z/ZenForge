@@ -505,7 +505,73 @@ namespace ZenForge.Services
             {
                 LogService.Warn($"绑定失败 {name}（PID {pid}）→ {label}：{result.Error}");
             }
+
+            // 优先级跟着规则一起下发。
+            //
+            // 【为什么必须在这里也做一遍】
+            // 进程页里改优先级只影响"当前活着的那些实例"。用户设了「cs2.exe → High」
+            // 之后关掉游戏再开，新进程的优先级是 Normal —— 除非这里补上，
+            // 否则那条规则里的 High 永远不会被应用到下一次启动。
+            //
+            // 放在绑核之后而不是之前：绑核失败时进程已经"没被管住"了，
+            // 再改优先级等于在未知状态下继续动手；先确认绑上了再说。
+            if (result.Success && !string.IsNullOrEmpty(rule.Priority))
+                ApplyPriority(pid, rule.Priority);
         }
+
+        /// <summary>
+        /// 把单个进程设成指定优先级档位。
+        ///
+        /// 与 ProcessBindingPage 里的实现刻意不共用：那边操作的是"一组 PID"（按名合并），
+        /// 这边是监听器逐个进程处理，参数形态不同；共用会把两边的模型互相绑死。
+        /// 档位字符串必须与 ProcessBindingPage.PriorityOptions 一致，
+        /// 空串或陌生值直接跳过（旧规则没有这个字段）。
+        /// </summary>
+        private static void ApplyPriority(int pid, string label)
+        {
+            uint cls = label switch
+            {
+                "High" => 0x00000080,
+                "Above Normal" => 0x00008000,
+                "Normal" => 0x00000020,
+                "Below Normal" => 0x00004000,
+                "Low" => 0x00000040,
+                _ => 0,
+            };
+
+            if (cls == 0)
+                return;
+
+            IntPtr handle = OpenProcess(0x0200 /* PROCESS_SET_INFORMATION */, false, pid);
+
+            // 拿不到句柄通常是权限不足（系统进程）或进程已退出 ——
+            // 两种都不值得记 Warn：后台每次开机都会碰到几十个系统进程。
+            if (handle == IntPtr.Zero)
+                return;
+
+            try
+            {
+                if (SetPriorityClass(handle, cls))
+                    LogService.Info($"已设置优先级 PID {pid} → {label}");
+            }
+            catch
+            {
+                // 单条失败不影响绑核结果
+            }
+            finally
+            {
+                CloseHandle(handle);
+            }
+        }
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetPriorityClass(IntPtr hProcess, uint priorityClass);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr OpenProcess(uint access, bool inheritHandle, int processId);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr handle);
 
         /// <summary>
         /// 按进程名找规则，返回 null 表示无需绑定（无规则 / 被禁用 / 目标为 None）。

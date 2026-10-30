@@ -29,6 +29,81 @@ ZenForge 各版本改动记录。安装包与 Release 正文均以本文件为�
 
 程序内部（日志、关于信息）显示的版本取自 `AssemblyInformationalVersion`，带后缀；资源管理器「属性 → 详细信息」里的文件版本是四段数字。两者一对照就能确定这个包是第几次发版。
 
+### 1.0.0-can5
+
+两个处理器级新旋钮、优先级可下发、配置页界面落地，以及日志页与设置页返工。
+另修正上一版误打成自包含、体积膨胀到 64 MB 的发布错误。
+
+**0. 打包修正：64 MB → 1.16 MB**
+
+`SelfContained` 在 csproj 里写的是 `false`，但发布命令带了 `--self-contained true`，
+命令行覆盖项目设置，把整个 .NET 10 桌面运行时（解压后约 155 MB）塞进了单文件。
+
+修正后两条约束固化进项目文件：发布一律 `--no-self-contained`；
+`DebugType` 在 Release 下强制 `none`（原本 `embedded`，符号表跟着程序集进单文件白占体积）。
+结果 `ZenForge.exe` 1.16 MB / zip 509 KB，与 0.8.x 同量级。
+
+**1. 升频模式与核心停放（新文件 `Services/ProcessorPowerTuning.cs`）**
+
+与四档电源策略（`ProcessorPowerPolicy`）**并列的独立旋钮**，互不覆盖。
+
+`PERFBOOSTMODE` 写的是 Windows 电源计划里的处理器性能提升模式，五档：
+积极且高效 4 / 积极 2 / 高效 3 / 已启用 1 / 已停用 0。
+坑在于它是**枚举不是位标志**：4 看着像位组合的结果，但用 `[Flags]` 按位或算出 6 写进去，
+系统当非法值忽略。所以枚举刻意不标 `[Flags]`。
+
+`CPMINMAX` 是**范围型索引**，注册表里三条 DWORD：`Attributes=1` / `Min` / `Max`。
+只改 `Max` 不改 `Min`，新 `Max` 一旦小于旧 `Min` 范围就非法，Windows 不报错、**静默回落默认**。
+因此 `Min` 与 `Max` 永远同写同改。
+另需区分实时值与意图值：`PowerReadACValueIndex` 读到的是内核按当前负载算的实时值，
+用户设定值只在 `HKLM\...\Control\Power\PowerSettings\<子组>\<索引>` 下。
+
+注册表走 `Microsoft.Win32.Registry` 而非 P/Invoke `advapi32`——`RegQueryValueEx`
+的 type / size 两个 out 参数填错会静默读到 0。
+
+**2. 进程优先级可下发**
+
+优先级由只读文本改为下拉（与核心掩码一致）。运行中进程选中即生效；
+已保存规则改完点「应用」，`ProcessWatcher` 在新实例启动时按规则补下发——
+否则「设了 High → 重启游戏」优先级永远不会被重新应用。
+
+`BindingRule.Priority` 默认空串表示「不碰优先级」，旧配置升级后不会被强改成 Normal。
+`RealTime` 不提供：它高于系统输入线程，一个忙等进程就能让鼠标键盘失去响应。
+
+**3. 配置页界面（仅版式，功能未实装）**
+
+场景自动切换（总开关 + 触发规则列表）、总体配置方案（列表 + 保存 / 切换 + 当前生效标识）、
+调校规则库与调度规则库双列且**严格等高**（`VerticalAlignment="Stretch"`）。
+虚线新建按钮用 `Rectangle` + `StrokeDashArray="3 3"`，`Border` 不支持虚线边框。
+所有交互走 `NotImplemented_Click` 只弹提示。
+
+**4. 日志页**
+
+- 三个按钮移到 pill 同一行（同一 Grid 两列，天然等高）。
+- 「暂停」改为**暂停日志记录**，且是**真暂停**：`Write()` 入口直接 return，文件也不再写。
+  旧版只冻结界面、磁盘照写。`Critical` 例外——程序要坏了不能静默丢日志。
+- 卡顿根因不是渲染，是每来一条日志就全量遍历重算级别计数。改为写入路径增量计数，O(1)。
+  上限 2000 → 800，裁剪批次 256 → 128。
+- 列序「级别 → 时间 → 正文」，时间列 84 → 78。
+
+**5. 设置页**
+
+主题模式与强调色并排一行，各带说明；仅强调色选「自定义」时在第二行展开滑杆与输入框。
+`CardTitleStyle` 统一加 `Margin="0,0,0,18"` 拉开标题与正文，行距统一 22。
+
+**6. 其它**
+
+- 托盘右键菜单改实色：`ContextMenu` 的 Popup 是 `AllowsTransparency=True`，
+  系统不在其后画任何东西，用 `Card.Background`（3% 白）等于直接透出壁纸。
+  新增 `Menu.Background` / `Menu.Border`。
+- 警告标识贴到最左。
+- 「应用全部」去掉确认弹窗，改 Toast —— 操作可逆且有回读校验，弹窗只是挡路。
+- CPU 名拆分：主行 `AMD Ryzen 9 9955HX`，副行 `16-Core Processor · SMU 108`。
+  9 组真实型号验证，含型号数字与核心数粘连（`7945HX16-Core`）不拆的情况。
+- 副行里的 `SMU 版本` 降级为参考信息。它能证明 SMU 通道通着，但**不能用来判断 CO / FMax 是否生效**——
+  同主版本 SMU 在不同主板上的 CO 可用范围、FMax 上限可以完全不同。
+  要确认写入落地，看回读校验和实际频率。
+
 ### 1.0.0-can3
 
 色彩解耦 + 崩溃修复 + 四项 UI 交互重构。本版最重要的一件事不是加了什么界面，

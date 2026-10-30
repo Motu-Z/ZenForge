@@ -41,6 +41,18 @@ namespace ZenForge.Helpers
         public string Path { get; set; } = string.Empty;
 
         /// <summary>
+        /// 随规则一起保存的优先级档位（High / Above Normal / Normal / Below Normal / Low）。
+        ///
+        /// 空字符串表示「这条规则不碰优先级」，只有掩码调度 —— 旧配置文件没有这个字段，
+        /// 反序列化后就是空串，行为与升级前完全一致。
+        ///
+        /// 为什么优先级要跟着规则存：只存掩码的话，用户把游戏设成 High + CCD0，
+        /// 下次游戏启动时 ProcessWatcher 只恢复掩码，优先级又变回 Normal，
+        /// 用户会以为「设置没保存」。跟着规则存才能让「一条规则 = 一套完整调度」成立。
+        /// </summary>
+        public string Priority { get; set; } = string.Empty;
+
+        /// <summary>
         /// 该规则是否启用。关闭后记录仍然保留，但后台监听不会自动绑定，
         /// 适合「先存着、暂时不想生效」的场景。默认启用（旧配置文件缺此字段时也为启用）。
         /// </summary>

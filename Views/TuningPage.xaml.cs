@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using ZenForge.Helpers;
@@ -57,6 +58,11 @@ namespace ZenForge.Views
                 // 电源计划策略与 SMU 探测互不依赖：SMU 失败（非 AMD / 未装驱动）时
                 // 电源策略照样可读，所以单独一趟，不能塞进 ApplySnapshot。
                 LoadPowerPlanPolicy();
+
+                // 升频模式与核心停放同样是纯 Windows 电源管理读取，
+                // 与 SMU 无关，各自独立加载；某一项读不到不影响其他两项。
+                LoadBoostMode();
+                LoadCoreParking();
             };
         }
 
@@ -190,11 +196,77 @@ namespace ZenForge.Views
             return false;
         }
 
+        /// <summary>
+        /// 把 SMU 返回的 cpuName 拆成「型号」与「规格」两段。
+        ///
+        /// 输入形如：
+        ///   AMD Ryzen 9 9955HX 16-Core Processor
+        ///   AMD Ryzen 7 7735HS with Radeon Graphics
+        ///   AMD EPYC 7763 64-Core Processor
+        /// 输出：
+        ///   model = "AMD Ryzen 9 9955HX" / spec = "16-Core Processor"
+        ///   model = "AMD Ryzen 7 7735HS" / spec = "with Radeon Graphics"
+        ///
+        /// 拆分点是「第一个数字开头、且后面以 -Core / -Thread 开头的词」。
+        /// 不能简单地按第一个数字切：型号本身带数字（9955HX、7735HS），
+        /// 也不能按空格数切： "Ryzen 9" 和 "Ryzen" 两代命名都不一样。
+        /// 匹配不到就整串当型号、规格留空 —— 宁可少显示半行，不要显示错位的半行。
+        /// </summary>
+        private static void SplitCpuName(string raw, out string model, out string spec)
+        {
+            model = raw.Trim();
+            spec = string.Empty;
+
+            if (string.IsNullOrEmpty(model))
+                return;
+
+            // 从右往左找最后一个「N-Core」/「N-Thread」/「with xxx」片段：
+            // 规格总在尾部，型号在前，从右找不会误切到 "Ryzen 9" 里的 9。
+            Match match = Regex.Match(
+                model,
+                @"^(?<model>.+?)\s+(?<spec>(?:\d+-(?:Core|Thread)\b.*|with\b.*))$",
+                RegexOptions.IgnoreCase);
+
+            if (match.Success)
+            {
+                model = match.Groups["model"].Value.Trim();
+                spec = match.Groups["spec"].Value.Trim();
+            }
+        }
+
+        /// <summary>
+        /// 副行文案：规格 · SMU 版本。
+        /// 规格拿不到时只显示 SMU；两者都没有时给一句「处理器已识别」，
+        /// 避免副行整行空白，让卡片看起来像没填完。
+        /// </summary>
+        private static string ComposeSubLine(string spec, string smuVersion)
+        {
+            string smu = string.IsNullOrWhiteSpace(smuVersion) ? string.Empty : $"SMU {smuVersion}";
+
+            if (!string.IsNullOrWhiteSpace(spec) && smu.Length > 0)
+                return $"{spec} · {smu}";
+
+            if (!string.IsNullOrWhiteSpace(spec))
+                return spec;
+
+            if (smu.Length > 0)
+                return smu;
+
+            return "处理器已识别";
+        }
+
         private void ApplySnapshot(SmuSnapshot snapshot)
         {
-            // 页头只保留 CPU 型号一行（副标题的规格说明已移除，界面极简化）
+            // 页头两行：主行只放型号，副行放「核心规格 · SMU 版本」。
+            // SMU 返回的 cpuName 是 "AMD Ryzen 9 9955HX 16-Core Processor"，
+            // 型号和规格混在一行，18px 下会顶到右边的按钮组；拆开后各归各位。
             if (!string.IsNullOrWhiteSpace(snapshot.CpuName))
-                CpuNameText.Text = snapshot.CpuName;
+            {
+                SplitCpuName(snapshot.CpuName, out string model, out string spec);
+
+                CpuNameText.Text = model;
+                CpuSubText.Text = ComposeSubLine(spec, snapshot.SmuVersion);
+            }
 
             SetSmuState(SmuUiState.Ready, $"SMU {snapshot.SmuVersion} · {snapshot.SmuType}");
 
@@ -204,13 +276,16 @@ namespace ZenForge.Views
             if (totalCores > 0 && CoreBoxes.Count != totalCores)
                 BuildCoreGrid(totalCores, coresPerCcd);
 
-            // 副行与网格提示（v12 新增的两处文字位）：
-            // 副行给「拓扑概览」，网格提示给「输入范围 + 当前读取情况」，
-            // 两者都是只读描述，不参与任何写入逻辑。
+            // 网格提示（v12 新增的文字位）给「输入范围 + 当前读取情况」，
+            // 只读描述，不参与任何写入逻辑。
+            //
+            // 【为什么副行不在这里写拓扑】
+            // 用户要的副行格式是「16-Core Processor · SMU xxx」—— 核心数由 CPU 型号
+            // 后缀直接给出，再补一句「16 核 · 2 个 CCD · 每 CCD 8 核」是同一件事说两遍，
+            // 而且两处数字一旦不一致（比如 cpuName 里写 16 核、拓扑读到 8 核）
+            // 用户会不知道该信哪个。拓扑明细留给 CoreGridHint 和 SMU 自检报告。
             if (totalCores > 0)
             {
-                int ccdCount = (int)Math.Ceiling(totalCores / (double)coresPerCcd);
-                CpuSubText.Text = $"{totalCores} 核 · {ccdCount} 个 CCD · 每 CCD {coresPerCcd} 核";
                 CoreGridHint.Text = $"共 {totalCores} 个核心，每格对应一个物理核心；负值降压、正值加压，留“--”表示不写入。";
             }
             int filled = 0;
@@ -442,6 +517,352 @@ namespace ZenForge.Views
             LogService.Warn($"电源计划策略不可用：{reason}");
         }
 
+        // ---------- 升频模式 ----------
+
+        /// <summary>回填升频模式时屏蔽 SelectionChanged（同 PlanCombo 的理由）。</summary>
+        private bool _suppressBoostEvent;
+
+        /// <summary>当前实际升频模式；null = 系统值不在预设表里。</summary>
+        private ProcessorPowerTuning.BoostMode? _boostCurrent;
+
+        /// <summary>
+        /// 读升频模式并回填下拉框。
+        ///
+        /// 读不到就禁用并写清原因（可能是虚拟机、或被 OEM 精简掉的方案），
+        /// 不显示一个「看起来能点但点了什么都没发生」的下拉框。
+        /// </summary>
+        private void LoadBoostMode()
+        {
+            if (!ProcessorPowerTuning.TryReadBoost(out uint raw, out string error))
+            {
+                SetBoostUnavailable(error);
+                return;
+            }
+
+            if (raw == uint.MaxValue)
+            {
+                // 索引存在但没设定值：这是合法状态，Windows 会按方案默认走。
+                _boostCurrent = null;
+                SetBoostSelection(-1, "系统默认");
+                BoostHint.Text = "当前方案未单独设定升频模式，沿用系统默认行为。选中任一模式即可覆盖。";
+                BoostCombo.IsEnabled = true;
+                return;
+            }
+
+            _boostCurrent = FindBoostMode(raw);
+            if (_boostCurrent == null)
+            {
+                SetBoostSelection(-1, $"未知（{raw}）");
+                BoostHint.Text = $"系统返回了预设之外的升频值（{raw}），可能由其他软件写入。选中任一模式即可覆盖。";
+                BoostCombo.IsEnabled = true;
+                return;
+            }
+
+            ApplyBoostToUi(_boostCurrent.Value);
+            BoostHint.Text = BoostHintFor(_boostCurrent.Value);
+            BoostCombo.IsEnabled = true;
+        }
+
+        /// <summary>数值 → 枚举。位掩码值必须精确匹配，不做模糊归类。</summary>
+        private static ProcessorPowerTuning.BoostMode? FindBoostMode(uint raw)
+        {
+            foreach ((ProcessorPowerTuning.BoostMode mode, _, _) in ProcessorPowerTuning.BoostOptions)
+            {
+                if ((uint)mode == raw)
+                    return mode;
+            }
+
+            return null;
+        }
+
+        /// <summary>枚举 → 下拉框序号。顺序必须与 XAML 里的 ComboBoxItem 一致。</summary>
+        private static int BoostIndex(ProcessorPowerTuning.BoostMode mode) => mode switch
+        {
+            ProcessorPowerTuning.BoostMode.AggressiveEfficient => 0,
+            ProcessorPowerTuning.BoostMode.Aggressive => 1,
+            ProcessorPowerTuning.BoostMode.Enabled => 2,
+            ProcessorPowerTuning.BoostMode.Efficient => 3,
+            ProcessorPowerTuning.BoostMode.Disabled => 4,
+            _ => -1,
+        };
+
+        private static string BoostHintFor(ProcessorPowerTuning.BoostMode mode)
+        {
+            foreach ((ProcessorPowerTuning.BoostMode item, _, string hint) in ProcessorPowerTuning.BoostOptions)
+            {
+                if (item == mode)
+                    return hint;
+            }
+
+            return string.Empty;
+        }
+
+        private void ApplyBoostToUi(ProcessorPowerTuning.BoostMode mode)
+        {
+            SetBoostSelection(BoostIndex(mode), null);
+        }
+
+        /// <summary>改选中项并屏蔽事件。<paramref name="displayText"/> 非空时用它覆盖显示文本（自定义态）。</summary>
+        private void SetBoostSelection(int index, string? displayText)
+        {
+            _suppressBoostEvent = true;
+            try
+            {
+                BoostCombo.SelectedIndex = index;
+                if (displayText != null)
+                    BoostCombo.Text = displayText;
+            }
+            finally
+            {
+                _suppressBoostEvent = false;
+            }
+        }
+
+        private void SetBoostUnavailable(string reason)
+        {
+            SetBoostSelection(-1, string.Empty);
+            BoostCombo.IsEnabled = false;
+            BoostHint.Text = $"当前系统无法读取升频模式：{reason}";
+            LogService.Warn($"升频模式不可用：{reason}");
+        }
+
+        private async void BoostCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_suppressBoostEvent || !IsLoaded)
+                return;
+
+            ProcessorPowerTuning.BoostMode? target = BoostCombo.SelectedIndex switch
+            {
+                0 => ProcessorPowerTuning.BoostMode.AggressiveEfficient,
+                1 => ProcessorPowerTuning.BoostMode.Aggressive,
+                2 => ProcessorPowerTuning.BoostMode.Enabled,
+                3 => ProcessorPowerTuning.BoostMode.Efficient,
+                4 => ProcessorPowerTuning.BoostMode.Disabled,
+                _ => null,
+            };
+
+            if (target == null || _boostCurrent == target)
+                return;
+
+            string label = ProcessorPowerTuning.BoostLabel((uint)target.Value);
+            string previousHint = BoostHint.Text;
+
+            BoostCombo.IsEnabled = false;
+            BoostHint.Text = $"正在应用「{label}」…";
+
+            PowerPlanResult result;
+            try
+            {
+                ProcessorPowerTuning.BoostMode mode = target.Value;
+                result = await System.Threading.Tasks.Task.Run(() => ProcessorPowerTuning.WriteBoost(mode));
+            }
+            catch (Exception ex)
+            {
+                result = PowerPlanResult.Fail("升频模式", ex.Message);
+            }
+
+            BoostCombo.IsEnabled = true;
+
+            if (!result.Ok)
+            {
+                LogService.Warn($"升频模式写入失败（{result.Setting}，目标 {label}）：{result.Error}");
+
+                // 回滚 UI 到系统真实值，否则界面显示的值与硬件不一致
+                if (_boostCurrent is ProcessorPowerTuning.BoostMode actual)
+                    ApplyBoostToUi(actual);
+                else
+                    BoostCombo.SelectedIndex = -1;
+
+                BoostHint.Text = previousHint;
+                ToastService.Error($"无法应用升频模式「{label}」：{result.Error}");
+                return;
+            }
+
+            _boostCurrent = target.Value;
+            BoostHint.Text = BoostHintFor(target.Value);
+            LogService.Info($"升频模式已切换为「{label}」");
+            ToastService.Success($"升频模式：{label}");
+        }
+
+        // ---------- 核心停放 ----------
+
+        /// <summary>回填滑杆时屏蔽 ValueChanged 的闸门。</summary>
+        private bool _suppressParkingEvent;
+
+        /// <summary>当前生效的停放上限（读失败为 null，此时控件禁用）。</summary>
+        private uint? _parkingCurrent;
+
+        /// <summary>
+        /// 读核心停放上限并回填滑杆与输入框。
+        ///
+        /// 用注册表读而不是 PowerReadACValueIndex，理由见
+        /// <see cref="ProcessorPowerTuning.TryReadCoreParking"/>：
+        /// 范围型索引的「用户设定值」只在注册表里，API 返回的可能是被系统临时调整后的实时值。
+        /// </summary>
+        private void LoadCoreParking()
+        {
+            if (!ProcessorPowerTuning.TryReadCoreParking(out uint percent, out string error))
+            {
+                _parkingCurrent = null;
+                ParkingSlider.IsEnabled = false;
+                ParkingBox.IsEnabled = false;
+                ParkingHint.Text = $"当前系统无法读取核心停放：{error}";
+                LogService.Warn($"核心停放不可用：{error}");
+                return;
+            }
+
+            _parkingCurrent = percent;
+
+            _suppressParkingEvent = true;
+            try
+            {
+                ParkingSlider.Value = percent;
+                ParkingBox.Text = percent.ToString();
+            }
+            finally
+            {
+                _suppressParkingEvent = false;
+            }
+
+            ParkingSlider.IsEnabled = true;
+            ParkingBox.IsEnabled = true;
+            ParkingHint.Text = ProcessorPowerTuning.ParkingHint(percent);
+        }
+
+        /// <summary>
+        /// 拖滑杆：只同步输入框与文案，不写系统。
+        ///
+        /// 【为什么不边拖边写】拖动一次会产生几十次 ValueChanged，
+        /// 每次都写注册表 + 重新激活电源方案，等于把 powrprof 当成动画帧回调，
+        /// 界面会明显掉帧，系统电源服务也被反复打扰。
+        /// 落盘的时机是「松手」——由 <see cref="ParkingSlider_PreviewMouseUp"/> 触发；
+        /// 键盘微调（方向键）则由 Thumb 之外的 KeyUp 走同一路径。
+        /// </summary>
+        private void ParkingSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppressParkingEvent)
+                return;
+
+            uint value = (uint)Math.Round(e.NewValue);
+
+            _suppressParkingEvent = true;
+            try
+            {
+                ParkingBox.Text = value.ToString();
+            }
+            finally
+            {
+                _suppressParkingEvent = false;
+            }
+
+            ParkingHint.Text = ProcessorPowerTuning.ParkingHint(value) + "（松开鼠标后生效）";
+        }
+
+        /// <summary>松手才提交滑杆的值。</summary>
+        private void ParkingSlider_PreviewMouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            _ = CommitParkingAsync((uint)Math.Round(ParkingSlider.Value));
+        }
+
+        /// <summary>输入框回车：提交并同步滑杆。</summary>
+        private void ParkingBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key != System.Windows.Input.Key.Enter)
+                return;
+
+            e.Handled = true;
+            CommitFromBox();
+        }
+
+        /// <summary>输入框失焦：值合法就提交，不合法就还原成当前值。</summary>
+        private void ParkingBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            CommitFromBox();
+        }
+
+        private void CommitFromBox()
+        {
+            if (!uint.TryParse(ParkingBox.Text, out uint value) || value > 100)
+            {
+                // 非法输入不弹窗：直接把框还原成系统当前值，
+                // 用户会立刻看到「输入没被接受」，比弹一个提示再关掉更快。
+                ParkingBox.Text = (_parkingCurrent ?? 0).ToString();
+                if (_parkingCurrent is uint current)
+                    ParkingHint.Text = ProcessorPowerTuning.ParkingHint(current);
+                return;
+            }
+
+            // 滑杆跟着框走，保持两者一致（框允许输入 5 的倍数以外的值）
+            _suppressParkingEvent = true;
+            try
+            {
+                ParkingSlider.Value = value;
+            }
+            finally
+            {
+                _suppressParkingEvent = false;
+            }
+
+            _ = CommitParkingAsync(value);
+        }
+
+        /// <summary>
+        /// 把停放上限写到系统。
+        ///
+        /// 写入是「改注册表 + 重新激活方案」，几十毫秒量级，放后台线程；
+        /// 期间禁用两个控件，避免连续拖动堆起多个并发写入（后一个的结果会覆盖前一个的提示）。
+        /// </summary>
+        private async System.Threading.Tasks.Task CommitParkingAsync(uint value)
+        {
+            if (_parkingCurrent == value)
+                return;
+
+            uint previous = _parkingCurrent ?? value;
+
+            ParkingSlider.IsEnabled = false;
+            ParkingBox.IsEnabled = false;
+            ParkingHint.Text = $"正在应用 {value}%…";
+
+            PowerPlanResult result;
+            try
+            {
+                result = await System.Threading.Tasks.Task.Run(() => ProcessorPowerTuning.WriteCoreParking(value));
+            }
+            catch (Exception ex)
+            {
+                result = PowerPlanResult.Fail("核心停放", ex.Message);
+            }
+
+            ParkingSlider.IsEnabled = true;
+            ParkingBox.IsEnabled = true;
+
+            if (!result.Ok)
+            {
+                LogService.Warn($"核心停放写入失败（目标 {value}%）：{result.Error}");
+
+                // 回滚到写入前的值
+                _suppressParkingEvent = true;
+                try
+                {
+                    ParkingSlider.Value = previous;
+                    ParkingBox.Text = previous.ToString();
+                }
+                finally
+                {
+                    _suppressParkingEvent = false;
+                }
+
+                ParkingHint.Text = ProcessorPowerTuning.ParkingHint(previous);
+                ToastService.Error($"无法设置核心停放：{result.Error}");
+                return;
+            }
+
+            _parkingCurrent = value;
+            ParkingHint.Text = ProcessorPowerTuning.ParkingHint(value);
+            LogService.Info($"核心停放上限已设为 {value}%");
+            ToastService.Success($"核心停放：{value}%");
+        }
+
         // ---------- 控件交互 ----------
 
         /// <summary>
@@ -521,18 +942,19 @@ namespace ZenForge.Views
             if (_busy || !TryCollectInputs(out int[]? margins, out uint fmax))
                 return;
 
-            // 版式与 NvForge 的 V/F 确认窗保持一致：
-            // 标题句 + 空行 + 每项一行（不加「·」前缀）+ 空行 + 一句后果。
-            // CO 偏移给大了确实会黑屏/掉电重启，所以风险句保留，且只说这一次。
-            bool confirmed = DarkDialog.Confirm(
-                $"即将应用以下设置：\n\n" +
-                $"Curve Optimizer：{margins!.Count(v => v != int.MinValue)} 个核心\n" +
-                $"FMax：{fmax} MHz\n\n" +
-                $"若发生黑屏或闪退，重启电脑即可复原。",
-                "应用");
+            // 【为什么不再弹确认框】
+            // 这个弹窗原本是「写 SMU 前的最后一道闸」，但它拦不住任何真实错误：
+            // 点「确定」和点「应用全部」之间没有任何额外信息，用户读完那句话
+            // 仍然只能选「确定」。真正的保护在下游 —— 写入失败会回滚并报错，
+            // 黑屏也能重启恢复。留一个纯仪式感的确认框，只是每次都要多点一下。
+            // 改成一条 Toast 把「即将写什么」告诉用户，风险句挪到按钮的
+            // ToolTip 与提示文案里，需要看的人随时能看到。
+            int activeCores = margins!.Count(v => v != int.MinValue);
 
-            if (confirmed)
-                _ = ApplyAllAsync(margins!, fmax);
+            LogService.Info($"开始下发：CO {activeCores} 个核心，FMax {fmax} MHz");
+            ToastService.Info($"正在写入 CO（{activeCores} 核）与 FMax {fmax} MHz…");
+
+            _ = ApplyAllAsync(margins!, fmax);
         }
 
         /// <summary>收集 CO 与 FMax 两组输入；任一不合法就提示并返回 false。</summary>

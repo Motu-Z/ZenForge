@@ -33,7 +33,11 @@
     -->
 
     <Page.Resources>
-        <!-- 五列配比：进程名 1.5 / 路径 2 / 占用 80 / 掩码 120 / 优先级 100。
+        <!-- 五列配比：进程名 1* / 路径 4* / 占用 80 / 掩码 120 / 优先级 110。
+             进程名与路径的 1:4 是「20% / 80%」：
+               进程名极少超过 20 个字符（图片里最长的 HRInstMonitor.exe 也就 20 个），
+               给到 1.5* 会在名字后留下大片空白，而路径被挤到只剩一半可见 ——
+               比例反过来才是对的，路径才是需要宽度的那个。
              表头与数据行各自复制一份 —— Grid.ColumnDefinitions 不能共享实例，
              但数值保持一致即可，这是 WPF 里对齐两套独立 Grid 的标准做法。 -->
         <Style x:Key="ProcRowGridStyle" TargetType="Grid">
@@ -144,20 +148,20 @@
                     <!-- 自绘表头 -->
                     <Grid Margin="0,0,0,10">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="1.5*"/>
-                            <ColumnDefinition Width="2*"/>
+                            <ColumnDefinition Width="1*"/>
+                            <ColumnDefinition Width="4*"/>
                             <ColumnDefinition Width="80"/>
                             <ColumnDefinition Width="120"/>
-                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="110"/>
                         </Grid.ColumnDefinitions>
                         <Border Grid.ColumnSpan="5" Padding="12,0">
                             <Grid>
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="1.5*"/>
-                                    <ColumnDefinition Width="2*"/>
+                                    <ColumnDefinition Width="1*"/>
+                                    <ColumnDefinition Width="4*"/>
                                     <ColumnDefinition Width="80"/>
                                     <ColumnDefinition Width="120"/>
-                                    <ColumnDefinition Width="100"/>
+                                    <ColumnDefinition Width="110"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="进程名" Style="{StaticResource TableHeaderTextStyle}"/>
                                 <TextBlock Grid.Column="1" Text="路径"   Style="{StaticResource TableHeaderTextStyle}"/>
@@ -200,11 +204,11 @@
                                                 MouseLeftButtonDown="ProcessRow_MouseLeftButtonDown">
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="1.5*"/>
-                                                    <ColumnDefinition Width="2*"/>
+                                                    <ColumnDefinition Width="1*"/>
+                                                    <ColumnDefinition Width="4*"/>
                                                     <ColumnDefinition Width="80"/>
                                                     <ColumnDefinition Width="120"/>
-                                                    <ColumnDefinition Width="100"/>
+                                                    <ColumnDefinition Width="110"/>
                                                 </Grid.ColumnDefinitions>
 
                                                 <TextBlock Grid.Column="0"
@@ -238,11 +242,31 @@
                                                           DropDownOpened="TargetCombo_DropDownOpened"
                                                           DropDownClosed="TargetCombo_DropDownClosed"/>
 
-                                                <!-- 优先级：只读展示，不做下拉。理由见代码注释。 -->
-                                                <TextBlock Grid.Column="4"
-                                                           Text="{Binding PriorityText}"
-                                                           Style="{StaticResource TableCellSubStyle}"
-                                                           ToolTip="只读：显示进程当前的基础优先级，暂不支持修改"/>
+                                                <!-- 优先级：与掩码同款下拉。
+                                                     【为什么以前只读、现在能改】
+                                                     早期担心「把忙等型进程提到 High 会把桌面饿死」——
+                                                     那是 RealTime 才有的问题。下拉里最高只到
+                                                     High，且 Windows 自带的任务管理器本来就能改，
+                                                     拦着不给改只是让用户去任务管理器绕一圈。
+                                                     选项里刻意不给 RealTime：它高于系统输入线程，
+                                                     一旦给了就会有人去试，然后发现鼠标卡住。
+
+                                                     选中即生效（不需要再按「应用」）——
+                                                     优先级只作用于进程当前实例，不落盘、不进规则，
+                                                     进程退出后自然回到默认，没有「半套状态」的风险。 -->
+                                                <ComboBox Grid.Column="4"
+                                                          ItemsSource="{Binding Source={x:Static local:ProcessBindingPage.PriorityOptions}}"
+                                                          SelectedItem="{Binding PrioritySelection, Mode=TwoWay}"
+                                                          Height="28"
+                                                          FontSize="12"
+                                                          Padding="8,0"
+                                                          MinWidth="0"
+                                                          Margin="0,0,10,0"
+                                                          HorizontalAlignment="Stretch"
+                                                          VerticalAlignment="Center"
+                                                          ToolTip="{Binding PriorityHint}"
+                                                          DropDownOpened="PriorityCombo_DropDownOpened"
+                                                          DropDownClosed="PriorityCombo_DropDownClosed"/>
                                             </Grid>
                                         </Border>
                                         <DataTemplate.Triggers>
@@ -311,11 +335,13 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="176"/>
+                                    <ColumnDefinition Width="150"/>
                                     <ColumnDefinition Width="264"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="进程名" Style="{StaticResource TableHeaderTextStyle}"/>
                                 <TextBlock Grid.Column="1" Text="核心掩码" Style="{StaticResource TableHeaderTextStyle}"/>
-                                <TextBlock Grid.Column="2" Text="操作" Style="{StaticResource TableHeaderTextStyle}"/>
+                                <TextBlock Grid.Column="2" Text="优先级" Style="{StaticResource TableHeaderTextStyle}"/>
+                                <TextBlock Grid.Column="3" Text="操作" Style="{StaticResource TableHeaderTextStyle}"/>
                             </Grid>
                         </Border>
                     </Grid>
@@ -336,6 +362,7 @@
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*"/>
                                                     <ColumnDefinition Width="176"/>
+                                                    <ColumnDefinition Width="150"/>
                                                     <ColumnDefinition Width="264"/>
                                                 </Grid.ColumnDefinitions>
 
@@ -365,8 +392,22 @@
                                                           VerticalAlignment="Center"
                                                           ToolTip="切换后点右侧「应用」才会生效"/>
 
+                                                <!-- 优先级：与运行中进程同款下拉，但这里是「保存的下次值」，
+                                                     改完要点右侧「应用」才落盘并下发 —— 与掩码的行为一致。 -->
+                                                <ComboBox Grid.Column="2"
+                                                          ItemsSource="{Binding Source={x:Static local:ProcessBindingPage.PriorityOptions}}"
+                                                          SelectedItem="{Binding PrioritySelection, Mode=TwoWay}"
+                                                          Height="28"
+                                                          FontSize="12"
+                                                          Padding="8,0"
+                                                          MinWidth="0"
+                                                          Margin="0,0,10,0"
+                                                          HorizontalAlignment="Stretch"
+                                                          VerticalAlignment="Center"
+                                                          ToolTip="切换后点右侧「应用」才会生效"/>
+
                                                 <!-- 三个按钮等宽等高、间距均匀 -->
-                                                <StackPanel Grid.Column="2"
+                                                <StackPanel Grid.Column="3"
                                                             Orientation="Horizontal"
                                                             VerticalAlignment="Center"
                                                             HorizontalAlignment="Left">
