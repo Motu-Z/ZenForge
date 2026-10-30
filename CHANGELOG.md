@@ -29,6 +29,81 @@ ZenForge 各版本改动记录。安装包与 Release 正文均以本文件为�
 
 程序内部（日志、关于信息）显示的版本取自 `AssemblyInformationalVersion`，带后缀；资源管理器「属性 → 详细信息」里的文件版本是四段数字。两者一对照就能确定这个包是第几次发版。
 
+### 1.0.0-can9
+
+修三件「用起来就是不行」的事：进程列表不刷新、部分进程设不了优先级、搜索框错位。
+
+**1. 进程列表永远不刷新（日志满屏「调用线程必须为 STA」）**
+
+采样本身一直是对的，错在「把数据送回去」的那一步。
+
+`OnProcessesRefreshed` 由采样线程调用，方法体是：
+
+```csharp
+List<GroupedProcess> grouped = await Task.Run(() => GroupEntries(entries));
+ApplySnapshot(grouped);      // ← 以为 await 之后回到了 UI 线程
+```
+
+`async` 只能回到「调用处的 SynchronizationContext」，而采样线程是线程池线程，
+没有这个上下文 —— 于是 `ApplySnapshot` 仍在后台线程上执行，
+去写绑定在 `ItemsControl` 上的 `ObservableCollection`，WPF 立刻抛
+`The calling thread must be STA`。异常被 `catch` 吞成一条 WARN，
+`finally` 又把重入标志清零，下一轮照旧失败。表现就是**每秒一条 WARN + 列表一动不动**。
+
+两处一起改：
+
+- `ProcessRefresher` 的采样循环从 `Task.Run` 改为**专用后台线程，显式 `SetApartmentState(STA)`**。
+  采样与回调整条链路只在一条线程上串行发生，单元状态固定；
+- 页面侧只在后台算分组，**回写一律 `Dispatcher.BeginInvoke`**；
+  重入标志的语义也修正了：以前「忙就丢帧」，现在忙时记一笔，
+  算完补最新那一帧，保证最终画上去的一定是新数据。
+
+顺带：进页面时若首帧还没出来，主动催一次采样，而不是干等 3 秒。
+
+**2. 某些进程设不了优先级（helldivers2.exe 报「权限不足或进程已退出」）**
+
+页面与 `ProcessWatcher` 各有一份 `OpenProcess(0x0200) + SetPriorityClass`。
+两份都只申请了 `PROCESS_SET_INFORMATION`。
+
+`SetPriorityClass` 除了要求 `SET_INFORMATION`，内核还要判定目标是不是受保护进程，
+这一步需要调用方能**查询**目标进程的安全信息。只拿 0x0200 的句柄在这个检查里被拒，
+于是 `OpenProcess` 成功、`SetPriorityClass` 返回 `ERROR_ACCESS_DENIED(5)` ——
+任务管理器能改、我们改不了，差的不是令牌，是句柄上的访问位。
+
+现在统一到 `Services/ProcessPriority.cs`，申请
+`PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION`，
+失败时把 Win32 错误码原文带出来（「拒绝访问（错误 5）」「进程已退出（错误 87）」），
+不再一律写成「权限不足或进程已退出」这种猜出来的话。
+
+**3. 搜索框错位**
+
+进程页的放大镜被占位文字盖住，日志页的输入起点偏右。根因是同一个数字被用在两个坐标系里：
+
+| 位置 | 数值 | 所在坐标系 |
+| --- | --- | --- |
+| `TextBox.Padding.Left` | 32 | 输入框内部 |
+| 占位符 `Margin.Left`（进程页） | 32 | 外层 Grid（左缘比输入框靠左 24） |
+| 占位符 `Margin.Left`（日志页） | 32 | 已在内侧 Grid，再加一次 |
+
+进程页因此左移 32（压到图标上），日志页因此右移 32（看起来从中间开始）。
+
+按你的要求把两个页面的搜索框代码**整个删掉**重做：抽成 `zenforge:SearchBox`
+控件 + `Themes/SearchBox.xaml` 模板，几何只在模板里存一份
+（10 留白 + 14 图标 + 8 间距 = 32 内缩），占位符与输入框同格同内缩，
+页面拿不到那些数值也就不可能再写错。
+占位符一获得焦点即 `Collapsed`，不会再有「光标插在占位文字里」。
+
+**4. 其它**
+
+- 「核心停放」不可用时只留一句话：**当前电源方案不支持核心停放，此项已停用**。
+  原始错误改为只进日志（之前它被拼进 UI，屏幕上出现
+  「无法读取（当前电源方案不提供核心停放设置。），此项已停用」这种嵌套括号）。
+- 「占用」列排序按显示精度（0.1%）取整后再比，显示相同数值的行不再来回换位。
+- 「核心掩码」列 120 → 150、「优先级」列 110 → 128，自定义掩码名不再被切掉半个字。
+- `tools/xamlcheck.py` 新增第 4 类检查：自定义控件上的属性/事件名是否真实存在
+  （连带修复了命名空间剥离 —— 之前 `{clr-namespace:...}SearchBox` 永远匹配不上，
+  这条检查其实是「假绿」）。
+
 ### 1.0.0-can8
 
 修 can7 的两处运行时崩溃（编译期 0 警告，一打开就炸），并把进程表列宽改为 3:7。
