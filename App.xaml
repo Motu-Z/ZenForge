@@ -1,7 +1,6 @@
 ﻿<Application x:Class="ZenForge.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:sys="clr-namespace:System;assembly=System.Runtime"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
         <ResourceDictionary>
@@ -188,14 +187,25 @@
                  三个数都是 x:Double，改大小只改这一处，Padding 由它们推不出来
                  （XAML 不支持在 Setter 里做算术），所以直接写成 32 并在注释里
                  标明这三个来源；若改图标尺寸，这里必须同比改。 -->
-            <!-- 搜索图标的几何口径。三处（图标列宽 / 图标实际绘制 / 左侧留白）
-                 全部读这三个数，避免"改一个忘两个"。 -->
-            <sys:Double x:Key="SearchIconSize">14</sys:Double>
-            <sys:Double x:Key="SearchIconGap">8</sys:Double>
-            <sys:Double x:Key="SearchIconInset">10</sys:Double>
-            <!-- 占位符的左内缩 = 图标留白 + 图标宽 + 间距。与 SearchBoxStyle 的
-                 Padding.Left 是同一个数，两处必须一起改；放成资源就是为了
-                 至少让它们指向同一个来源，而不是各写一个魔数。 -->
+            <!-- ==================================================================
+                 搜索框几何：为什么不再做成资源
+                 ==================================================================
+                 试过把 10 / 14 / 8 抽成 sys:Double 资源给列宽用，
+                 运行时直接抛「"10" 不是属性 Width 的有效值」——
+                 ColumnDefinition.Width 要的是 GridLength，Double 转不过去
+                 （GridLength 是结构体，没有从 Double 的隐式转换）。
+                 再拆成 GridLength + Double 两套，则同一个"14"存两份，
+                 反而更容易不一致。
+
+                 所以这三个数在页面里直接写字面值，把公式集中写在这里：
+
+                     内缩 = 左留白 10 + 图标 14 + 间距 8 = 32
+
+                 32 同时是 SearchBoxStyle 的 Padding.Left 与占位符左内缩。
+                 改图标大小时要同步改：两个页面的 ColumnDefinition 两处、
+                 Path 宽高两处、SearchBoxStyle 的 Padding、SearchBoxTextInset。 -->
+
+            <!-- 占位符左内缩，与 SearchBoxStyle 的 Padding.Left 同值 -->
             <Thickness x:Key="SearchBoxTextInset">32,0,0,0</Thickness>
 
             <Style x:Key="SearchBoxStyle" TargetType="TextBox" BasedOn="{StaticResource AppTextBoxStyle}">

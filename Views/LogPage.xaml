@@ -173,8 +173,8 @@
              字号多大，光标都不可能落到放大镜上或压住占位文字。 -->
         <Grid Grid.Row="2" Margin="0,0,0,14">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="{StaticResource SearchIconInset}"/>
-                <ColumnDefinition Width="{StaticResource SearchIconSize}"/>
+                <ColumnDefinition Width="10"/>
+                <ColumnDefinition Width="14"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
@@ -182,8 +182,8 @@
                  不再写死 Width/Height。 -->
             <Path Grid.Column="1"
                   x:Name="SearchIcon"
-                  Width="{StaticResource SearchIconSize}"
-                  Height="{StaticResource SearchIconSize}"
+                  Width="14"
+                  Height="14"
                   VerticalAlignment="Center"
                   IsHitTestVisible="False"
                   Stretch="Uniform"

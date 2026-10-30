@@ -347,14 +347,23 @@
                          两块严格二选一：没有功能就不出现任何解释功能怎么用的文字。
                          ============================================================ -->
 
-                    <!-- ===== 状态 A：正常（可读写） ===== -->
-                    <StackPanel x:Name="ParkingEditablePanel">
+                    <!-- ===== 状态 A：正常（可读写） =====
+                         【必须是 Grid 而不是 StackPanel】
+                         这一块是「左文字 / 右控件」两栏，靠 ColumnDefinitions 分栏。
+                         改成 StackPanel 会直接抛 InvalidCastException
+                         （StackPanel 没有 ColumnDefinitions 这个属性），
+                         整页 XAML 加载失败。行 0 = 两栏主体，行 1 = 跨两列的端点说明。 -->
+                    <Grid x:Name="ParkingEditablePanel">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
-                        <StackPanel Grid.Column="0"
+                        <StackPanel Grid.Row="0" Grid.Column="0"
                                     Style="{StaticResource Stack.LabelBlock}"
                                     Margin="0,0,24,0">
                             <TextBlock Text="核心停放" Style="{StaticResource CardRowLabelStyle}"/>
@@ -364,7 +373,7 @@
                         </StackPanel>
 
                         <!-- 数值区：滑杆 / 输入框 / 单位，三者同高同中线 -->
-                        <Grid Grid.Column="1" VerticalAlignment="Center">
+                        <Grid Grid.Row="0" Grid.Column="1" VerticalAlignment="Center">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
@@ -410,10 +419,11 @@
                              与上方说明行隔 8px、字号降一级（L6 元数据）。
                              左内缩 24 与文字块对齐（Grid 第 0 列起点）。 -->
                         <TextBlock x:Name="ParkingScaleHint"
+                                   Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
                                    Text="0% 允许全部核心停放 · 100% 禁止停放"
                                    Style="{StaticResource Text.Meta}"
-                                   Margin="0,8,0,0"/>
-                    </StackPanel>
+                                   Margin="0,10,0,0"/>
+                    </Grid>
 
                     <!-- ===== 状态 B：读不到（整块折叠成提示） ===== -->
                     <StackPanel x:Name="ParkingUnavailablePanel" Visibility="Collapsed">

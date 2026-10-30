@@ -29,6 +29,57 @@ ZenForge 各版本改动记录。安装包与 Release 正文均以本文件为�
 
 程序内部（日志、关于信息）显示的版本取自 `AssemblyInformationalVersion`，带后缀；资源管理器「属性 → 详细信息」里的文件版本是四段数字。两者一对照就能确定这个包是第几次发版。
 
+### 1.0.0-can8
+
+修 can7 的两处运行时崩溃（编译期 0 警告，一打开就炸），并把进程表列宽改为 3:7。
+
+**1. `Grid.ColumnDefinitions` 引发 InvalidCastException，整页加载失败**
+
+把「核心停放」的可编辑区从 `Grid` 改成 `StackPanel` 时，只改了开标签，
+里面的 `ColumnDefinitions` 与两个 `Grid.Column="n"` 全部留着。
+`StackPanel` 没有 `ColumnDefinitions` 这个属性，BAML 一加载就抛
+`Unable to cast object of type 'StackPanel' to type 'Grid'`，
+整个调校页白屏。
+
+改回 `Grid`（这块本来就是「左文字 / 右控件」两栏，必须是 Grid），
+并给它加一行 `RowDefinitions`，把端点说明放到第 1 行跨两列 ——
+这样说明在标题下方，不再是之前的倒序。
+
+**2. `"10"不是属性"Width"的有效值`**
+
+把搜索图标的几何尺寸抽成 `sys:Double` 资源给
+`ColumnDefinition.Width` 用，运行时抛 `ArgumentException`。
+根因是 `ColumnDefinition.Width` 要的是 `GridLength`，
+而 `GridLength` 是结构体，没有从 `Double` 的隐式转换；
+XAML 标记扩展不做跨类型强转。
+
+修法：列宽与图标尺寸直接写字面值，公式集中写在 `App.xaml` 的注释里
+（内缩 = 左留白 10 + 图标 14 + 间距 8 = 32）。
+不再为了「少写一个数」引入一层运行时类型转换风险。
+
+**3. 进程表列宽 3:7**
+
+进程名 / 路径从 `1* / 4*`（20% : 80%）改为 `3* / 7*`（30% : 70%）。
+原比例下进程名只有 20%，`L-Mechrevo.exe` 这类 14 字符的名字被截成
+`L-Mechrevo....`，而路径本来就靠 ToolTip 看完整值，不需要 80%。
+表头与数据行三处 `ColumnDefinitions` 同步改。
+
+**4. 新增 `tools/xamlcheck.py`**
+
+这一版连着两次因为「容器与属性不匹配」在运行时崩溃，而编译期全绿 ——
+说明只靠编译和肉眼过 XAML 不可靠。加一个静态检查脚本，三条规则：
+
+- 资源类型与属性类型是否匹配。难点在 `Width` 同时属于
+  `FrameworkElement`（`Double`）与 `ColumnDefinition`（`GridLength`），
+  只按属性名判断会漏检，必须结合父元素类型 —— 这一条最初写漏了，
+  用测试用例验证后才补上。
+- 容器结构：`StackPanel` 里出现 `Grid.ColumnDefinitions`、
+  非 Grid 父级上写 `Grid.Row` / `Grid.Column`、`Border` 多个子元素、
+  `TextBlock` 写 `Padding`。
+- XML 可解析性。
+
+有输出即返回非 0，可直接接进构建流程。
+
 ### 1.0.0-can7
 
 修复 can6 引入的三处回归，全部来自「加了个显式样式却没 BasedOn」。

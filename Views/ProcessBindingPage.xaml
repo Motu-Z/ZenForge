@@ -11,11 +11,12 @@
       FocusVisualStyle="{x:Null}">
     <!--
         ============================================================
-        进程页版式规格（v13）
+        进程页版式规格（v14）
         ============================================================
         模块一「运行中进程」
           卡头：左 16px 标题 / 右 [搜索框 180×32] [管理掩码] [应用规则]
           自绘表头：5 列 —— 进程名 / 路径 / 占用 / 核心掩码 / 优先级
+                 进程名:路径 = 3:7
           数据行：同一套列宽，hover 铺 6% 白
 
         模块二「已保存规则」
@@ -156,15 +157,15 @@
                                      图标右侧 8px 起算，与图标列不重叠。 -->
                                 <Grid Width="180" Margin="0,0,8,0">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="{StaticResource SearchIconInset}"/>
-                                        <ColumnDefinition Width="{StaticResource SearchIconSize}"/>
+                                        <ColumnDefinition Width="10"/>
+                                        <ColumnDefinition Width="14"/>
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
 
                                     <Path Grid.Column="1"
                                           x:Name="SearchIcon"
-                                          Width="{StaticResource SearchIconSize}"
-                                          Height="{StaticResource SearchIconSize}"
+                                          Width="14"
+                                          Height="14"
                                           VerticalAlignment="Center"
                                           IsHitTestVisible="False"
                                           Stretch="Uniform"
@@ -209,8 +210,8 @@
                     <!-- 自绘表头。Padding 12 与数据行一致，第一列左缘对齐。 -->
                     <Grid Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="1*"/>
-                            <ColumnDefinition Width="4*"/>
+                            <ColumnDefinition Width="3*"/>
+                            <ColumnDefinition Width="7*"/>
                             <ColumnDefinition Width="80"/>
                             <ColumnDefinition Width="120"/>
                             <ColumnDefinition Width="110"/>
@@ -218,8 +219,8 @@
                         <Border Grid.ColumnSpan="5" Padding="12,0">
                             <Grid>
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="1*"/>
-                                    <ColumnDefinition Width="4*"/>
+                                    <ColumnDefinition Width="3*"/>
+                                    <ColumnDefinition Width="7*"/>
                                     <ColumnDefinition Width="80"/>
                                     <ColumnDefinition Width="120"/>
                                     <ColumnDefinition Width="110"/>
@@ -263,8 +264,8 @@
                                                 MouseLeftButtonDown="ProcessRow_MouseLeftButtonDown">
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="1*"/>
-                                                    <ColumnDefinition Width="4*"/>
+                                                    <ColumnDefinition Width="3*"/>
+                                                    <ColumnDefinition Width="7*"/>
                                                     <ColumnDefinition Width="80"/>
                                                     <ColumnDefinition Width="120"/>
                                                     <ColumnDefinition Width="110"/>
