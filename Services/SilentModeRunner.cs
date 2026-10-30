@@ -61,6 +61,12 @@ namespace ZenForge.Services
             ProfileService.Load();
             ScenarioService.Load();
 
+            // 静默实例是场景自动切换的主战场：它常驻后台、没有界面，
+            // 因此这里必须把监听挂起来 —— 界面实例那边反而是可选的。
+            // 进程事件由 ProcessWatcher 承担，电源状态走 PowerStatusWatcher
+            // 的轮询兜底（无消息泵时 SystemEvents 不保证送达）。
+            ScenarioMonitor.Sync();
+
             TuningProfile profile = TuningStore.Profile;
             int[] margins = profile.CurveOptimizer ?? Array.Empty<int>();
             uint fMax = profile.FMaxMHz;

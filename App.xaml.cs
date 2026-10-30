@@ -202,6 +202,8 @@ namespace ZenForge
             // 放在 base.OnStartup 之前，保证窗口构造期间的日志也能被记录。
             EnableVerboseLogIfRequested(e.Args);
 
+            _startupArgs = e.Args;
+
             // ==================== 单实例：先探测 ====================
             // 必须在 base.OnStartup 之前：基类会按 StartupUri 把主窗口造出来并显示，
             // 之后再判断就会先闪一下窗口、白跑一遍页面布局，然后才退出。
@@ -523,6 +525,9 @@ namespace ZenForge
         /// <summary>同一签名异常的弹框次数上限。超了改走 Toast。</summary>
         private const int SameSignatureDialogLimit = 1;
 
+        /// <summary>限流表最多记多少个签名，超了整表清空（与 BumpSignatureTotal 同一口径）。</summary>
+        private const int MaxTrackedSignatures = 256;
+
         /// <summary>
         /// 同签名异常每累计这么多次，补一行计数日志。
         ///
@@ -546,7 +551,7 @@ namespace ZenForge
         {
             lock (_signatureTotal)
             {
-                if (_signatureTotal.Count > 256)
+                if (_signatureTotal.Count > MaxTrackedSignatures)
                     _signatureTotal.Clear();
 
                 _signatureTotal.TryGetValue(signature, out int total);
@@ -642,6 +647,14 @@ namespace ZenForge
                 return;
 
             // ---------- 4. 模态框：同一签名只弹一次，且有频率上限 ----------
+            // 【为什么要给这个表也设上限】
+            // 签名是「类型 + 最内层消息」，而消息里常带变化的值（进程名、路径、句柄号），
+            // 理论上是无界的。_signatureTotal 有 256 条后清空的兜底，这张表原来没有 ——
+            // 一个长期运行的进程攒下几万条签名，就是一条谁也不会去查的慢泄漏。
+            // 清空最多让某个老签名重新获得一次弹框机会，不影响任何限流语义。
+            if (_signatureDialogCount.Count > MaxTrackedSignatures)
+                _signatureDialogCount.Clear();
+
             _signatureDialogCount.TryGetValue(signature, out int shown);
             if (shown >= SameSignatureDialogLimit)
                 return;
@@ -821,6 +834,9 @@ namespace ZenForge
         /// <summary>异常通道是否已挂（1 = 已挂）。</summary>
         private static int _handlersAttached;
 
+        /// <summary>本次启动的原始命令行参数，供延迟到 store 加载之后的自检使用。</summary>
+        private static string[]? _startupArgs;
+
         /// <summary>
         /// 停监听、停采样、收托盘。幂等，任何退出路径重复调用都安全。
         /// </summary>
@@ -974,9 +990,45 @@ namespace ZenForge
             // 的时候就被后台事件触发，那时再读盘就晚了（规则还没进内存）。
             ProfileService.Load();
             ScenarioService.Load();
+
+            // 规则读进来之后才决定监听什么：需要监听哪些输入源取决于规则内容
+            // （只配了电源规则就不该挂进程事件）。Sync 内部幂等，重复调用安全。
+            ScenarioMonitor.Sync();
+
+            RunSelfCheckIfRequested();
         }
 
         /// <summary>命令行 / 环境变量里是否要求详细日志。解析失败一律当作不开启。</summary>
+        /// <summary>
+        /// `-selftest` 时跑一遍场景自动切换的底层自检。
+        ///
+        /// 放在 store 与规则都加载完成之后：自检要读真实的配置才能验证
+        /// 「监听范围与规则内容一致」这类断言，加载之前读到的全是空。
+        ///
+        /// 自检不下发任何硬件（见 ScenarioSelfCheck 的类注释），因此可以安全地在
+        /// 正常启动时跑 —— 它只是多写十几行日志。
+        /// </summary>
+        private static void RunSelfCheckIfRequested()
+        {
+            try
+            {
+                string[]? args = _startupArgs;
+                bool requested = args != null && args.Any(a =>
+                    string.Equals(a, "-selftest", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(a, "--selftest", StringComparison.OrdinalIgnoreCase));
+
+                if (!requested)
+                    return;
+
+                ScenarioSelfCheck.Run();
+            }
+            catch (Exception ex)
+            {
+                // 自检自己出问题绝不能影响启动
+                LogService.Warn($"场景自检执行失败：{ex.Message}");
+            }
+        }
+
         private static void EnableVerboseLogIfRequested(string[]? args)
         {
             try

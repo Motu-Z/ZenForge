@@ -288,6 +288,19 @@ namespace ZenForge.Services
         /// </summary>
         public static void Clear()
         {
+            // 【顺序不能反】
+            // 先同步地清掉待写队列并推进代号，再去做内存清空与删文件。
+            // 原来这两步在 ClearMemory 里，而后台线程走的是 UiContext.Post ——
+            // Post 是异步的，于是「后台删文件的任务」可能比「推进代号」先跑完，
+            // 写盘线程趁这个窗口把队列里那批旧日志写进刚被删掉的文件里：
+            // 用户点的是「清空」，看到的是旧日志原封不动回来了。
+            // 代号与队列的推进必须在调用方线程上当场完成，不能押后。
+            lock (FileGate)
+            {
+                PendingFile.Clear();
+                _generation++;
+            }
+
             // EntriesInternal 直接绑在 UI 的 ListBox 上。若从后台线程调用，
             // 会在后台线程改 ObservableCollection，触发
             // 「该类型的 CollectionView 不支持从不同于 Dispatcher 的线程更改 SourceCollection」。
@@ -334,14 +347,9 @@ namespace ZenForge.Services
                     Monitor.Exit(EntriesGate);
             }
 
-            // 把还没落盘的队列也清掉：否则这些条目会被重新写进刚清空的日志文件，
-            // 「清空」反而变成「把旧日志搬到新文件」。
-            // 同时推进代号，让已经取走但还没写的那一批自己作废。
-            lock (FileGate)
-            {
-                PendingFile.Clear();
-                _generation++;
-            }
+            // 队列与代号已由 Clear() 在调用方线程上同步清过（见那里的顺序说明），
+            // 这里只管内存集合，不能再动 FileGate —— 否则后台路径上会出现
+            // 「Post 之前清一次、Post 之后又清一次」的两次推进。
         }
 
         /// <summary>

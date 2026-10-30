@@ -120,6 +120,35 @@ namespace ZenForge.Services
         public static string? LastAppliedProfileId { get; private set; }
 
         /// <summary>
+        /// 是否存在启用中的「进程运行」类规则。
+        ///
+        /// 【为什么监听方要问这个】
+        /// 一个用户可能只配了「插电 → 性能方案」这一条电源规则。若监听方不分青红皂白
+        /// 把进程事件也挂上，那么机器上每一个进程的启动都会换来一次全量进程名单采集
+        /// —— 而采集名单是为了判定进程规则，一条都没配时它是纯浪费。
+        /// 「要监听什么」由规则内容决定，不是由「场景功能开着」决定。
+        /// </summary>
+        public static bool HasProcessRules
+        {
+            get
+            {
+                lock (Sync)
+                    return Rules.Any(r => r.Enabled && r.Trigger == ScenarioTrigger.ProcessRunning);
+            }
+        }
+
+        /// <summary>是否存在启用中的电源类规则（电池 / 交流）。同上，决定要不要挂电源监听。</summary>
+        public static bool HasPowerRules
+        {
+            get
+            {
+                lock (Sync)
+                    return Rules.Any(r => r.Enabled &&
+                        (r.Trigger == ScenarioTrigger.OnBattery || r.Trigger == ScenarioTrigger.OnAcPower));
+            }
+        }
+
+        /// <summary>
         /// UI 线程的同步上下文，由 App.xaml.cs 在启动时注入（与 LogService.UiContext 同一处）。
         ///
         /// 【为什么需要它】

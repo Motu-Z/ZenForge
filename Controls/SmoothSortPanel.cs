@@ -29,11 +29,19 @@ namespace ZenForge.Controls
         private const double MinSlide = 0.5;
 
         /// <summary>
-        /// 位移超过一屏就不做动画。
-        /// 虚拟化下容器是复用的：从列表底部滚上来的容器可能「上次」在 800px 外，
-        /// 真按这个差值补间会看到一行从天而降横穿整屏，比瞬切更刺眼。
+        /// 兜底的位移上限（逻辑像素），只在拿不到视口高度时使用。
+        ///
+        /// 【为什么不能只用一个常量】
+        /// 「超过一屏就不补间」这个判断里的「一屏」不是常数：它随窗口大小和高 DPI 变化。
+        /// 写死 480 时，一个 1440p 窗口 + 150% 缩放下列表视口能有 900+ 逻辑像素，
+        /// 正常的换位也会被判成「从天而降」而无动画 —— 阈值一旦小于一屏，
+        /// 功能就变成时灵时不灵。所以下面的 <see cref="SlideLimit"/> 优先用视口高度，
+        /// 这个常量只在视口还不可知时兜底。
         /// </summary>
-        private const double MaxSlide = 480d;
+        private const double FallbackMaxSlide = 480d;
+
+        /// <summary>视口高度的这个比例之内才补间（留 10% 余量给半露出的行）。</summary>
+        private const double ViewportSlideRatio = 0.9d;
 
         /// <summary>滚动后这么久内不做过渡（毫秒），避开惯性滚动期。</summary>
         private const int ScrollSuppressMs = 220;
@@ -50,7 +58,11 @@ namespace ZenForge.Controls
         private readonly ConditionalWeakTable<UIElement, Slot> _slots = new();
 
         private long _suppressUntilTick;
-        private bool _scrollHooked;
+        private ScrollViewer? _host;
+        private double _viewportHeight;
+
+        /// <summary>「Loaded 时没找到 ScrollViewer，已排了一次重试」的标记，避免每次 Loaded 都排。</summary>
+        private bool _retryScheduled;
 
         static SmoothSortPanel()
         {
@@ -64,6 +76,7 @@ namespace ZenForge.Controls
         public SmoothSortPanel()
         {
             Loaded += OnLoaded;
+            Unloaded += OnUnloaded;
         }
 
         /// <summary>是否启用重排过渡。关掉即退化成普通 VirtualizingStackPanel（v1.1.x 的降级开关）。</summary>
@@ -93,34 +106,94 @@ namespace ZenForge.Controls
         /// </remarks>
         public static void RequestSmooth(DependencyObject? root)
         {
-            if (FindPanel(root) is SmoothSortPanel panel)
-                panel._suppressUntilTick = 0;
+            ClearSuppression(root);
         }
 
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
-            if (_scrollHooked)
+            if (_host != null)
                 return;
 
             // 滚动时所有行的位置都在变，那是位移动画最不该出现的时刻：
             // 行会「追」着手指跑。找到滚动宿主并订阅，滚动期间一律跳过过渡。
             ScrollViewer? host = FindScrollHost();
-            if (host == null)
+            if (host != null)
+            {
+                Hook(host);
+                return;
+            }
+
+            // 【为什么这里必须重试】
+            // ItemsPanel 是在 ItemsControl 首次布局时才被实例化的，Loaded 触发的那一刻
+            // 它的祖先链可能还没搭完（ScrollViewer 尚未成为父级）。按原来的写法
+            // 「找不到就 return」，面板会永久停留在没订阅的状态 —— 于是滚动期间
+            // 不做抑制，行追着滚动条跑，而这个功能存在的唯一理由就是防止这件事。
+            //
+            // 排到 Loaded 优先级再试一次：那时可视树已经稳定，代价只是一帧。
+            // 重试只排一次，重复 Loaded 不会堆积委托。
+            if (_retryScheduled)
                 return;
 
+            _retryScheduled = true;
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                _retryScheduled = false;
+                if (_host != null)
+                    return;
+
+                ScrollViewer? retry = FindScrollHost();
+                if (retry != null)
+                    Hook(retry);
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        /// <summary>
+        /// 移出可视树时解绑。
+        ///
+        /// ScrollViewer 通过 ScrollChanged 强引用本面板，而它是面板的祖先 ——
+        /// 同生共死时无所谓，但 ItemsControl 换 ItemsPanel、或面板被移出树而
+        /// ScrollViewer 还活着（换页时并不罕见）时，这个引用会把面板多留一会儿，
+        /// 连带它那张 ConditionalWeakTable 一起。解绑后状态归零，下次 Loaded 重新挂。
+        /// </summary>
+        private void OnUnloaded(object sender, RoutedEventArgs e) => Unhook();
+
+        private void Hook(ScrollViewer host)
+        {
+            _host = host;
+            _viewportHeight = host.ViewportHeight;
             host.ScrollChanged += OnScrollChanged;
-            _scrollHooked = true;
+        }
+
+        private void Unhook()
+        {
+            if (_host != null)
+            {
+                _host.ScrollChanged -= OnScrollChanged;
+                _host = null;
+            }
+
+            _viewportHeight = 0;
+            _suppressUntilTick = 0;
         }
 
         private void OnScrollChanged(object sender, ScrollChangedEventArgs e)
         {
+            // 视口高度会随窗口大小变化，跟着更新，位移上限才不会停在旧尺寸上。
+            if (sender is ScrollViewer host)
+                _viewportHeight = host.ViewportHeight;
+
             if (Math.Abs(e.VerticalChange) > MinSlide || Math.Abs(e.HorizontalChange) > MinSlide)
                 _suppressUntilTick = Environment.TickCount64 + ScrollSuppressMs;
         }
 
+        /// <summary>本次补间允许的最大位移：视口高度的九成，拿不到视口时用兜底常量。</summary>
+        private double SlideLimit =>
+            _viewportHeight > 0 ? _viewportHeight * ViewportSlideRatio : FallbackMaxSlide;
+
         private void TrackPositions()
         {
             bool allow = IsReorderAnimationEnabled && Environment.TickCount64 >= _suppressUntilTick;
+            double limit = SlideLimit;
 
             UIElementCollection children = InternalChildren;
             for (int i = 0; i < children.Count; i++)
@@ -142,7 +215,7 @@ namespace ZenForge.Controls
 
                 double dy = slot.Y - offset.Y;
 
-                if (!allow || !slot.SameData(data) || Math.Abs(dy) < MinSlide || Math.Abs(dy) > MaxSlide)
+                if (!allow || !slot.SameData(data) || Math.Abs(dy) < MinSlide || Math.Abs(dy) > limit)
                 {
                     // 三种不该动的情况：滚动刚过、容器被复用给了别的行、位移超出一屏。
                     // 都必须先把残留的偏移清干净，否则复用的容器会带着上一次的位移出现。
@@ -206,22 +279,28 @@ namespace ZenForge.Controls
             return null;
         }
 
-        private static SmoothSortPanel? FindPanel(DependencyObject? root)
+        /// <summary>
+        /// 清掉子树里**每一个**面板的滚动抑制窗口。
+        ///
+        /// 【为什么不是「找到第一个就返回」】
+        /// 进程页有两个列表（全部 / 已绑定），各有一份 ItemsPanel。原来的写法返回
+        /// 先遇到的那一个，而「先遇到」取决于 XAML 里的声明顺序，不一定是此刻
+        /// 显示的那个 —— 结果是：点表头排序，用户看到的那个列表没有过渡，
+        /// 而隐藏的那个白白被清了一次。两个列表互斥显示，全清没有副作用。
+        ///
+        /// 递归整棵子树的开销只在「用户点了列头」这一次发生，不值得为它维护引用。
+        /// </summary>
+        private static void ClearSuppression(DependencyObject? root)
         {
             if (root == null)
-                return null;
+                return;
 
             if (root is SmoothSortPanel panel)
-                return panel;
+                panel._suppressUntilTick = 0;
 
             int count = VisualTreeHelper.GetChildrenCount(root);
             for (int i = 0; i < count; i++)
-            {
-                SmoothSortPanel? found = FindPanel(VisualTreeHelper.GetChild(root, i));
-                if (found != null)
-                    return found;
-            }
-            return null;
+                ClearSuppression(VisualTreeHelper.GetChild(root, i));
         }
 
         /// <summary>某行上一次的落点与它当时绑定的数据。</summary>

@@ -234,10 +234,10 @@ namespace ZenForge.Services
         /// <summary>
         /// 切换（应用）一份方案：把快照写回三个 store，再让现有服务下发。
         ///
-        /// 【v1.1.x 的两处待补】
-        /// 1. 现存进程的立即绑核：规则写回后只有**新启动**的进程会被 ProcessWatcher 命中，
-        ///    已经在跑的进程要等下一次重启才生效。v1.1.x 需要给 ProcessWatcher 加一个
-        ///    「按当前规则全量重扫一次」的入口，本方法在写回后调用它。
+        /// 【v1.1.x 仍待补的一处】
+        /// 1. 重扫只做覆盖、不做解绑：不再命中任何规则的进程会保持上一次的绑核，
+        ///    恢复默认需要显式写回系统默认 CPU Set，而那个「默认」在不同拓扑下
+        ///    取值不同，没有实测依据之前不猜。
         /// 2. 失败回滚：调校下发失败时（TuningApplyOutcome.Success == false），
         ///    理想做法是恢复上一份方案。现在只记录日志，因为「部分写成功」的
         ///    回滚顺序（先 FMax 后 CO）还没有实测依据，不猜。
@@ -258,6 +258,13 @@ namespace ZenForge.Services
             });
 
             BindingStore.Save(snapshot.BindingRules.Select(Clone));
+
+            // 让**已经在跑**的进程立刻跟上新规则。
+            // WMI 事件只覆盖之后启动的进程：不补这一下，用户切完方案看到的会是
+            // 「设置都变了，但那个游戏还绑在旧核心上」，而它要等到下次重启才生效 ——
+            // 那种「切了等于没切」的观感比不做这个功能更糟。
+            // 重扫是异步的（内部 Task.Run），UI 线程不等它。
+            ProcessWatcher.ReapplyNow();
 
             TuningApplyOutcome? outcome = TuningApplyService.ApplyFromStore();
             if (outcome != null && !outcome.Success)

@@ -48,6 +48,12 @@ namespace ZenForge.Services
         private static readonly PidSet _handledPids = new();
 
         /// <summary>
+        /// 上一轮降级轮询看到的存活 PID 集合，只用于判断「进程集合是否真的变了」。
+        /// 仅降级轮询模式使用（事件模式下由 WMI 事件直接驱动，不需要这一层）。
+        /// </summary>
+        private static HashSet<int>? _lastAlive;
+
+        /// <summary>
         /// 降级轮询间隔（毫秒）。只在 WMI 不可用时使用，因此取宽松值：
         /// 既然已经退回轮询，就优先照顾 CPU 占用而不是及时性。
         /// </summary>
@@ -357,6 +363,75 @@ namespace ZenForge.Services
             LogService.Info("进程绑核监听已停止");
         }
 
+        /// <summary>
+        /// 进程集合发生变化（有新进程创建，或有进程退出）。
+        ///
+        /// 【为什么只报「变了」，不带具体进程】
+        /// 订阅方（场景自动切换）要的是「此刻有哪些进程在跑」这个全量事实，
+        /// 而不是一条一条的事件：只看「A 退出了」会被误读成「没有进程命中了」，
+        /// 而那时 B 可能还在跑。名单由订阅方自己去取，只有它知道自己要什么粒度。
+        ///
+        /// 【为什么不做防抖】
+        /// 一个游戏启动会瞬间拉起十几个子进程，逐个通知会触发十几次评估。
+        /// 但合并窗口该取多长只有调用方知道（它才知道自己要付多少次评估的代价），
+        /// 在这里拍一个延时没有依据。防抖统一放在订阅侧（见 ScenarioMonitor）。
+        /// </summary>
+        public static event Action? ProcessSetChanged;
+
+        /// <summary>
+        /// 触发 <see cref="ProcessSetChanged"/>。
+        ///
+        /// 订阅方的处理逻辑跑在 WMI 的事件线程上，它抛任何异常都会把异常带回
+        /// WMI 的回调里，进而打断订阅本身的后续处理。这里兜住，订阅方的 bug
+        /// 不应该让绑核监听一起失效。
+        /// </summary>
+        private static void RaiseProcessSetChanged()
+        {
+            Action? handler = ProcessSetChanged;
+            if (handler == null)
+                return;
+
+            try { handler(); }
+            catch (Exception ex) { LogService.Warn($"进程变化订阅者处理失败：{ex.Message}"); }
+        }
+
+        /// <summary>
+        /// 按当前规则对**已经在跑的进程**重扫一遍。
+        ///
+        /// 【为什么必须有这个入口】
+        /// WMI 事件只覆盖「之后启动」的进程。切换方案或编辑规则之后，正在运行的
+        /// 那个游戏不会产生任何事件，于是它继续保持旧方案的绑核 ——
+        /// 用户看到的就是「我切了方案，但什么都没变」，而且要等到下次重启游戏才生效。
+        ///
+        /// 【只做覆盖，不做解绑】
+        /// 重扫会把命中的进程重新绑到新目标上，但**不会**把不再命中的进程恢复默认。
+        /// 解绑要显式写回系统默认 CPU Set，且「默认」在不同拓扑下取值不同，
+        /// 没有实测依据之前不猜 —— 这条记在 CHANGELOG 的 v1.1.x 待办里。
+        ///
+        /// 【不在调用线程上跑】
+        /// 全量快照 + 逐个 OpenProcess 是百毫秒级的操作，调用方是 UI 线程的
+        /// 方案切换路径，不能陪着一起等。
+        /// </summary>
+        public static void ReapplyNow()
+        {
+            bool running;
+            lock (_lock)
+                running = _running;
+
+            // 没在监听就没什么可重扫的：下次 Start() 自己会走一次 InitialScan。
+            if (!running)
+                return;
+
+            // 清缓存 + 让规则缓存失效，否则重扫读到的还是切换前的那份规则。
+            ResetCache();
+
+            _ = System.Threading.Tasks.Task.Run(() =>
+            {
+                try { InitialScan(); }
+                catch (Exception ex) { LogService.Warn($"按新规则重扫进程失败：{ex.Message}"); }
+            });
+        }
+
         /// <summary>清空「已处理」缓存，让规则立即重新应用（保存规则后调用）。</summary>
         public static void ResetCache()
         {
@@ -419,6 +494,7 @@ namespace ZenForge.Services
                     return;
 
                 HandleProcess(pid, name);
+                RaiseProcessSetChanged();
             }
             catch (Exception ex)
             {
@@ -439,7 +515,13 @@ namespace ZenForge.Services
 
                 int pid = ReadPid(target);
                 if (pid > 0)
+                {
                     _handledPids.Remove(pid);
+
+                    // 退出同样要报：场景规则里「游戏在跑」这一条是**不再成立**了，
+                    // 只报创建不报退出，规则会一直挂在已退出的进程上。
+                    RaiseProcessSetChanged();
+                }
             }
             catch
             {
@@ -745,6 +827,19 @@ namespace ZenForge.Services
             // 用「本轮存活数」做上界判断：记录数不可能少于存活数，多出来的必然已退出。
             if (_handledPids.Count > alive.Count)
                 _handledPids.PruneTo(alive);
+
+            // 【降级轮询下为什么不能每轮都广播】
+            // 这一轮每 3 秒跑一次。无条件广播会让订阅方（场景自动切换）跟着每 3 秒
+            // 取一次全量进程名单 —— 那是几百次 OpenProcess，比轮询本身还贵。
+            // 只在存活集合真的变了时才报：启动、退出、PID 复用，都是集合层面的差异，
+            // 而进程 CPU 占用变化不会让集合变化，也不该触发场景重评。
+            // SetEquals 是 O(n) 的整数比较，比取名单便宜三个数量级。
+            HashSet<int>? previous = _lastAlive;
+            if (previous == null || !previous.SetEquals(alive))
+            {
+                _lastAlive = alive;
+                RaiseProcessSetChanged();
+            }
         }
 
         // ==================== 辅助 ====================
