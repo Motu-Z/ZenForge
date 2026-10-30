@@ -1522,7 +1522,7 @@ namespace ZenForge.Views
             }
             _loadingRules = false;
 
-            RuleCountText.Text = $"{_savedRules.Count} 条规则";
+            RuleCountText.Text = $"{_savedRules.Count} 条";
             EmptyRulesHint.Visibility = _savedRules.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 

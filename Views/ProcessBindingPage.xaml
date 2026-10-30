@@ -48,8 +48,14 @@
 
         <!-- 表格内下拉：28 高、字号 12、内边距 8。
              以前每个 ComboBox 手抄一遍 Height/FontSize/Padding，
-             五处写五遍，改一处漏四处。 -->
-        <Style x:Key="TableCellComboStyle" TargetType="ComboBox">
+             五处写五遍，改一处漏四处。
+
+             【必须 BasedOn 全局 AppComboBoxStyle】
+             一旦写了 TargetType="ComboBox" 但不 BasedOn，
+             这个显式样式就完全接管了该控件，隐式样式（深色模板）不再生效，
+             控件会退回系统默认的浅灰 ComboBox —— 深色界面上直接白成一片。
+             这里只覆盖尺寸，模板与配色一律继承。 -->
+        <Style x:Key="TableCellComboStyle" TargetType="ComboBox" BasedOn="{StaticResource AppComboBoxStyle}">
             <Setter Property="Height" Value="28"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Padding" Value="8,0"/>
@@ -144,33 +150,47 @@
                                         VerticalAlignment="Center"
                                         Margin="16,0,0,0">
 
-                                <!-- 搜索框：框内左侧内嵌放大镜。占位提示只由 SearchPlaceholder
-                                     一个 TextBlock 负责，避免与内联提示叠出「重影」。
-                                     左内边距 28 = 图标 13 + 左距 8 + 图标与文字 7。 -->
+                                <!-- 搜索框：图标与文字走 Grid 两列，不用绝对定位。
+                                     第 0 列留白 10、第 1 列图标 14、第 2 列输入框。
+                                     TextBox 内缩 32（= 10 + 14 + 8），光标永远从
+                                     图标右侧 8px 起算，与图标列不重叠。 -->
                                 <Grid Width="180" Margin="0,0,8,0">
-                                    <TextBox x:Name="SearchBox"
-                                             Padding="28,0,10,0"
-                                             TextAlignment="Left"
-                                             HorizontalContentAlignment="Left"
-                                             VerticalContentAlignment="Center"
-                                             Style="{StaticResource AppTextBoxStyle}"
-                                             TextChanged="SearchBox_TextChanged"
-                                             GotFocus="SearchBox_GotFocus"
-                                             LostFocus="SearchBox_LostFocus"
-                                             KeyDown="SearchBox_KeyDown"/>
-                                    <Path x:Name="SearchIcon"
-                                          HorizontalAlignment="Left" VerticalAlignment="Center"
-                                          Margin="9,0,0,0" IsHitTestVisible="False"
-                                          Width="12" Height="12"
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="{StaticResource SearchIconInset}"/>
+                                        <ColumnDefinition Width="{StaticResource SearchIconSize}"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <Path Grid.Column="1"
+                                          x:Name="SearchIcon"
+                                          Width="{StaticResource SearchIconSize}"
+                                          Height="{StaticResource SearchIconSize}"
+                                          VerticalAlignment="Center"
+                                          IsHitTestVisible="False"
+                                          Stretch="Uniform"
                                           Stroke="{DynamicResource Text.MetaBrush}"
                                           StrokeThickness="1.2"
                                           StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                           Data="M 5.5,1 A 4.5,4.5 0 1 1 5.49,1 M 9,9 L 12,12"/>
-                                    <TextBlock x:Name="SearchPlaceholder" Text="搜索进程..."
-                                               HorizontalAlignment="Left" VerticalAlignment="Center"
-                                               Margin="28,0,0,0" IsHitTestVisible="False"
-                                               Foreground="{DynamicResource Text.MetaBrush}"
-                                               FontSize="12" Visibility="Collapsed"/>
+
+                                    <Grid Grid.Column="2">
+                                        <TextBox x:Name="SearchBox"
+                                                 Style="{StaticResource SearchBoxStyle}"
+                                                 TextAlignment="Left"
+                                                 HorizontalContentAlignment="Left"
+                                                 VerticalContentAlignment="Center"
+                                                 TextChanged="SearchBox_TextChanged"
+                                                 GotFocus="SearchBox_GotFocus"
+                                                 LostFocus="SearchBox_LostFocus"
+                                                 KeyDown="SearchBox_KeyDown"/>
+                                        <TextBlock x:Name="SearchPlaceholder" Text="搜索进程..."
+                                                   Margin="{StaticResource SearchBoxTextInset}"
+                                                   HorizontalAlignment="Left"
+                                                   VerticalAlignment="Center"
+                                                   IsHitTestVisible="False"
+                                                   Foreground="{DynamicResource Text.MetaBrush}"
+                                                   FontSize="12" Visibility="Collapsed"/>
+                                    </Grid>
                                 </Grid>
 
                                 <Button Content="管理掩码"
@@ -346,7 +366,7 @@
                                         Margin="10,0,0,0"
                                         VerticalAlignment="Center">
                                     <TextBlock x:Name="RuleCountText"
-                                               Text="0 条规则"
+                                               Text="0 条"
                                                Style="{StaticResource StatusBadgeTextStyle}"/>
                                 </Border>
                             </StackPanel>

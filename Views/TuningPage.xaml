@@ -337,8 +337,18 @@
             <Border x:Name="ParkingCard" Style="{StaticResource CardBorderStyle}">
                 <StackPanel>
 
+                    <!-- ============================================================
+                         【两态互斥，不是并排】
+                         以前 ParkingScaleHint 写在两个面板之外，于是「读不到」时
+                         它照样显示，并且因为它位于折叠面板之上，屏幕上呈现出
+                         「0% 允许全部核心停放 · 100% 禁止停放」压在
+                         「⚠ 核心停放」标题上面的倒序 —— 说明跑到了标题前面。
+                         现在提示归入状态 A 内部，状态 B 换成单行「标题 + 原因」，
+                         两块严格二选一：没有功能就不出现任何解释功能怎么用的文字。
+                         ============================================================ -->
+
                     <!-- ===== 状态 A：正常（可读写） ===== -->
-                    <Grid x:Name="ParkingEditablePanel">
+                    <StackPanel x:Name="ParkingEditablePanel">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
@@ -394,17 +404,16 @@
                                        FontSize="12"
                                        Foreground="{DynamicResource Text.Secondary}"/>
                         </Grid>
-                    </Grid>
 
-                    <!-- 端点语义：与说明行分开、字号降一级、之间留 8px。
-                         旧版这两行都挂在 ParkingHint 下面、各 4px，读起来像
-                         「原因」和「语义」是同一句话被截成两行。
-                         这条是固定的静态说明，永远显示（即使不可用也显示），
-                         它解释的是「这个数值是什么意思」，不依赖系统状态。 -->
-                    <TextBlock x:Name="ParkingScaleHint"
-                               Text="0% 允许全部核心停放 · 100% 禁止停放"
-                               Style="{StaticResource Text.Meta}"
-                               Margin="0,8,0,0"/>
+                        <!-- 端点语义：0% / 100% 是什么意思。
+                             只在状态 A 内出现 —— 读不到值时解释「怎么用」没有意义。
+                             与上方说明行隔 8px、字号降一级（L6 元数据）。
+                             左内缩 24 与文字块对齐（Grid 第 0 列起点）。 -->
+                        <TextBlock x:Name="ParkingScaleHint"
+                                   Text="0% 允许全部核心停放 · 100% 禁止停放"
+                                   Style="{StaticResource Text.Meta}"
+                                   Margin="0,8,0,0"/>
+                    </StackPanel>
 
                     <!-- ===== 状态 B：读不到（整块折叠成提示） ===== -->
                     <StackPanel x:Name="ParkingUnavailablePanel" Visibility="Collapsed">

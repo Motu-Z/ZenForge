@@ -1,6 +1,7 @@
-<Application x:Class="ZenForge.App"
+﻿<Application x:Class="ZenForge.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sys="clr-namespace:System;assembly=System.Runtime"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
         <ResourceDictionary>
@@ -166,12 +167,41 @@
 
                  结论：任何 BasedOn App.xaml 里样式的样式，都必须定义在 App.xaml。
                  ================================================================== -->
+            <!-- ==================================================================
+                 搜索框：图标与文字用 Grid 两列排，不再用绝对定位叠 Path。
+                 ==================================================================
+                 【为什么必须改掉原来的叠层写法】
+                 原来把放大镜 Path 和占位 TextBlock 都 HorizontalAlignment="Left"
+                 再各给一个写死的 Margin 叠在 TextBox 上。三处数值
+                 （TextBox.Padding 左值 / Path.Margin / Placeholder.Margin）
+                 描述的是同一件事，却存了三份：
+                   · 改其中一处，另外两处不会跟着动；
+                   · 光标起点由 TextBox.Padding 决定，文字起点由 Placeholder.Margin
+                     决定 —— 两者一旦不等，光标就会落在占位文字左边或中间。
+                 现在图标占一列、输入框占一列，真实布局保证两者永不重叠，
+                 内缩只剩一个数：SearchBoxStyle 的 Padding 左值。
+
+                 【内缩 = 10 + 14 + 8 = 32】
+                 图标左边距 10（SearchIconMargin 的 Left）
+                 + 图标宽 14（SearchIconSize）
+                 + 图标与文字间距 8（SearchIconGap）
+                 三个数都是 x:Double，改大小只改这一处，Padding 由它们推不出来
+                 （XAML 不支持在 Setter 里做算术），所以直接写成 32 并在注释里
+                 标明这三个来源；若改图标尺寸，这里必须同比改。 -->
+            <!-- 搜索图标的几何口径。三处（图标列宽 / 图标实际绘制 / 左侧留白）
+                 全部读这三个数，避免"改一个忘两个"。 -->
+            <sys:Double x:Key="SearchIconSize">14</sys:Double>
+            <sys:Double x:Key="SearchIconGap">8</sys:Double>
+            <sys:Double x:Key="SearchIconInset">10</sys:Double>
+            <!-- 占位符的左内缩 = 图标留白 + 图标宽 + 间距。与 SearchBoxStyle 的
+                 Padding.Left 是同一个数，两处必须一起改；放成资源就是为了
+                 至少让它们指向同一个来源，而不是各写一个魔数。 -->
+            <Thickness x:Key="SearchBoxTextInset">32,0,0,0</Thickness>
+
             <Style x:Key="SearchBoxStyle" TargetType="TextBox" BasedOn="{StaticResource AppTextBoxStyle}">
-                <!-- 与其它输入框同高 32：搜索框不是特殊的控件类别，
-                     它只是"带图标"的输入框，没理由高出一截。
-                     左侧 30 留给放大镜：图标 13 宽 + 左边距 9，文字从 30 起。 -->
                 <Setter Property="Height" Value="32"/>
-                <Setter Property="Padding" Value="30,0,10,0"/>
+                <Setter Property="Padding" Value="32,0,10,0"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
             </Style>
 
             <!-- ==================================================================

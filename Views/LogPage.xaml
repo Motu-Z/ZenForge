@@ -165,30 +165,54 @@
             </StackPanel>
         </Grid>
 
-        <!-- ======= Row 2：搜索 ======= -->
+        <!-- ======= Row 2：搜索 =======
+             【图标与文字走 Grid 两列，不用绝对定位】
+             第 0 列 = 左侧留白（SearchIconInset 10），第 1 列 = 图标（14），
+             第 2 列 = 输入框（*）。TextBox 的 Padding 左值 32 让光标从
+             图标右侧 8px 处起算，与图标列完全不重叠 —— 不管窗口多宽、
+             字号多大，光标都不可能落到放大镜上或压住占位文字。 -->
         <Grid Grid.Row="2" Margin="0,0,0,14">
-            <TextBox x:Name="SearchBox"
-                     Style="{StaticResource SearchBoxStyle}"
-                     TextChanged="SearchBox_TextChanged"
-                     GotFocus="SearchBox_GotFocus"
-                     LostFocus="SearchBox_LostFocus"
-                     KeyDown="SearchBox_KeyDown"/>
-            <!-- 放大镜：与文字同色但更弱，位置和 Padding 左 30 对齐 -->
-            <Path x:Name="SearchIcon"
-                  HorizontalAlignment="Left" VerticalAlignment="Center"
-                  Margin="9,0,0,0" IsHitTestVisible="False"
-                  Width="13" Height="13"
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="{StaticResource SearchIconInset}"/>
+                <ColumnDefinition Width="{StaticResource SearchIconSize}"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- 放大镜：与文字同色但更弱。Stretch=Uniform 按列宽自适应，
+                 不再写死 Width/Height。 -->
+            <Path Grid.Column="1"
+                  x:Name="SearchIcon"
+                  Width="{StaticResource SearchIconSize}"
+                  Height="{StaticResource SearchIconSize}"
+                  VerticalAlignment="Center"
+                  IsHitTestVisible="False"
+                  Stretch="Uniform"
                   Stroke="{DynamicResource Text.MetaBrush}"
                   StrokeThickness="1.3"
                   StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                   Data="M 5.5,1 A 4.5,4.5 0 1 1 5.49,1 M 9,9 L 12,12"/>
-            <TextBlock x:Name="SearchPlaceholder"
-                       Text="按文本、字段或来源筛选"
-                       Margin="30,0,0,0"
-                       VerticalAlignment="Center"
-                       IsHitTestVisible="False"
-                       FontSize="12"
-                       Foreground="{DynamicResource Text.MetaBrush}"/>
+
+            <Grid Grid.Column="2">
+                <TextBox x:Name="SearchBox"
+                         Style="{StaticResource SearchBoxStyle}"
+                         TextChanged="SearchBox_TextChanged"
+                         GotFocus="SearchBox_GotFocus"
+                         LostFocus="SearchBox_LostFocus"
+                         KeyDown="SearchBox_KeyDown"/>
+                <!-- 占位符：左边距与 TextBox 的 Padding.Left 取同一个值，
+                     所以它的起点就是光标起点。TextBlock 没有 Padding 属性，
+                     用 Margin 表达同样的内缩；数值来自同一个资源，
+                     改搜索框内缩时这里自动跟随。
+                     显示与否只由代码控制（见 UpdateSearchPlaceholder）。 -->
+                <TextBlock x:Name="SearchPlaceholder"
+                           Text="按文本、字段或来源筛选"
+                           Margin="{StaticResource SearchBoxTextInset}"
+                           HorizontalAlignment="Left"
+                           VerticalAlignment="Center"
+                           IsHitTestVisible="False"
+                           FontSize="12"
+                           Foreground="{DynamicResource Text.MetaBrush}"/>
+            </Grid>
         </Grid>
 
         <!-- ======= Row 3：日志列表（占满剩余高度） ======= -->

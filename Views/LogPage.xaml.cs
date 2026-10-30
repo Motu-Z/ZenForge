@@ -397,15 +397,25 @@ namespace ZenForge.Views
 
         private void SearchBox_GotFocus(object sender, RoutedEventArgs e) => UpdateSearchPlaceholder();
 
-        private void SearchBox_LostFocus(object sender, RoutedEventArgs e) => UpdateSearchPlaceholder();
+        /// <summary>失焦后延后一拍再刷新：LostFocus 触发时 IsKeyboardFocusWithin 尚未更新，
+        /// 立即读会读到「仍然有焦点」，占位符就不会重新出现。</summary>
+        private void SearchBox_LostFocus(object sender, RoutedEventArgs e) =>
+            Dispatcher.BeginInvoke(new Action(UpdateSearchPlaceholder),
+                                   System.Windows.Threading.DispatcherPriority.Input);
 
         private void UpdateSearchPlaceholder()
         {
             if (SearchPlaceholder == null || SearchBox == null)
                 return;
 
-            SearchPlaceholder.Visibility =
-                string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
+            // 【必须同时判断「为空」和「没有焦点」】
+            // 只判断为空的话，点进空的搜索框时光标会正好插在占位文字里 ——
+            // 看起来像占位符是真实内容，用户会去删它。获得焦点即隐藏。
+            bool empty = string.IsNullOrEmpty(SearchBox.Text);
+            bool focused = SearchBox.IsKeyboardFocusWithin;
+            SearchPlaceholder.Visibility = (empty && !focused)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
         }
 
         /// <summary>Esc 清空搜索；已经是空的时候把焦点还给列表。</summary>
