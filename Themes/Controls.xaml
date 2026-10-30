@@ -118,7 +118,9 @@
         <Setter Property="Margin" Value="0,4,0,0"/>
     </Style>
 
-    <!-- ===================== 导航按钮（药丸形） ===================== -->
+    <!-- ===================== 导航按钮（药丸形，横向） ===================== -->
+    <!-- 0.10.0 起主导航改为竖排侧栏项（SideNavItemStyle），这个横排胶囊
+         只剩极少数场景可能复用；保留定义以免外部引用断链。 -->
     <Style x:Key="NavButtonStyle" TargetType="ToggleButton">
         <Setter Property="Height" Value="34"/>
         <Setter Property="Padding" Value="16,0"/>
@@ -159,6 +161,97 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+    </Style>
+
+    <!-- ===================== 侧栏导航项（竖排） =====================
+         0.10.0 新的主导航形态：左侧 3×14 强调色竖条 + 淡底 + 600 字重，
+         不再整块填充强调色（那会让侧栏变成一条彩色条，抢走内容区的注意力）。
+
+         竖条与文字都用 Grid 列定位，不靠 Padding 位移：
+         用 Padding 改内缩会在选中/取消瞬间产生 1px 抖动。 -->
+    <Style x:Key="SideNavItemStyle" TargetType="ToggleButton">
+        <Setter Property="Height" Value="34"/>
+        <Setter Property="Margin" Value="0,0,0,2"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.Secondary}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <!-- MouseLeftButtonUp 不能在 ResourceDictionary 里挂实例处理器
+             （没有 x:Class，MC6024）。真正拦截在 MainWindow 的类处理器里，
+             见 MainWindow.xaml.cs 的 NavItem_MouseLeftButtonUp / AddHandler。
+             这里只负责视觉。 -->
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            CornerRadius="6"
+                            SnapsToDevicePixels="True">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- 选中竖条：默认不占位也不可见，选中时露出 -->
+                            <Rectangle x:Name="Bar"
+                                       Grid.Column="0"
+                                       Width="3" Height="14"
+                                       RadiusX="1.5" RadiusY="1.5"
+                                       Margin="6,0,0,0"
+                                       Fill="{DynamicResource AccentBrush}"
+                                       Visibility="Collapsed"/>
+
+                            <ContentPresenter x:Name="Txt"
+                                              Grid.Column="1"
+                                              Margin="16,0,10,0"
+                                              HorizontalAlignment="Left"
+                                              VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Nav.Button.Hover}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Nav.Button.Active}"/>
+                            <Setter TargetName="Bar" Property="Visibility" Value="Visible"/>
+                            <!-- 竖条出现后文字右移 8px，正好让位给竖条宽度 + 间距 -->
+                            <Setter TargetName="Txt" Property="Margin" Value="24,0,10,0"/>
+                            <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
+                            <Setter Property="FontWeight" Value="SemiBold"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- 侧栏分组标题：「系统」这类不可点的语义分隔 -->
+    <Style x:Key="NavGroupTitleStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.Disabled}"/>
+        <Setter Property="Margin" Value="16,16,4,6"/>
+    </Style>
+
+    <!-- ===================== 页面标题 =====================
+         每页唯一的大字。层级靠字号 + 字重，颜色一律纯白。 -->
+    <Style x:Key="PageTitleStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="26"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <Style x:Key="PageSubStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.Secondary}"/>
+        <Setter Property="Margin" Value="0,6,0,0"/>
     </Style>
 
     <!-- ===================== 按钮 ===================== -->
@@ -239,17 +332,26 @@
         <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
 
-    <!-- ===================== 窗口控制按钮 ===================== -->
+    <!-- ===================== 窗口控制按钮 =====================
+         0.10.0 起窗口按钮挪进侧栏底部，尺寸从 46×32 收成 28×28 圆角 4，
+         与侧栏导航项同一套圆角语言。 -->
     <Style x:Key="WindowButtonStyle" TargetType="Button">
-        <Setter Property="Width" Value="46"/>
-        <Setter Property="Height" Value="32"/>
+        <Setter Property="Width" Value="28"/>
+        <Setter Property="Height" Value="28"/>
+        <Setter Property="MinWidth" Value="0"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Margin" Value="1,0,0,0"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{DynamicResource Text.Secondary}"/>
         <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="Bd" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            CornerRadius="4"
+                            SnapsToDevicePixels="True">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <ControlTemplate.Triggers>
@@ -270,7 +372,10 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="Bd" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            CornerRadius="4"
+                            SnapsToDevicePixels="True">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <ControlTemplate.Triggers>

@@ -1,8 +1,10 @@
 using System;
 using System.ComponentModel;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Threading;
 using ZenForge.Helpers;
 using ZenForge.Services;
@@ -34,6 +36,9 @@ namespace ZenForge
             StateChanged += (_, _) =>
             {
                 MaximizeGlyph.Text = WindowState == WindowState.Maximized ? "\uE923" : "\uE922";
+                // 还原时把最大化补偿的上限放回无限，否则窗口再也拉不高。
+                if (WindowState != WindowState.Maximized)
+                    MaxHeight = double.PositiveInfinity;
                 UpdateUiPresence();
                 OnWindowStateChangedForLightMode();
             };
@@ -41,14 +46,25 @@ namespace ZenForge
             // 显示 / 隐藏（Show、Hide、收托盘）都要同步，后台组件靠它判断能不能弹提示
             IsVisibleChanged += (_, _) => UpdateUiPresence();
 
-            // 初次导航必须同步点亮对应的导航按钮。
+            // 侧栏拖拽的边界情况：ToggleButton 自己吃掉 MouseLeftButtonDown（它要处理
+            // IsChecked），却不碰 MouseLeftButtonUp。于是「在侧栏空白处按下开始拖、
+            // 在导航项上松手」会直接把 clicked.IsChecked 设成 true 并跳页。
+            //
+            // 样式写在 ResourceDictionary 里挂不了实例处理器（没有 x:Class），所以改用
+            // 类处理器：HandledEventsToo=true 保证即使 ToggleButton 已把事件标记为
+            // Handled，我们仍能拿到它并改回 Handled。
+            NavPanel.AddHandler(UIElement.MouseLeftButtonUpEvent,
+                new MouseButtonEventHandler(NavItem_MouseLeftButtonUp), handledEventsToo: true);
+
+            // 首次导航必须同步点亮对应的导航按钮。
             // 以前这里只调 NavigateTo，而 IsChecked 只在 NavButton_Click 里设过，
-            // 于是刚打开软件时页面是调校页、四个导航键却一个都没选中，
-            // 用户看不出自己在哪一页（"调度"页尤其明显）。
+            // 于是刚打开软件时页面是调校页、几个导航键却一个都没选中，
+            // 用户看不出自己在哪一页（"进程"页尤其明显）。
             Loaded += (_, _) =>
             {
                 NavigateToPage(_lastPage);
                 UpdateUiPresence();
+                ShowVersion();
             };
 
             // 软件渲染 + 每显示器 DPI 下，窗口偶尔会只把首帧画出一部分，
@@ -309,6 +325,81 @@ namespace ZenForge
             NavigateToPage((string)clicked.Tag);   // 同时把其余按钮取消选中
         }
 
+        /// <summary>
+        /// ToggleButton 会吃掉 MouseLeftButtonDown（它要处理 IsChecked），但不动
+        /// MouseLeftButtonUp。不拦的话，「在侧栏空白处按下开始拖、在导航项上松手」
+        /// 这个边界情况会直接触发导航跳页。
+        /// </summary>
+        private void NavItem_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => e.Handled = true;
+
+        /// <summary>
+        /// 侧栏拖拽 / 双击最大化。侧栏整片都挂了这个处理器，导航项在模板层
+        /// 拦掉 Up 事件，所以除了导航项本身，其它位置都能拖动窗口。
+        /// </summary>
+        private void Chrome_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ClickCount == 2)
+            {
+                SetMaximized(WindowState != WindowState.Maximized);
+                return;
+            }
+
+            if (e.ButtonState != MouseButtonState.Pressed)
+                return;
+
+            if (WindowState == WindowState.Maximized)
+            {
+                // 最大化状态下 DragMove 会把窗口「粘」在鼠标左上角跳一下。
+                // 先还原，再按鼠标在窗口内的相对位置反推 Left，视觉上才连得上。
+                // GetPosition(this) 已折算 DPI，PointToScreen 返回的是物理像素，二者同单位。
+                double ratio = ActualWidth > 0 ? e.GetPosition(this).X / ActualWidth : 0.5;
+                WindowState = WindowState.Normal;
+                Left = PointToScreen(e.GetPosition(this)).X - ActualWidth * ratio;
+                Top = 0;
+            }
+
+            try
+            {
+                DragMove();
+            }
+            catch (InvalidOperationException)
+            {
+                // 鼠标在 DragMove 之前就已释放（快速点击），XAML 里忽略即可。
+            }
+        }
+
+        /// <summary>
+        /// WindowStyle=None 的窗口最大化时会连任务栏一起盖住，必须用工作区高度校正上限。
+        /// 扣 2px 抵消 WindowChrome 给最大化窗口加的外扩边框，否则会溢出到工作区之外。
+        /// </summary>
+        private void SetMaximized(bool maximize)
+        {
+            MaxHeight = maximize ? SystemParameters.WorkArea.Height - 2 : double.PositiveInfinity;
+            WindowState = maximize ? WindowState.Maximized : WindowState.Normal;
+        }
+
+        /// <summary>把程序集版本写到侧栏底部。物理文件版本号才是用户该看的那个。</summary>
+        private void ShowVersion()
+        {
+            try
+            {
+                string exe = Environment.ProcessPath ?? string.Empty;
+                string text = File.Exists(exe)
+                    ? System.Diagnostics.FileVersionInfo.GetVersionInfo(exe).FileVersion ?? string.Empty
+                    : string.Empty;
+
+                // FileVersion 是四段（0.10.0.0），界面上只保留前三段。
+                string[] parts = text.Split('.');
+                VersionText.Text = parts.Length >= 3
+                    ? "v" + string.Join(".", parts[0], parts[1], parts[2])
+                    : "v" + text;
+            }
+            catch
+            {
+                VersionText.Text = string.Empty;
+            }
+        }
+
         private void MinimizeButton_Click(object sender, RoutedEventArgs e)
         {
             WindowState = WindowState.Minimized;
@@ -316,7 +407,7 @@ namespace ZenForge
 
         private void MaximizeButton_Click(object sender, RoutedEventArgs e)
         {
-            WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+            SetMaximized(WindowState != WindowState.Maximized);
         }
 
         private void CloseButton_Click(object sender, RoutedEventArgs e)

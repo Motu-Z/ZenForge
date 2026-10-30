@@ -6,92 +6,131 @@
         Height="780" Width="1120"
         MinHeight="600" MinWidth="920"
         WindowStartupLocation="CenterScreen"
+        WindowStyle="None"
         Background="{DynamicResource Window.Background}"
         FontFamily="Microsoft YaHei UI, Microsoft YaHei, Segoe UI"
         FontSize="13"
         UseLayoutRounding="True">
 
-    <!-- 自定义标题栏：CaptionHeight 与第 0 行高度(48)一致 -->
+    <!-- 无边框外壳。CaptionHeight 必须为 0：
+         只要保留非零值，系统就把这块当 HTCAPTION 吃掉 WM_NCLBUTTONDOWN，
+         我们在侧栏上挂的 MouseLeftButtonDown 根本不会触发，DragMove 成了死代码。
+         ResizeBorderThickness=6 留出边缘拉伸热区；CornerRadius 系统上限就是 8。 -->
     <shell:WindowChrome.WindowChrome>
-        <shell:WindowChrome CaptionHeight="48"
-                            CornerRadius="0"
+        <shell:WindowChrome CaptionHeight="0"
+                            CornerRadius="8"
                             GlassFrameThickness="0"
                             ResizeBorderThickness="6"/>
     </shell:WindowChrome.WindowChrome>
 
-     <!-- Background 显式铺一层不透明底板：根 Grid 过去没有画刷，只靠 Window 自身，
-          一旦某层渲染出问题，客户区就会露出底色。 -->
-     <Grid Background="{DynamicResource Window.Background}">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="48"/>   <!-- 标题栏 -->
-            <RowDefinition Height="Auto"/> <!-- 导航栏 -->
-            <RowDefinition Height="*"/>    <!-- 内容区 -->
-        </Grid.RowDefinitions>
+    <!-- 只有两列、没有行：窗口边缘到内容之间不再有任何一条「栏」。
+         侧栏本身就是标题栏——顶部品牌、中部导航、底部版本号与窗口按钮。 -->
+    <Grid Background="{DynamicResource Window.Background}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="200"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
 
-        <!-- ======= 标题栏 ======= -->
-        <Grid Grid.Row="0" Background="{DynamicResource TitleBar.Background}">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
-                <TextBlock Text="ZenForge"
-                           FontSize="14"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource Text.Primary}"/>
-            </StackPanel>
-
-            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top"
-                        Margin="0,0,8,0"
-                        shell:WindowChrome.IsHitTestVisibleInChrome="True">
-                <Button Style="{StaticResource WindowButtonStyle}"
-                        ToolTip="最小化"
-                        Click="MinimizeButton_Click">
-                    <TextBlock Text="&#xE921;" FontFamily="Segoe MDL2 Assets" FontSize="10"/>
-                </Button>
-                <Button Style="{StaticResource WindowButtonStyle}"
-                        ToolTip="最大化 / 还原"
-                        Click="MaximizeButton_Click">
-                    <TextBlock x:Name="MaximizeGlyph" Text="&#xE922;" FontFamily="Segoe MDL2 Assets" FontSize="10"/>
-                </Button>
-                <Button Style="{StaticResource WindowCloseButtonStyle}"
-                        ToolTip="关闭"
-                        Click="CloseButton_Click">
-                    <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="10"/>
-                </Button>
-            </StackPanel>
-        </Grid>
-
-        <!-- ======= 导航栏 ======= -->
-        <!-- ======= 导航栏 =======
-             加 1px 底部分隔线：Nav.Background(#212122) 与内容区 Window.Background(#1E1E1E)
-             只差 3/255，肉眼分不出边界，导航条与页面内容糊成一片。 -->
-        <Border Grid.Row="1"
-                Background="{DynamicResource Nav.Background}"
-                BorderBrush="{DynamicResource Separator}"
-                BorderThickness="0,0,0,1"
+        <!-- ===================== 侧栏（整块可拖） =====================
+             拖拽事件挂在最外层 Border 上，而不是只挂在品牌区：
+             200×56 减去品牌文字只剩不到 100px，用户十次有九次点空。
+             导航项在模板层把 MouseLeftButtonUp 拦掉（见 SideNavItemStyle），
+             所以导航之外的每一寸——含导航下方整片空白——都能拖。 -->
+        <Border Grid.Column="0"
+                Background="{DynamicResource SideBar.Background}"
+                BorderBrush="{DynamicResource SideBar.Border}"
+                BorderThickness="0,0,1,0"
                 SnapsToDevicePixels="True"
-                Padding="16,8,16,8">
-            <StackPanel x:Name="NavPanel" Orientation="Horizontal">
-                <ToggleButton Style="{StaticResource NavButtonStyle}"
-                              Content="调校"
-                              Tag="Views/TuningPage.xaml"
-                              IsChecked="True"
-                              Click="NavButton_Click"/>
-                <ToggleButton Style="{StaticResource NavButtonStyle}"
-                              Content="调度"
-                              Tag="Views/ProcessBindingPage.xaml"
-                              Click="NavButton_Click"/>
-                <ToggleButton Style="{StaticResource NavButtonStyle}"
-                              Content="日志"
-                              Tag="Views/LogPage.xaml"
-                              Click="NavButton_Click"/>
-                <ToggleButton Style="{StaticResource NavButtonStyle}"
-                              Content="设置"
-                              Tag="Views/SettingsPage.xaml"
-                              Click="NavButton_Click"/>
-            </StackPanel>
+                MouseLeftButtonDown="Chrome_MouseLeftButtonDown">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="56"/>   <!-- 品牌 -->
+                    <RowDefinition Height="*"/>    <!-- 导航 -->
+                    <RowDefinition Height="Auto"/> <!-- 版本号 + 窗口按钮 -->
+                </Grid.RowDefinitions>
+
+                <!-- 品牌：全窗口唯一一处 ZenForge -->
+                <TextBlock Grid.Row="0"
+                           Text="ZenForge"
+                           Margin="24,0,16,0"
+                           VerticalAlignment="Center"
+                           FontSize="15"
+                           FontWeight="Bold"
+                           Foreground="{DynamicResource Text.Primary}"/>
+
+                <!-- 导航。分组标题是 TextBlock 不是 ToggleButton ——
+                     SetActiveNav 里 `if (child is ToggleButton)` 会自动跳过它，
+                     选中逻辑一行不用改。 -->
+                <StackPanel x:Name="NavPanel"
+                            Grid.Row="1"
+                            Orientation="Vertical"
+                            Margin="12,8,12,0">
+                    <ToggleButton Style="{StaticResource SideNavItemStyle}"
+                                  Content="调校"
+                                  Tag="Views/TuningPage.xaml"
+                                  IsChecked="True"
+                                  Click="NavButton_Click"/>
+                    <ToggleButton Style="{StaticResource SideNavItemStyle}"
+                                  Content="进程"
+                                  Tag="Views/ProcessBindingPage.xaml"
+                                  Click="NavButton_Click"/>
+                    <ToggleButton Style="{StaticResource SideNavItemStyle}"
+                                  Content="配置"
+                                  Tag="Views/ProfilePage.xaml"
+                                  Click="NavButton_Click"/>
+
+                    <TextBlock Text="系统"
+                               Style="{StaticResource NavGroupTitleStyle}"/>
+
+                    <ToggleButton Style="{StaticResource SideNavItemStyle}"
+                                  Content="设置"
+                                  Tag="Views/SettingsPage.xaml"
+                                  Click="NavButton_Click"/>
+                    <ToggleButton Style="{StaticResource SideNavItemStyle}"
+                                  Content="日志"
+                                  Tag="Views/LogPage.xaml"
+                                  Click="NavButton_Click"/>
+                </StackPanel>
+
+                <!-- 底部：版本号 + 最小化 / 最大化 / 关闭 -->
+                <Border Grid.Row="2"
+                        BorderBrush="{DynamicResource SideBar.Border}"
+                        BorderThickness="0,1,0,0"
+                        Padding="12,8"
+                        Margin="0,12,0,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock x:Name="VersionText"
+                                   Grid.Column="0"
+                                   VerticalAlignment="Center"
+                                   Margin="8,0,0,0"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource Text.Disabled}"/>
+
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Button Style="{StaticResource WindowButtonStyle}"
+                                    ToolTip="最小化"
+                                    Click="MinimizeButton_Click">
+                                <TextBlock Text="&#xE921;" FontFamily="Segoe MDL2 Assets" FontSize="10"/>
+                            </Button>
+                            <Button Style="{StaticResource WindowButtonStyle}"
+                                    ToolTip="最大化 / 还原"
+                                    Click="MaximizeButton_Click">
+                                <TextBlock x:Name="MaximizeGlyph" Text="&#xE922;" FontFamily="Segoe MDL2 Assets" FontSize="10"/>
+                            </Button>
+                            <Button Style="{StaticResource WindowCloseButtonStyle}"
+                                    ToolTip="关闭"
+                                    Click="CloseButton_Click">
+                                <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="10"/>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
         </Border>
 
         <!-- ===== 内容区 ===== -->
@@ -103,13 +142,12 @@
             也会在内容四周画出虚线 —— 就是截图里那两条"丑陋虚线"的真正来源。
             这里彻底断掉：Frame 不参与 Tab、不显示焦点框，Page 也不显示。
         -->
-        <Frame Grid.Row="2"
+        <Frame Grid.Column="1"
                x:Name="ContentFrame"
                NavigationUIVisibility="Hidden"
                Focusable="False"
                IsTabStop="False"
                FocusVisualStyle="{x:Null}"
-               Background="{DynamicResource Window.Background}"
-               Margin="0,2,0,0"/>
+               Background="{DynamicResource Window.Background}"/>
     </Grid>
 </Window>

@@ -29,6 +29,42 @@ ZenForge 各版本改动记录。安装包与 Release 正文均以本文件为�
 
 程序内部（日志、关于信息）显示的版本取自 `AssemblyInformationalVersion`，带后缀；资源管理器「属性 → 详细信息」里的文件版本是四段数字。两者一对照就能确定这个包是第几次发版。
 
+### 0.10.0
+
+界面重做，分三步走。这是第一步：窗口外壳与导航骨架。
+
+**无边框外壳**
+
+窗口改 `WindowStyle="None"`，`CaptionHeight` 从 48 降到 0。原来那条 48px 的自定义标题栏整个删掉，侧栏本身成了窗口外壳：顶部品牌、中部导航、底部版本号与窗口按钮，边缘到内容之间不再有任何一条「栏」。
+
+`CaptionHeight` 必须为 0 不只是审美问题。只要它非零，系统就把这块区域当标题栏吃掉 `WM_NCLBUTTONDOWN`，挂在侧栏上的 `MouseLeftButtonDown` 根本不会触发，`DragMove` 变成死代码。
+
+拖拽事件挂在侧栏最外层 `Border` 上，而不是只挂在 56px 的品牌区 —— 200px 宽的侧栏减去品牌文字只剩不到 100px，只在那一小块上拖等于逼用户瞄准。导航之外的每一寸，含导航下方整片空白，都能拖。
+
+**三个新坑的处置**
+
+- 最大化状态拖拽会把窗口「粘」在鼠标左上角跳一下。先还原，再按鼠标在窗口内的相对位置反推 `Left`。
+- `WindowStyle="None"` 最大化会连任务栏一起盖住。用 `SystemParameters.WorkArea.Height - 2` 校正 `MaxHeight`，还原时放回无限。
+- `ToggleButton` 吃掉 `MouseLeftButtonDown` 却不碰 `MouseLeftButtonUp`，于是「在侧栏空白处按下拖、在导航项上松手」会误跳页。改用类处理器 `AddHandler(..., handledEventsToo: true)` 把 Up 事件重新标记为 Handled —— 样式写在 `ResourceDictionary` 里挂不了实例处理器，编译直接报 `MC6024`。
+
+**导航改为五项**
+
+调校 / 进程 / 配置 一组，`系统` 分组标题下 设置 / 日志。选中态不再整块填充强调色，改成左侧 3×14 竖条 + 淡底 + 600 字重；整块填色会让侧栏变成一条彩色条，抢走内容区的注意力。
+
+新增空的 `配置` 页（方案切换在第三步接入）。`ProcessBindingPage` 的导航标题由「调度」改为「进程」。
+
+**新增 token**
+
+`SideBar.Background` 与 `SideBar.Border` 两册同步。窗口底 `#121214`、侧栏 `#18181A` —— 两者只差 6/255，纯靠色差分不出边界，必须补那条 1px 分割线。
+
+**新增样式**
+
+`SideNavItemStyle`、`NavGroupTitleStyle`、`PageTitleStyle`、`PageSubStyle`。`WindowButtonStyle` 从 46×32 收到 28×28 圆角 4，因为窗口按钮挪进了侧栏底部。
+
+**代价**
+
+关闭按钮从右上挪到左下，违反 Windows 肌肉记忆（Alt+F4 与托盘菜单「退出」仍在）。拖拽改手写 `DragMove` 后完全失去 Aero Snap，拖到屏幕边缘不再吸附、拖到顶部不再自动最大化，只能靠 `Win+方向键`。这两条是无边框方案的固有取舍，不是疏漏。
+
 ### 0.9.6
 
 修托盘。两处问题，都由 0.9.5 的实测反馈带出来。

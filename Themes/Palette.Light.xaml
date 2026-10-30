@@ -2,10 +2,13 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <SolidColorBrush x:Key="Window.Background" Color="#F2F2F4"/>
+    <SolidColorBrush x:Key="Window.Background" Color="#F3F3F4"/>
+    <!-- 侧栏比窗口暗一档，与深色册的「亮一档」方向相反但目的一致：亮出边界。 -->
+    <SolidColorBrush x:Key="SideBar.Background" Color="#EBEBED"/>
+    <SolidColorBrush x:Key="SideBar.Border" Color="#10000000"/>
     <!-- 深色版同位置是不透明实色，这里保持一致，避免亮色主题下出现同样的空洞。 -->
-    <SolidColorBrush x:Key="TitleBar.Background" Color="#F2F2F4"/>
-    <SolidColorBrush x:Key="Nav.Background" Color="#F2F2F4"/>
+    <SolidColorBrush x:Key="TitleBar.Background" Color="#F3F3F4"/>
+    <SolidColorBrush x:Key="Nav.Background" Color="#EBEBED"/>
 
     <SolidColorBrush x:Key="Card.Background" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="Card.Border" Color="#E2E2E6"/>

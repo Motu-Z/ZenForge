@@ -1,4 +1,4 @@
-﻿<Page x:Class="ZenForge.Views.LogPage"
+<Page x:Class="ZenForge.Views.LogPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:services="clr-namespace:ZenForge.Services"
@@ -8,7 +8,15 @@
 
     <!-- 单卡结构（与 NvForge 对齐）：标题行 → 内容面板 → 工具行。
          原独立页头卡已移除，标题与「打开日志目录」移入本卡标题行。 -->
-    <Border Style="{StaticResource CardBorderStyle}" Margin="16">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Margin="24,24,32,24">
+
+    <!-- ======= 页头 ======= -->
+    <StackPanel Margin="0,0,0,20">
+        <TextBlock Text="日志" Style="{StaticResource PageTitleStyle}"/>
+    </StackPanel>
+
+    <Border Style="{StaticResource CardBorderStyle}" Margin="0">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -179,4 +187,6 @@
             </Grid>
         </Grid>
     </Border>
+    </StackPanel>
+    </ScrollViewer>
 </Page>
