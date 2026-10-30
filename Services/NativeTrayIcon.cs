@@ -40,6 +40,9 @@ namespace ZenForge.Services
         private const uint NIM_DELETE = 0x00000002;
         private const uint NIM_SETVERSION = 0x00000004;
 
+        private const uint PM_REMOVE = 0x0001;
+        private const uint WM_QUIT = 0x0012;
+
         private const uint NOTIFYICON_VERSION_4 = 4;
 
         private const uint NIF_MESSAGE = 0x00000001;
@@ -157,8 +160,18 @@ namespace ZenForge.Services
         /// </summary>
         public void RunMessageLoop()
         {
-            while (NativeMethods.GetMessage(out MSG msg, IntPtr.Zero, 0, 0) > 0)
+            MSG msg;
+
+            // 不能用 GetMessage 收尾：PostQuitMessage 会往队列里塞一条 WM_QUIT，
+            // GetMessage 取到它只返回 0、不清队列，于是上一轮的 WM_QUIT 一直躺着，
+            // 下一轮循环刚起来就立刻退出。托盘建好后第一次唤醒界面走 WakeWindow、
+            // 不碰这个队列还好，一旦走的是命名事件那条路，图标就「点一下就没了」。
+            // PeekMessage 每轮都把 WM_QUIT 真正摘掉，循环条件才回到 `_exitRequested`。
+            while (!_exitRequested && NativeMethods.PeekMessage(out msg, IntPtr.Zero, 0, 0, PM_REMOVE))
             {
+                if (msg.message == WM_QUIT)
+                    break;
+
                 NativeMethods.TranslateMessage(ref msg);
                 NativeMethods.DispatchMessage(ref msg);
             }
@@ -211,12 +224,61 @@ namespace ZenForge.Services
         // ==================== 托盘图标 ====================
 
         /// <summary>
+        /// 把 <see cref="NOTIFYICONDATA"/> 交给 <c>Shell_NotifyIconW</c>。
+        ///
+        /// 结构体用显式布局是为了让每个字段落在 C 编译器排出的位置，但显式布局下
+        /// CLR 仍会按自己的规则把整块补齐到 976：末尾的 <c>hBalloonIcon</c> 之后
+        /// 多出 8 字节填充，而 shell 只按 <c>cbSize</c>（968）读。这里把 cbSize
+        /// 与声明写成一致，就不再依赖「多出来的没人读」这个前提。
+        /// </summary>
+        private static bool ShellNotifyIcon(uint message, in NOTIFYICONDATA data)
+        {
+            // 分配时按封送器实际要写的长度来，交出去时才截到 size。
+            // 两者在 Vista 之前不一样，混用会把 hBalloonIcon 写到块外。
+            IntPtr buffer = Marshal.AllocHGlobal(Marshal.SizeOf<NOTIFYICONDATA>());
+
+            try
+            {
+                Marshal.StructureToPtr(data, buffer, false);
+
+                // 结构体已按 C 布局排好，只需把封送器额外补齐出来的尾部砍掉：
+                // cbSize 写多少，shell 就只读多少。
+                Marshal.WriteInt32(buffer, 0, IconDataSize());
+                return NativeMethods.Shell_NotifyIconW(message, buffer);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+
+        /// <summary>
+        /// <c>cbSize</c> 取当前 shell 能接受的最大长度。
+        ///
+        /// 官方要求按 Shell32 版本给值：Vista 及以后是 <c>sizeof(NOTIFYICONDATA)</c>，
+        /// XP 是 V3_SIZE。两者的差别只有末尾的 <c>hBalloonIcon</c> 一个指针，
+        /// 本机最低 Win10，<c>Major >= 6</c> 之后恒走全长分支；保留另一支是为了
+        /// 万一有人把这套代码搬到老系统上时不至于传错长度。
+        /// </summary>
+        private static int IconDataSize() =>
+            Environment.OSVersion.Version.Major >= 6
+                ? NOTIFYICONDATA.ExpectedSize
+                : NOTIFYICONDATA.HBalloonIconOffset;
+
+        /// <summary>
+        /// 布局一旦和 shellapi.h 漂移，托盘会「看着正常、读到的字段却是别人的」。
+        /// 显式布局的意义就是把偏移钉死，所以这里逐字段对拍，而不是指望运行时巧合。
+        /// </summary>
+        static NativeTrayIcon() => NOTIFYICONDATA.VerifyLayout();
+
+
+        /// <summary>
         /// 托盘通知结构的基础字段。只填定位信息（尺寸 / 窗口 / 图标 ID），
         /// 具体要操作哪几项由调用方按 NIM_ADD / NIM_DELETE 各自设置。
         /// </summary>
         private NOTIFYICONDATA NewIconData() => new()
         {
-            cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
+            cbSize = IconDataSize(),
             hWnd = _hwnd,
             uID = TrayIconId,
             szInfo = string.Empty,
@@ -241,12 +303,12 @@ namespace ZenForge.Services
             data.hIcon = _icon;
             data.szTip = "ZenForge — 后台绑核运行中";
 
-            _added = NativeMethods.Shell_NotifyIconW(NIM_ADD, ref data);
+            _added = ShellNotifyIcon(NIM_ADD, data);
 
             if (_added)
             {
                 data.uTimeoutOrVersion = NOTIFYICON_VERSION_4;
-                NativeMethods.Shell_NotifyIconW(NIM_SETVERSION, ref data);
+                ShellNotifyIcon(NIM_SETVERSION, data);
             }
         }
 
@@ -344,8 +406,7 @@ namespace ZenForge.Services
 
             if (_added && _hwnd != IntPtr.Zero)
             {
-                NOTIFYICONDATA data = NewIconData();
-                try { NativeMethods.Shell_NotifyIconW(NIM_DELETE, ref data); }
+                try { ShellNotifyIcon(NIM_DELETE, NewIconData()); }
                 catch { /* 进程正在退出，删不掉也无所谓 */ }
 
                 _added = false;
@@ -408,33 +469,111 @@ namespace ZenForge.Services
             public uint lPrivate;
         }
 
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        /// <summary>
+        /// <c>NOTIFYICONDATAW</c>，x64 布局，共 968 字节。
+        ///
+        /// 这里必须用显式布局。默认的 Sequential 排不出正确结果：托管封送器认为
+        /// <c>Guid</c> 的对齐是 4 而不是 8，于是 <c>szInfoTitle</c> 之后那几个字段
+        /// 整体前移 4 字节（<c>szInfoTitle</c> 落在 820 而 C 是 824），结构体还会
+        /// 多撑到 976。cbSize 报 976 时 shell 按它自己的 968 布局去读，表面上能用，
+        /// 读到的标题与状态位却是错的。<c>Pack = 1</c> 同样不行 —— 它会连 <c>hWnd</c>
+        /// 的对齐一起压掉，从第二个字段就开始错位。
+        ///
+        /// 偏移取自 shellapi.h 在 x64 下由 C 编译器排出的实际结果。只支持 x64：
+        /// 本项目只发布 win-x64，x86 下这些偏移不成立，<see cref="VerifyLayout"/> 会拦下。
+        /// </summary>
+        [StructLayout(LayoutKind.Explicit, Size = 968, CharSet = CharSet.Unicode)]
         private struct NOTIFYICONDATA
         {
+            /// <summary>与 Win10+ shell 完全一致的整块长度，即 C 的 <c>sizeof</c>。</summary>
+            public const int ExpectedSize = 968;
+
+            /// <summary>V3_SIZE：<c>hBalloonIcon</c> 之前的长度，Vista 之前的结构到此为止。</summary>
+            public const int HBalloonIconOffset = 968;
+
+            [FieldOffset(0)]
             public int cbSize;
+
+            [FieldOffset(8)]
             public IntPtr hWnd;
+
+            [FieldOffset(16)]
             public uint uID;
+
+            [FieldOffset(20)]
             public uint uFlags;
+
+            [FieldOffset(24)]
             public uint uCallbackMessage;
+
+            [FieldOffset(32)]
             public IntPtr hIcon;
 
+            // Win2000 起为 WCHAR[128]，含结尾空字符，即最多 127 个可见字符。
+            [FieldOffset(40)]
             [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
             public string szTip;
 
+            [FieldOffset(296)]
             public uint dwState;
+
+            [FieldOffset(300)]
             public uint dwStateMask;
 
+            // WCHAR[256]，与 uTimeoutOrVersion 共同构成 V2 的尾部。
+            [FieldOffset(304)]
             [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
             public string szInfo;
 
+            // 与 uTimeout 是联合体：NIM_SETVERSION 写这里。
+            [FieldOffset(816)]
             public uint uTimeoutOrVersion;
 
+            [FieldOffset(824)]
             [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
             public string szInfoTitle;
 
+            [FieldOffset(952)]
             public uint dwInfoFlags;
+
+            // Win7 起新增。guidItem 是 16 字节，hBalloonIcon 紧随其后。
+            [FieldOffset(960)]
             public Guid guidItem;
+
+            // 到 V3_SIZE 为止。只有这一项在 Vista 之前不存在，届时 cbSize 报 960。
+            [FieldOffset(968)]
             public IntPtr hBalloonIcon;
+
+            /// <summary>
+            /// 逐字段对拍 C 布局。显式布局只在 x64 下成立，x86 会在这里被拦下，
+            /// 而不是等到托盘读错字段再派人去猜。
+            ///
+            /// 注意不能拿 <c>Marshal.SizeOf</c> 来校验：显式布局下 CLR 会把整块
+            /// 补齐到 976（`Guid` 尾部多 8 字节），那个数字本来就不等于 <c>sizeof</c>。
+            /// 真正决定字段是否读对的，是这些偏移。
+            /// </summary>
+            public static void VerifyLayout()
+            {
+                if (!Environment.Is64BitProcess)
+                    throw new PlatformNotSupportedException("NOTIFYICONDATA 的偏移按 x64 计算，不支持 32 位进程");
+
+                (string Field, int Offset)[] expected =
+                {
+                    (nameof(cbSize), 0), (nameof(hWnd), 8), (nameof(uID), 16), (nameof(uFlags), 20),
+                    (nameof(uCallbackMessage), 24), (nameof(hIcon), 32), (nameof(szTip), 40),
+                    (nameof(dwState), 296), (nameof(dwStateMask), 300), (nameof(szInfo), 304),
+                    (nameof(uTimeoutOrVersion), 816), (nameof(szInfoTitle), 824),
+                    (nameof(dwInfoFlags), 952), (nameof(guidItem), 960), (nameof(hBalloonIcon), 968),
+                };
+
+                foreach ((string field, int offset) in expected)
+                {
+                    long actual = Marshal.OffsetOf<NOTIFYICONDATA>(field).ToInt64();
+                    if (actual != offset)
+                        throw new MarshalDirectiveException(
+                            $"NOTIFYICONDATA.{field} 偏移 {actual}，应为 {offset}（与 shellapi.h 不符）");
+                }
+            }
         }
 
         private static class NativeMethods
@@ -463,8 +602,9 @@ namespace ZenForge.Services
             [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
             internal static extern uint RegisterWindowMessage(string lpString);
 
-            [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-            internal static extern bool Shell_NotifyIconW(uint dwMessage, ref NOTIFYICONDATA lpData);
+            // 结构体由 ShellNotifyIcon 自己序列化，这里只收指针，避免封送器按 976 补齐
+            [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "Shell_NotifyIconW")]
+            internal static extern bool Shell_NotifyIconW(uint dwMessage, IntPtr lpData);
 
             [DllImport("user32.dll", SetLastError = true)]
             internal static extern IntPtr LoadImage(
@@ -492,13 +632,13 @@ namespace ZenForge.Services
             [DllImport("user32.dll", SetLastError = true)]
             internal static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
-            [DllImport("user32.dll")]
-            internal static extern int GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+            internal static extern bool PeekMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
 
-            [DllImport("user32.dll")]
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
             internal static extern bool TranslateMessage(ref MSG lpMsg);
 
-            [DllImport("user32.dll")]
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
             internal static extern IntPtr DispatchMessage(ref MSG lpMsg);
 
             [DllImport("user32.dll")]
