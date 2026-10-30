@@ -656,17 +656,49 @@ namespace ZenForge.Services
 
         // ==================== 降级轮询主循环 ====================
 
+        /// <summary>
+        /// 宿主窗口是否可见。false = 已隐藏 / 最小化 / 收进托盘。
+        ///
+        /// 【只影响降级轮询，不影响 WMI 事件模式】
+        /// 事件模式是操作系统的进程创建事件，闲时成本≈0，而且是「后台常驻调度」
+        /// 的命脉 —— 收进托盘正是它唯一有意义的场景，停掉它等于把功能关了。
+        /// 降级轮询不一样：每 3 秒全量枚举一遍进程、逐个 OpenProcess，
+        /// 是全工程最贵的一条后台路径，隐藏时必须停。
+        /// </summary>
+        private static volatile bool _hostVisible = true;
+
+        /// <summary>宿主窗口可见性。窗口隐藏时降级轮询挂起。</summary>
+        public static void SetHostVisible(bool visible)
+        {
+            if (_hostVisible == visible)
+                return;
+
+            _hostVisible = visible;
+
+            if (!UsingEvents)
+            {
+                LogService.Info(visible
+                    ? "窗口恢复可见：降级轮询已恢复（WMI 不可用时按固定周期扫描）"
+                    : "窗口不可见：降级轮询已挂起（WMI 不可用时的全量扫描是后台最贵的一条路径）");
+            }
+        }
+
         private static async System.Threading.Tasks.Task LoopAsync(CancellationToken token)
         {
             while (!token.IsCancellationRequested)
             {
-                try
+                // 窗口不可见时不扫：这一轮的全量枚举（几百个 OpenProcess）
+                // 是后台最贵的一笔开销，而此时没人看得见结果。
+                if (_hostVisible)
                 {
-                    ScanOnce();
-                }
-                catch (Exception ex)
-                {
-                    LogService.Warn($"进程绑核扫描异常（已跳过本轮）：{ex.Message}");
+                    try
+                    {
+                        ScanOnce();
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.Warn($"进程绑核扫描异常（已跳过本轮）：{ex.Message}");
+                    }
                 }
 
                 try

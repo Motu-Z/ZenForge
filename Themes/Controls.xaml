@@ -331,7 +331,10 @@
         <Setter Property="HorizontalContentAlignment" Value="Center"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
-        <Setter Property="Background" Value="{DynamicResource Button.Quiet.Background}"/>
+        <!-- 普通按钮底色 = #2A2A2D（规范里的那一个值）。
+             原先用 Button.Quiet.Background(#1C1C1F)，比卡片底还深，
+             按钮于是「陷进」界面里而不是浮在上面 —— 整排按钮看着像一排黑洞。 -->
+        <Setter Property="Background" Value="{DynamicResource Button.Neutral.Background}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource Button.Neutral.Border}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
@@ -365,6 +368,14 @@
                         <Trigger Property="IsPressed" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Button.Neutral.Pressed}"/>
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Input.Border}"/>
+                            <!-- 按压微缩 0.96：规范里的 Active 反馈。
+                                 按钮整体缩 4%，比换底色更「按下去」，也不改任何色值。 -->
+                            <Setter Property="RenderTransform">
+                                <Setter.Value>
+                                    <ScaleTransform ScaleX="0.96" ScaleY="0.96"/>
+                                </Setter.Value>
+                            </Setter>
+                            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
@@ -1131,20 +1142,24 @@
                                           VerticalAlignment="Center"/>
                     </Border>
                     <ControlTemplate.Triggers>
-                        <!-- 悬停：反转为实底强调色 + 深色字。
-                             Foreground 必须用 TargetName=Cp 改，控件级 Setter 在
-                             模板触发器里改不动 ContentPresenter 已经继承到的值。 -->
+                        <!-- 悬停：淡底从 15% 加深到 25%，描边与文字仍是强调色。
+                             【不要翻成实底强调色】
+                             实心强调色在一排低饱和按钮里刺眼得像报错，而且
+                             「主按钮 = 一块纯色」的观感会把整页的视觉重心拽到它身上。
+                             淡底逐级加深就能表达「按下去了」，饱和度全程不变。 -->
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentSoftHoverBrush}"/>
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
-                            <Setter TargetName="Cp" Property="TextElement.Foreground"
-                                    Value="{DynamicResource AccentTextBrush}"/>
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentPressedBrush}"/>
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentPressedBrush}"/>
-                            <Setter TargetName="Cp" Property="TextElement.Foreground"
-                                    Value="{DynamicResource AccentTextBrush}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentSoftPressedBrush}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            <Setter Property="RenderTransform">
+                                <Setter.Value>
+                                    <ScaleTransform ScaleX="0.96" ScaleY="0.96"/>
+                                </Setter.Value>
+                            </Setter>
+                            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
@@ -1259,13 +1274,18 @@
          而不是靠代码在每次刷新时把 Brush 写回去 —— 后者在虚拟化回收
          与主题切换时都会漏改一处，出现「半旧半新」的胶囊。
 
-         描边 30% + 底 10%：两档透明度拉开，底色属于背景层、描边属于前景层。
-         只有 10% 底时胶囊在卡片上几乎看不见边界，只有 30% 描边时三枚
-         并排会连成三条硬线。
+         【低饱和铁律】
+         未选中：底 10% 级别色、描边 30% 级别色、文字 100% 级别色。
+         选选中：底 30% 级别色、描边 100% 级别色、文字 100% 级别色 + SemiBold。
 
-         选中态直接把底色翻成实心级别色、文字与圆点翻成窗口底色：
-         尺寸一个像素都不动（加粗边框会让文字左右各抖 1px），
-         但视觉重量足以表达「正在按这一级筛选」。 -->
+         早先的选中态是「实心级别色底 + 窗口底色字」：
+         警告的实心 #F5D90A 在深色界面上是一块刺眼的纯黄，
+         整排胶囊里只有它能抢到视线 —— 与「低饱和」的规范正面冲突。
+         现在选中只靠「底更实 + 描边更实 + 字重」三档表达，
+         饱和度不变，文字色始终等于边框色（两者同源）。
+
+         三个级别只换三支笔，其余全部继承：
+         加一个级别 = 加一个 4 行的派生样式，不用复制整套模板。 -->
     <Style x:Key="LogPillStyle" TargetType="ToggleButton">
         <Setter Property="Height" Value="28"/>
         <Setter Property="Padding" Value="12,0"/>
@@ -1299,11 +1319,9 @@
                                      VerticalAlignment="Center"
                                      Fill="{TemplateBinding Foreground}"
                                      SnapsToDevicePixels="True"/>
-                            <!-- 文字颜色单独挂一层 TextBlock.Foreground，不直接用 Foreground：
-                                 选中态要把「底」翻成级别色、「字」翻成窗口底色，
-                                 两者必须分开控制（见下方 IsChecked 的注释）。 -->
-                            <ContentPresenter x:Name="Txt"
-                                              VerticalAlignment="Center"
+                            <!-- 文字颜色 = Foreground = 级别色 = 描边色，三者同源。
+                                 不在选中态里翻转颜色，否则会出现「深底深字」。 -->
+                            <ContentPresenter VerticalAlignment="Center"
                                               TextBlock.Foreground="{TemplateBinding Foreground}"/>
                         </StackPanel>
                     </Border>
@@ -1320,18 +1338,14 @@
                                 </Setter.Value>
                             </Setter>
                         </Trigger>
-                        <!-- 选中：底翻成实心级别色，字与圆点翻成窗口底色。
-                             【不能改 Foreground 本身】
-                             Bd.Background 是从 Foreground 取的，一旦在这里把 Foreground
-                             改成窗口底色，底色会跟着变成窗口色 —— 深底深字，整枚胶囊消失。
-                             所以只改「文字层」与「圆点」，Foreground 始终是级别色。 -->
+                        <!-- 选中：底从 10% 提到 30%（直接复用描边那一档的笔），
+                             描边提到实心级别色，文字加粗 —— 饱和度全程不变。 -->
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="Bd" Property="Background"
+                                    Value="{Binding BorderBrush, RelativeSource={RelativeSource TemplatedParent}}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush"
                                     Value="{Binding Foreground, RelativeSource={RelativeSource TemplatedParent}}"/>
-                            <Setter TargetName="Dot" Property="Fill"
-                                    Value="{DynamicResource Window.Background}"/>
-                            <Setter TargetName="Txt" Property="TextBlock.Foreground"
-                                    Value="{DynamicResource Window.Background}"/>
+                            <Setter Property="FontWeight" Value="SemiBold"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

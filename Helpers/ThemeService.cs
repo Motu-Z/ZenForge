@@ -291,6 +291,8 @@ namespace ZenForge.Helpers
             "AccentHoverBrush",
             "AccentPressedBrush",
             "AccentSoftBrush",
+            "AccentSoftHoverBrush",
+            "AccentSoftPressedBrush",
             "AccentTextBrush",
         };
 
@@ -324,6 +326,10 @@ namespace ZenForge.Helpers
             // 15% Alpha（0x26 = 38/255 ≈ 14.9%）：v2 强调色方案里，淡底只做「极轻的
             // 区域标记」，压得太深会和实底强调色抢视觉重量。深色册与浅色册共用此算法。
             WriteAccent("AccentSoftBrush", Frozen(Color.FromArgb(0x26, color.R, color.G, color.B)));
+            // 悬停 25% / 按下 35%：主按钮的按下反馈靠「淡底逐级加深」表达，
+            // 不翻成实心强调色（实心色在一排低饱和按钮里刺眼得像报错）。
+            WriteAccent("AccentSoftHoverBrush", Frozen(Color.FromArgb(0x40, color.R, color.G, color.B)));
+            WriteAccent("AccentSoftPressedBrush", Frozen(Color.FromArgb(0x59, color.R, color.G, color.B)));
             WriteAccent("AccentTextBrush", Frozen(NeedsDarkForeground(color) ? Colors.Black : Colors.White));
         }
 

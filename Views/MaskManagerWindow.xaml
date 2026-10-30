@@ -141,54 +141,33 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <!-- ===================== 标题栏（可拖动） ===================== -->
+            <!-- ===================== 标题栏（可拖动） =====================
+                 【1.0.3 精简】
+                 原来这里是「圆形齿轮图标 + 标题 + 副标题」三件套，占了整整两行，
+                 而副标题那句「勾选要绑定的核心 / 线程，保存后可在调度页直接选用」
+                 是在替用户读第二遍 —— 界面里已经写着「选择核心 / 线程」了。
+                 现在只剩标题 + 关闭按钮，标题放大到 20 当作这一窗的主标题。 -->
             <Border Grid.Row="0"
                     Background="Transparent"
                     Padding="20,16,20,0"
                     MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- 圆形图标：强调色 15% 淡底 + 强调色描边与图标。
-                         这是 v2 强调色方案的标准用法 —— 大面积用淡底，
-                         只有描边/文字用 100% 强调色，避免整块饱和色压过内容。 -->
-                    <Border Width="34" Height="34" CornerRadius="17"
-                            Background="{DynamicResource AccentSoftBrush}"
-                            BorderBrush="{DynamicResource AccentBrush}"
-                            BorderThickness="1"
-                            VerticalAlignment="Center">
-                        <!-- 齿轮：外圈 + 8 段齿，全部矢量，不依赖 Segoe MDL2 字形 -->
-                        <Viewbox Width="17" Height="17">
-                            <Canvas Width="24" Height="24">
-                                <Ellipse Canvas.Left="7" Canvas.Top="7" Width="10" Height="10"
-                                         Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.8"/>
-                                <Path Data="M12 2v3 M12 19v3 M2 12h3 M19 12h3 M4.9 4.9l2.1 2.1 M17 17l2.1 2.1 M19.1 4.9L17 7 M7 17l-2.1 2.1"
-                                      Stroke="{DynamicResource AccentBrush}"
-                                      StrokeThickness="1.8"
-                                      StrokeStartLineCap="Round"
-                                      StrokeEndLineCap="Round"/>
-                            </Canvas>
-                        </Viewbox>
-                    </Border>
+                    <TextBlock Grid.Column="0"
+                               Text="管理自定义掩码"
+                               FontSize="20"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource Text.Primary}"/>
 
-                    <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
-                        <TextBlock Text="管理自定义掩码"
-                                   FontSize="15" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource Text.Primary}"/>
-                        <TextBlock x:Name="HeaderSubText"
-                                   Text="勾选要绑定的核心 / 线程，保存后可在调度页直接选用"
-                                   FontSize="12"
-                                   Margin="0,3,0,0"
-                                   Foreground="{DynamicResource Text.Secondary}"
-                                   TextTrimming="CharacterEllipsis"/>
-                    </StackPanel>
-
-                    <Button Grid.Column="2"
-                            Width="30" Height="28"
+                    <!-- 关闭按钮 26×26（原 30×28）：窗口右上角的辅助动作，
+                         不该和主标题抢视觉重量。 -->
+                    <Button Grid.Column="1"
+                            Width="26" Height="26"
                             Style="{StaticResource WindowButtonStyle}"
                             ToolTip="关闭"
                             Click="Close_Click">
@@ -197,7 +176,7 @@
                               StrokeThickness="1.4"
                               StrokeStartLineCap="Round"
                               StrokeEndLineCap="Round"
-                              Width="18" Height="18" Stretch="Uniform"/>
+                              Width="14" Height="14" Stretch="Uniform"/>
                     </Button>
                 </Grid>
             </Border>

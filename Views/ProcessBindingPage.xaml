@@ -159,7 +159,7 @@
                                      它自己负责图标 / 文本 / 占位符的列布局与内缩，
                                      页面里只给宽度和事件 —— 不再出现「哪个 Margin 管哪一段」。 -->
                                 <ctl:SearchBox x:Name="SearchBox"
-                                               Width="180"
+                                               Width="200"
                                                Margin="0,0,8,0"
                                                VerticalAlignment="Center"
                                                Placeholder="搜索进程..."
@@ -306,10 +306,17 @@
                                                 <Style TargetType="Border" BasedOn="{StaticResource ProcessRowStyle}">
                                                     <Style.Triggers>
                                                         <!-- 放在最后：选中行的底色要压过 ProcessRowStyle 里的
-                                                             悬停色，否则鼠标扫过去就看不出哪行是选中的。 -->
+                                                             悬停色，否则鼠标扫过去就看不出哪行是选中的。
+
+                                                             【用中性档，不用强调色】
+                                                             原先这里是 AccentSoftBrush（强调色 15% 透明度），
+                                                             选中一行就是一块亮蓝，在低饱和的深色界面里非常刺眼，
+                                                             而且强调色本来只该给「边框 / 开关开启态 / 滑块」。
+                                                             现在改成与日志页同一档中性选中底（8% 白），
+                                                             文字与描边保持各自的语义色。 -->
                                                         <DataTrigger Binding="{Binding IsSelected}" Value="True">
                                                             <Setter Property="Background"
-                                                                    Value="{DynamicResource AccentSoftBrush}"/>
+                                                                    Value="{DynamicResource Nav.Button.Active}"/>
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>

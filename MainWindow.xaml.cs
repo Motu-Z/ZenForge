@@ -138,18 +138,31 @@ namespace ZenForge
         /// <summary>
         /// 同步「用户看得见主窗口」的状态。
         ///
-        /// 两件事都挂在这里：
-        ///   · 后台组件读 UiPresence 判断能否弹提示（它们不引用 App，
-        ///     否则会把 WPF 拖进纯后台进程）；
-        ///   · PageTimerManager 据此挂起全部 UI 刷新定时器。
-        /// 窗口看不见时还让定时器跑，就是后台白烧 CPU 与电的来源。
+        /// 这一处是**后台零占用的总闸门**：窗口一看不见，下列东西全部停摆 ——
+        ///   · PageTimerManager：所有受管定时器（含 2 秒一次的主题监视器）；
+        ///   · ProcessRefresher：进程采样循环（硬闸门，不依赖页面引用计数）；
+        ///   · ProcessWatcher：WMI 不可用时的降级全量轮询。
+        ///
+        /// WMI **事件**模式刻意不停：它是操作系统的进程创建事件，闲时成本≈0，
+        /// 而且「后台常驻调度」只在窗口看不见时才有意义 —— 停掉它等于关功能。
         /// </summary>
         private void UpdateUiPresence()
         {
             bool visible = IsVisible && WindowState != WindowState.Minimized;
 
             UiPresence.MainWindowVisible = visible;
+
+            // 三道闸门一起推。顺序无所谓，但必须一次推完：
+            // 只推其中一道就会出现「停了 A 还有 B 在跑」的错觉。
             PageTimerManager.SetHostVisible(visible);
+            ProcessRefresher.SetHostVisible(visible);
+            ProcessWatcher.SetHostVisible(visible);
+
+            LogService.Info(visible
+                ? $"窗口可见：已恢复后台刷新（受管定时器 {PageTimerManager.RunningCount} 个在跑）"
+                : $"窗口不可见：已挂起全部 UI 刷新与采样（受管定时器 {PageTimerManager.RunningCount} 个在跑，" +
+                  $"采样观察者 {(ProcessRefresher.IsWatched ? "有" : "无")}，" +
+                  $"绑核监听 {(ProcessWatcher.IsRunning ? (ProcessWatcher.UsingEvents ? "WMI 事件" : "降级轮询") : "未运行")}）");
         }
 
         /// <summary>

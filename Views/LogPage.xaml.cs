@@ -199,9 +199,9 @@ namespace ZenForge.Views
         /// <summary>
         /// 重建可见集合。
         ///
-        /// 先用局部 List 组装好再整体替换内容，而不是逐条 Remove/Insert：
-        /// ObservableCollection 每变一次都会让 ListBox 走一轮变更通知，
-        /// 500 条逐条处理会把界面卡住几百毫秒。
+        /// 增量对齐（Move / Insert / Remove），不是 Clear()+Add：
+        /// 后者会发 Reset 通知、让 ListBox 重建全部容器 → 列表闪烁 + 滚动弹回。
+        /// 详见 <see cref="ApplyIncremental"/>。
         /// </summary>
         private void RebuildVisibleList()
         {
@@ -218,9 +218,7 @@ namespace ZenForge.Views
 
             List<LogEntry> matched = query.ToList();
 
-            // 内容一字未变就别重建。
-            // Clear + Add 会触发一次 Reset 通知，ListBox 随即重建可视容器、
-            // 把滚动位置弹回顶部 —— 表现在界面上就是「闪一下 + 被拽回顶部」。
+            // 内容一字未变就别动集合：一条通知都不发，列表自然不闪。
             if (SameEntries(matched))
             {
                 UpdateStats();
@@ -232,9 +230,7 @@ namespace ZenForge.Views
             bool followLatest = IsAtBottom();
             double keepOffset = ListScrollViewer()?.VerticalOffset ?? 0;
 
-            VisibleEntries.Clear();
-            foreach (LogEntry entry in matched)
-                VisibleEntries.Add(entry);
+            ApplyIncremental(matched);
 
             RefreshEmptyHint();
             UpdateStats();
@@ -243,6 +239,59 @@ namespace ZenForge.Views
                 ScrollToLatest();
             else
                 ListScrollViewer()?.ScrollToVerticalOffset(keepOffset);   // 用户正在往回翻历史，别把他拽回底部
+        }
+
+        /// <summary>
+        /// 把可见集合**增量**对齐到目标序列。
+        ///
+        /// 【为什么不能 Clear() + Add】
+        /// Clear 会发一条 Reset 通知，ListBox 随即丢弃并重建**全部**可视容器：
+        /// 一屏的行全部重新实例化（每行一个 Border + 三个 TextBlock + 竖条），
+        /// 肉眼可见地闪一下，滚动位置还会被弹回顶部。
+        /// 突发日志一次进来几十条时，这个过程每来一批就重演一次 ——
+        /// 表现在界面上就是「列表一直在闪」。
+        ///
+        /// 增量对齐只发真正需要的那几条通知（Insert / Move / Remove），
+        /// 没有变化的行容器原地留着：不闪、不跳、滚动位置天然保持。
+        ///
+        /// 代价是 O(n²) 的最坏情况（顺序全变时）。日志页 n ≤ 500，
+        /// 且绝大多数时候是「尾部追加」，实际是 O(n)。
+        /// </summary>
+        private static void ApplyIncremental(IReadOnlyList<LogEntry> target)
+        {
+            for (int i = 0; i < target.Count; i++)
+            {
+                LogEntry want = target[i];
+
+                // 这一项已经就位 → 什么都不用做（这是绝大多数情况）
+                if (i < VisibleEntries.Count && ReferenceEquals(VisibleEntries[i], want))
+                    continue;
+
+                // 已经在集合里（只是位置不对）→ 挪过来
+                int found = IndexOfFrom(want, i + 1);
+                if (found >= 0)
+                {
+                    VisibleEntries.Move(found, i);
+                    continue;
+                }
+
+                // 集合里没有 → 新增
+                VisibleEntries.Insert(i, want);
+            }
+
+            // 目标比当前短 → 删掉尾部多余的（每次只删一条，通知粒度最小）
+            while (VisibleEntries.Count > target.Count)
+                VisibleEntries.RemoveAt(VisibleEntries.Count - 1);
+        }
+
+        /// <summary>从指定位置起找同一对象的下标；找不到返回 -1。</summary>
+        private static int IndexOfFrom(LogEntry entry, int start)
+        {
+            for (int i = start; i < VisibleEntries.Count; i++)
+                if (ReferenceEquals(VisibleEntries[i], entry))
+                    return i;
+
+            return -1;
         }
 
         /// <summary>当前可见集合与匹配结果是否完全一致（同一批对象、同一顺序）。</summary>

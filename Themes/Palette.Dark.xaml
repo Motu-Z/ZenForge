@@ -148,11 +148,10 @@
          次要按钮的定位是「看得见、点得到、但不抢视线」，
          靠 1px 边框和 hover 时的提亮来表达可交互，而不是靠底色。 -->
     <SolidColorBrush x:Key="Button.Neutral.Background" Color="#2A2A2D"/>
-    <SolidColorBrush x:Key="Button.Neutral.Hover" Color="#38383D"/>
-    <SolidColorBrush x:Key="Button.Neutral.Pressed" Color="#212124"/>
+    <SolidColorBrush x:Key="Button.Neutral.Hover" Color="#333336"/>
+    <SolidColorBrush x:Key="Button.Neutral.Pressed" Color="#232326"/>
     <SolidColorBrush x:Key="Button.Neutral.Foreground" Color="#F0F0F0"/>
-    <SolidColorBrush x:Key="Button.Neutral.Border" Color="#33FFFFFF"/>
-    <SolidColorBrush x:Key="Button.Quiet.Background" Color="#1C1C1F"/>
+    <SolidColorBrush x:Key="Button.Neutral.Border" Color="#1AFFFFFF"/>
 
     <!-- ToolTip 全局配色：深色深底白字 -->
     <SolidColorBrush x:Key="ToolTip.Background" Color="#2D2D30"/>

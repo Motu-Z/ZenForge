@@ -59,7 +59,7 @@
                                        Text="i"
                                        FontSize="14"
                                        FontWeight="Bold"
-                                       Foreground="#101010"
+                                       Foreground="{DynamicResource AccentTextBrush}"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"/>
                         </Border>
@@ -89,8 +89,8 @@
                                 </Border>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="Bd" Property="Background" Value="#C42B1C"/>
-                                        <Setter Property="Foreground" Value="#FFFFFF"/>
+                                        <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Danger}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
                                     </Trigger>
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>
@@ -166,25 +166,30 @@
                         Width="112"
                         Height="32"
                         Padding="0"
-                        Foreground="#101010"
-                        Background="{DynamicResource AccentBrush}"
-                        BorderThickness="0"
-                        Cursor="Hand"
+                        Style="{StaticResource PrimaryButtonStyle}"
                         FontWeight="SemiBold"
                         FocusVisualStyle="{x:Null}"
                         IsDefault="True"
                         Click="Ok_Click">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
-                            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="6">
+                            <!-- 描边也要绑：PrimaryButtonStyle 里那条 1px 强调色边
+                                 属于「主按钮」的一部分，不绑就只剩一块淡底。 -->
+                            <Border x:Name="Bd"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="6">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
+                                <!-- 与全局主按钮同一套低饱和反馈：淡底逐级加深，
+                                     不翻成实心强调色。 -->
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+                                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentSoftHoverBrush}"/>
                                 </Trigger>
                                 <Trigger Property="IsPressed" Value="True">
-                                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentPressedBrush}"/>
+                                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentSoftPressedBrush}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>

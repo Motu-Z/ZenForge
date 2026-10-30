@@ -139,7 +139,7 @@ namespace ZenForge.Services
         /// <summary>
         /// 「有人在看」的唤醒事件。计数从 0 变 1 时置位，采样线程随即醒来。
         ///
-        /// 【为什么改成「专用 STA 线程 + ManualResetEvent」而不是 Task.Run 循环】
+        /// 【为什么改成「专用 STA 线程 + AutoResetEvent」而不是 Task.Run 循环】
         /// 旧实现用 Task.Run 跑异步循环，采样过程在线程池线程（MTA）上完成。
         /// 纯 Win32 调用不受影响，但只要有任何一个订阅方在回调里碰到了 WPF 对象
         /// （哪怕只是读一个 DependencyProperty），立刻抛
@@ -151,8 +151,23 @@ namespace ZenForge.Services
         /// 【但订阅方仍必须自己 Dispatcher.BeginInvoke 回 UI 线程】——
         /// STA 只解决「单元状态」，不解决「这不是 UI 线程」。
         /// 见 ProcessBindingPage.OnProcessesRefreshed。
+        ///
+        /// 【必须是 AutoResetEventSlim，不能是 ManualResetEventSlim】
+        /// 1.0.2 的实测教训：这里原本是 ManualResetEventSlim，只 Set 从不 Reset，
+        /// 于是「第一次打开进程页」把信号永久置位。之后无论有没有人看，
+        /// 采样线程在「没人看」分支里的 WaitAny 都会**立刻返回**，变成：
+        ///
+        ///     WaitAny → 立即返回 → continue → WaitAny → 立即返回 → ……
+        ///
+        /// 一个占满核心的忙等自旋。任务管理器上表现为「收进托盘后仍有约 3% CPU」
+        /// （16 核 × BelowNormal 优先级 ≈ 0.5 核 ≈ 3.1%）。
+        /// 切走页面也停不下来 —— 停掉的是引用计数，信号还一直置着。
+        ///
+        /// AutoResetEvent 的语义正好：一次 Set 只唤醒一个等待者，
+        /// 唤醒后自动复位，等待方再次 Wait 就会真的睡下去。
+        /// （.NET 没有 AutoResetEventSlim，只有 ManualResetEventSlim。）
         /// </summary>
-        private static readonly ManualResetEventSlim _watchSignal = new(false);
+        private static readonly AutoResetEvent _watchSignal = new(false);
 
         /// <summary>「立即采一帧」请求。与观察者信号分开，避免互相吃掉。</summary>
         private static readonly SemaphoreSlim _sampleNowSignal = new(0);
@@ -169,6 +184,12 @@ namespace ZenForge.Services
         /// 各自持有、各自释放的场景，避免其中一方先释放就把采集误停。
         /// </summary>
         private static int _watcherCount;
+
+        /// <summary>
+        /// 宿主窗口是否可见（volatile：UI 线程写、采样线程读）。
+        /// false 时采样循环彻底挂起，不看有没有人「在看列表」。
+        /// </summary>
+        private static volatile bool _hostVisible = true;
 
         /// <summary>当前是否有人在看（有任何一个观察者持有）。</summary>
         public static bool IsWatched
@@ -207,10 +228,37 @@ namespace ZenForge.Services
                 _watcherCount--;
                 if (_watcherCount == 0)
                 {
+                    // 这里不需要额外清信号：AutoResetEvent 是一次性的，
+                    // 采样线程下一轮 Wait 时自然就睡下去了（最多多醒一次，
+                    // 醒来后 IsWatched 为 false，随即继续等待）。
                     LogService.Info("进程快照采样：已挂起（列表不可见）");
                 }
             }
         }
+
+        /// <summary>
+        /// 宿主窗口是否可见。false = 窗口已隐藏 / 最小化 / 收进托盘。
+        ///
+        /// 【为什么还要这一层，不靠引用计数就够了？】
+        /// 引用计数只能反映「有没有人主动在看列表」，反映不了「窗口根本看不见」。
+        /// 窗口隐藏后，即使某个页面因为异常路径忘了 ReleaseWatch，
+        /// 采样也必须停 —— 这里是硬闸门，不依赖任何人的 bookkeeping。
+        ///
+        /// 恢复时立刻唤醒采样线程：用户把窗口叫回来时，第一眼就该是新数据。
+        /// </summary>
+        public static void SetHostVisible(bool visible)
+        {
+            if (_hostVisible == visible)
+                return;
+
+            _hostVisible = visible;
+
+            if (visible)
+                _watchSignal.Set();
+        }
+
+        /// <summary>宿主窗口当前是否可见（自检 / 日志用）。</summary>
+        public static bool HostVisible => _hostVisible;
 
         /// <summary>CPU 占用滑动窗口的长度（秒）。</summary>
         private const double CpuWindowSeconds = 30.0;
@@ -316,11 +364,38 @@ namespace ZenForge.Services
             {
                 try
                 {
-                    // 没人看：挂在事件上，CPU 占用为零。取消时 Stop() 会 Set 一次把它踢出。
-                    if (!IsWatched)
+                    // 没人看 / 窗口不可见：挂在事件上，CPU 占用为零。
+                    // 取消时 Stop() 会 Set 一次把它踢出。
+                    //
+                    // 【两种信号必须一起等】
+                    // ① _watchSignal：有人开始看列表；
+                    // ② _sampleNowSignal：有人点名要一帧（降级轮询的补扫会用）。
+                    // 只等 ① 的话，② 会在「没人看」时被丢掉，调用方只能白等一个超时，
+                    // 拿到的还是上一份快照 —— 这正是降级模式下补扫失效的原因。
+                    if (!IsWatched || !_hostVisible)
                     {
-                        if (!WaitSignal(_watchSignal.WaitHandle, token))
-                            break;
+                        int index = WaitHandle.WaitAny(
+                            new[]
+                            {
+                                _watchSignal,
+                                _sampleNowSignal.AvailableWaitHandle,
+                                token.WaitHandle,
+                            },
+                            Timeout.Infinite);
+
+                        if (index == 2)
+                            break;                                  // 取消
+
+                        if (index == 1)
+                        {
+                            // 有人点名要一帧：消费掉请求并采。
+                            while (_sampleNowSignal.Wait(0))
+                            {
+                                // 消费完毕
+                            }
+
+                            SampleOnce("立即采样请求");
+                        }
 
                         continue;
                     }
@@ -337,14 +412,6 @@ namespace ZenForge.Services
                     break;
                 }
             }
-        }
-
-        /// <summary>等一个句柄，同时响应取消。返回 false 表示该退出。</summary>
-        private static bool WaitSignal(WaitHandle handle, CancellationToken token)
-        {
-            int index = WaitHandle.WaitAny(
-                new[] { handle, token.WaitHandle }, Timeout.Infinite);
-            return index == 0;
         }
 
         /// <summary>
@@ -370,7 +437,7 @@ namespace ZenForge.Services
                 new[]
                 {
                     _sampleNowSignal.AvailableWaitHandle,
-                    _watchSignal.WaitHandle,
+                    _watchSignal,
                     token.WaitHandle,
                 },
                 Timeout.Infinite);

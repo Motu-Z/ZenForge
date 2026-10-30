@@ -6,6 +6,11 @@
     <SolidColorBrush x:Key="AccentHoverBrush" Color="#5CC9FA"/>
     <SolidColorBrush x:Key="AccentPressedBrush" Color="#2AA0D4"/>
     <SolidColorBrush x:Key="AccentSoftBrush" Color="#2638BDF8"/>
+    <!-- 低透明度的两档：悬停 25% / 按下 35%。
+         主按钮的悬停绝不能翻成实心强调色 —— 实心青/实心红在一排低饱和按钮里
+         刺眼得像报错。淡底逐级加深即可表达「按下去了」。 -->
+    <SolidColorBrush x:Key="AccentSoftHoverBrush" Color="#4038BDF8"/>
+    <SolidColorBrush x:Key="AccentSoftPressedBrush" Color="#5938BDF8"/>
     <SolidColorBrush x:Key="AccentTextBrush" Color="#082F49"/>
 
 </ResourceDictionary>

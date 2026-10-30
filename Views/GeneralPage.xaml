@@ -104,6 +104,9 @@
                                     Style="{StaticResource ColorPreviewStyle}"
                                     VerticalAlignment="Center">
                                 <Border.Effect>
+                                    <!-- 辉光色是初值：Effect 的 Color 不是画刷，
+                                         无法用 DynamicResource 绑定，运行时会由
+                                         UpdateColorPreview 按当前强调色覆盖。 -->
                                     <DropShadowEffect x:Name="ColorPreviewGlow"
                                                       BlurRadius="14" ShadowDepth="0" Opacity="0.55"
                                                       Color="#38BDF8"/>

@@ -6,21 +6,27 @@
         ============================================================
         搜索框（zenforge:SearchBox）
         ============================================================
+        结构只有一层：**一个圆角边框**，里面装着放大镜 + 一个透明输入框。
+
+            ┌──────────────────────────────────────┐
+            │  ⌕   按文本或来源筛选…                 │   ← 全部在同一个边框里
+            └──────────────────────────────────────┘
+              ↑10  ↑24   ↑30（文字起点）
+
         几何只有一个来源，全部写在这里，页面不许再改：
-
-            第 0 列 10  ← 图标左边距
-            第 1 列 14  ← 图标宽度
-            第 2 列 *   ← 输入框，Padding.Left = 32 = 10 + 14 + 8
-
-        占位符与 TextBox 同处第 2 列、同用这个 32 的左内缩，
-        所以「占位文字起点」与「光标起点」是同一个像素。
+            图标左边距      10
+            图标宽度        14
+            文字左内缩      30  = 10 + 14 + 6（图标右边留 6 的呼吸）
 
         【上一版为什么错位】
-        占位符单独放在外层 Grid 里，Margin 用了 Thickness(32,0,0,0)。
-        那个 32 描述的是「TextBox 内边距」，而外层 Grid 的左缘比 TextBox
-        还靠左 24px（10 留白 + 14 图标），于是占位文字整体左移 32，
-        直接压到放大镜上面。日志页则是反过来多加一次 32，文字右移。
-        同一个数字被用在了两个不同的坐标系里 —— 这是错位的全部原因。
+        旧结构是「外层 Grid 分三列（10 | 14 | *），圆角边框画在 TextBox 自己身上」。
+        于是**放大镜在 TextBox 的外面**：TextBox 的圆角框从第 3 列才开始，
+        而放大镜落在第 2 列 —— 它必然顶在那个圆角框的左侧、悬在边框之外。
+        日志页看起来更糟，是因为同一个 32 又被多加了一次，文字被推到右边。
+
+        现在：边框在最外层，图标与输入框都是它的内容。
+        输入框透明无边框，靠 Padding="30,0,10,0" 让开图标，
+        占位符与光标共用同一个 30，两者起点严格重合。
 
         ============================================================
         【关键：这个模板里绝对不能出现 StaticResource 引用】
@@ -56,47 +62,44 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type ctl:SearchBox}">
-                    <Grid Background="Transparent" SnapsToDevicePixels="True">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="10"/>
-                            <ColumnDefinition Width="14"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
+                    <!-- 唯一的圆角边框：图标与输入框都在它里面 -->
+                    <Border x:Name="Bd"
+                            Background="{DynamicResource Control.Background}"
+                            BorderBrush="{DynamicResource Input.Border}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            SnapsToDevicePixels="True">
+                        <Grid>
+                            <!-- 放大镜：与输入框叠在同一个 Grid 里（不是并列的列）。
+                                 Stretch=Uniform + 14×14，笔画粗细不随帧缩放失真。
+                                 Data 用绝对坐标写死，不依赖 sys:Double 资源
+                                 （试过，ColumnDefinition.Width 要 GridLength，
+                                  Double 资源运行期会抛「不是有效值」）。 -->
+                            <Path x:Name="PART_Icon"
+                                  Width="14" Height="14"
+                                  Margin="10,0,0,0"
+                                  HorizontalAlignment="Left"
+                                  VerticalAlignment="Center"
+                                  IsHitTestVisible="False"
+                                  Stretch="Uniform"
+                                  Stroke="{DynamicResource Text.MetaBrush}"
+                                  StrokeThickness="1.3"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  Data="M 5.5,1 A 4.5,4.5 0 1 1 5.49,1 M 9,9 L 12,12"/>
 
-                        <!-- 放大镜：Stretch=Uniform + 14×14，笔画粗细不随帧缩放失真。
-                             Data 用绝对坐标写死，不依赖 sys:Double 资源
-                             （试过，ColumnDefinition.Width 要 GridLength，
-                              Double 资源运行期会抛「不是有效值」）。 -->
-                        <Path Grid.Column="1"
-                              x:Name="PART_Icon"
-                              Width="14" Height="14"
-                              VerticalAlignment="Center"
-                              HorizontalAlignment="Center"
-                              IsHitTestVisible="False"
-                              Stretch="Uniform"
-                              Stroke="{DynamicResource Text.MetaBrush}"
-                              StrokeThickness="1.3"
-                              StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                              Data="M 5.5,1 A 4.5,4.5 0 1 1 5.49,1 M 9,9 L 12,12"/>
-
-                        <!-- 输入框与占位符共用第 2 列。
-                             输入框的样式在这里内联写出，不引用 AppTextBoxStyle ——
-                             原因见文件顶部「绝对不能出现 StaticResource」。
-                             外观与 AppTextBoxStyle 保持一致：高 32 / 圆角 6 /
-                             Control.Background / 1px 边框 / 聚焦转强调色。 -->
-                        <Grid Grid.Column="2">
+                            <!-- 输入框：透明底、无边框，Padding 左 30 让开放大镜。
+                                 它自己的模板里没有任何可见元素（背景/边框全透明），
+                                 只留 PART_ContentHost —— 内容起点完全由 Padding 决定。 -->
                             <TextBox x:Name="PART_Input"
-                                     Height="32"
-                                     Padding="32,0,10,0"
+                                     Padding="30,0,10,0"
+                                     Background="Transparent"
+                                     BorderThickness="0"
                                      VerticalContentAlignment="Center"
                                      HorizontalContentAlignment="Left"
                                      TextAlignment="Left"
                                      FontFamily="{DynamicResource AppFontFamily}"
                                      FontSize="13"
-                                     Background="{DynamicResource Control.Background}"
                                      Foreground="{DynamicResource Input.Foreground}"
-                                     BorderBrush="{DynamicResource Input.Border}"
-                                     BorderThickness="1"
                                      CaretBrush="{DynamicResource AccentBrush}"
                                      SelectionBrush="{DynamicResource AccentBrush}"
                                      SelectionOpacity="0.28"
@@ -106,39 +109,22 @@
                                      TextOptions.TextRenderingMode="ClearType">
                                 <TextBox.Template>
                                     <ControlTemplate TargetType="TextBox">
-                                        <Border x:Name="Bd"
-                                                Background="{TemplateBinding Background}"
-                                                BorderBrush="{TemplateBinding BorderBrush}"
-                                                BorderThickness="{TemplateBinding BorderThickness}"
-                                                CornerRadius="6"
-                                                SnapsToDevicePixels="True">
-                                            <!-- Margin 取 Padding：光标起点 = 左内缩 32。
-                                                 这是整个搜索框里唯一决定「文字从哪开始」的地方。 -->
-                                            <ScrollViewer x:Name="PART_ContentHost"
-                                                          Margin="{TemplateBinding Padding}"
-                                                          VerticalAlignment="Center"
-                                                          Focusable="False"
-                                                          HorizontalScrollBarVisibility="Hidden"
-                                                          VerticalScrollBarVisibility="Hidden"/>
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="Bd" Property="BorderBrush"
-                                                        Value="{DynamicResource Input.BorderHover}"/>
-                                            </Trigger>
-                                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                                                <Setter TargetName="Bd" Property="BorderBrush"
-                                                        Value="{DynamicResource AccentBrush}"/>
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
+                                        <!-- Margin 取 Padding：光标起点 = 左内缩 30。
+                                             这是整个搜索框里唯一决定「文字从哪开始」的地方。 -->
+                                        <ScrollViewer x:Name="PART_ContentHost"
+                                                      Margin="{TemplateBinding Padding}"
+                                                      VerticalAlignment="Center"
+                                                      Focusable="False"
+                                                      HorizontalScrollBarVisibility="Hidden"
+                                                      VerticalScrollBarVisibility="Hidden"/>
                                     </ControlTemplate>
                                 </TextBox.Template>
                             </TextBox>
 
-                            <!-- 占位符：左内缩与输入框的 Padding.Left 同为 32，
+                            <!-- 占位符：左内缩与输入框的 Padding.Left 同为 30，
                                  相对同一个左缘，所以占位文字的第一个字与光标起点重合。 -->
                             <TextBlock x:Name="PART_Placeholder"
-                                       Margin="32,0,10,0"
+                                       Margin="30,0,10,0"
                                        VerticalAlignment="Center"
                                        HorizontalAlignment="Left"
                                        IsHitTestVisible="False"
@@ -146,7 +132,21 @@
                                        Foreground="{DynamicResource Text.MetaBrush}"
                                        Visibility="Collapsed"/>
                         </Grid>
-                    </Grid>
+                    </Border>
+
+                    <ControlTemplate.Triggers>
+                        <!-- 悬停：描边提亮 -->
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush"
+                                    Value="{DynamicResource Input.BorderHover}"/>
+                        </Trigger>
+                        <!-- 聚焦：描边转强调色。判据用 IsKeyboardFocusWithin 而不是
+                             IsKeyboardFocused —— 焦点在里面的 TextBox 上，SearchBox 自己没有焦点。 -->
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush"
+                                    Value="{DynamicResource AccentBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

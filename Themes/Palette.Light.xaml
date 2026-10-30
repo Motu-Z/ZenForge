@@ -101,7 +101,6 @@
     <SolidColorBrush x:Key="Button.Neutral.Pressed" Color="#E2E2E7"/>
     <SolidColorBrush x:Key="Button.Neutral.Foreground" Color="#1C1C1E"/>
     <SolidColorBrush x:Key="Button.Neutral.Border" Color="#C9C9D0"/>
-    <SolidColorBrush x:Key="Button.Quiet.Background" Color="#F7F7F9"/>
 
     <!-- ToolTip 全局配色：浅色白底黑字 -->
     <SolidColorBrush x:Key="ToolTip.Background" Color="#FFFFFF"/>
