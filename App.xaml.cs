@@ -28,9 +28,9 @@ namespace ZenForge
         /// <summary>
         /// 本次 WPF 实例是从 -silent 后台宿主升级而来。
         ///
-        /// 升级路径与正常启动的差别极大：单实例锁、ProcessWatcher、管理员权限
-        /// 都已经由后台宿主持有。这里若再走一遍 TrySignalExisting / TryAcquire /
-        /// EnsureAdministrator，轻则弹出多余的 UAC，重则 runas 重启把锁和监听全丢。
+        /// 单实例锁、ProcessWatcher、管理员权限都已由后台宿主持有，这里若再走一遍
+        /// TrySignalExisting / TryAcquire / EnsureAdministrator，轻则多弹一次 UAC，
+        /// 重则 runas 重启把锁和监听全丢。
         /// </summary>
         public static bool IsHeadlessUpgrade;
 
@@ -38,13 +38,12 @@ namespace ZenForge
         private static bool _exiting;
 
         /// <summary>
-        /// 「后台回退」状态下的退出信号。
+        /// 「后台回退」状态下的退出信号：后台宿主升级界面失败，WPF 已加载但界面没建起来，
+        /// 进程退回到「有托盘、无主窗口」的常驻状态等在这里。
         ///
-        /// 场景：后台宿主升级界面失败，WPF 已加载但界面没建起来，进程退回到
-        /// 「有 WPF 托盘、无主窗口」的常驻状态等在这里。此时 <see cref="ExitApplication"/>
-        /// 不能只调 Application.Shutdown —— 那条路径要求 Application 已经 Run 起来，
-        /// 而回退状态根本没进 Dispatcher 循环。所以由宿主把自己这个信号交出来，
-        /// 退出时直接 Set 一下把它放走。
+        /// 此时 <see cref="ExitApplication"/> 不能只调 Application.Shutdown —— 那条路径
+        /// 要求 Application 已经 Run 起来，而回退状态根本没进 Dispatcher 循环。
+        /// 由宿主把这个信号交出来，退出时直接 Set 放走它。
         /// </summary>
         public static System.Threading.ManualResetEventSlim? BackgroundExitSignal;
 
@@ -97,15 +96,12 @@ namespace ZenForge
         }
 
         /// <summary>
-        /// 真正的主窗口。
-        ///
-        /// 为什么不直接用 Application.MainWindow：
-        ///   · 托盘菜单宿主是第一个被 Show 出来的 Window，WPF 会把 MainWindow 指到它身上，
-        ///     拿它当宿主（当对话框 Owner、当导航目标）弹窗会跑到屏幕 (-10000,-10000) 去；
+        /// 真正的主窗口，不能用 Application.MainWindow 代替：
+        ///   · 托盘菜单宿主是第一个被 Show 出来的 Window，MainWindow 会指到它身上，
+        ///     拿它当 Owner 弹窗会跑到屏幕 (-10000,-10000) 去；
         ///   · 轻量模式「仅留服务进程」会把主窗口整个销毁，此时 MainWindow 指向的是一个
         ///     已经 Closed 的残骸，谁用它谁炸。
-        ///
-        /// 所以主窗口实例由 App 自己持有，创建与销毁都走 <see cref="SetMainWindow"/> /
+        /// 所以实例由 App 自己持有，创建与销毁走 <see cref="SetMainWindow"/> /
         /// <see cref="ReleaseMainWindow"/>。
         /// </summary>
         public static Window? RealMainWindow => _mainWindow;
@@ -720,13 +716,11 @@ namespace ZenForge
         /// <summary>
         /// 全局干掉焦点虚线框（FocusVisualStyle）。
         ///
-        /// 为什么不能只写 &lt;Style TargetType="Control"&gt;：
-        /// WPF 的隐式样式按控件的 DefaultStyleKey **精确匹配类型**，不会沿继承链匹配到 Control，
-        /// 所以 TargetType="Control" 的样式对 Button / TextBox / ComboBox 一律无效。
-        /// 而显式引用具名样式的控件（Style="{StaticResource PrimaryButtonStyle}"）又完全不吃隐式样式。
-        ///
-        /// 因此这里在启动时遍历资源字典里的**所有 Style**（具名 + 隐式），统一追加
-        /// FocusVisualStyle=null。此时页面尚未创建、Style 未被 Seal，可安全修改 Setters。
+        /// 不能只写一份 &lt;Style TargetType="Control"&gt;：WPF 隐式样式按 DefaultStyleKey
+        /// 精确匹配类型，不会沿继承链命中 Control，对 Button / TextBox / ComboBox 一律无效；
+        /// 而显式引用具名样式的控件又完全不吃隐式样式。
+        /// 所以启动时遍历资源字典里的所有 Style（具名 + 隐式），统一追加
+        /// FocusVisualStyle=null —— 此时页面尚未创建、Style 未被 Seal，可安全改 Setters。
         /// </summary>
         private static void DisableFocusVisuals()
         {
@@ -796,17 +790,10 @@ namespace ZenForge
                     HookWindow(window);
             };
 
-            // 【关键补丁：控件在 Activated 之后才创建，扫不到】
-            //
-            // 上面只在窗口 Activated / Loaded 时扫码。但四个页面由 Frame 导航切换，
-            // 用户点「调度」「日志」「设置」时才实例化新页面的控件树 —— 这些控件
-            // 在 Activated 那一刻还不存在，等它们挂上去就再也没人扫了。
-            // 结果就是切换过页面之后，Tab 键又冒出系统虚线矩形。
-            //
-            // 两个兜底：
-            //   1. 任何 FrameworkElement 一旦 Loaded，立刻清掉它自己的 FocusVisualStyle；
-            //   2. 定时器低频补扫（400ms），兜住 Tab 焦点进入 ListViewItem
-            //      这类由容器自动生成的元素。
+            // 控件在窗口 Activated 之后才创建，那时的扫描覆盖不到它们。
+            // 四个页面由 Frame 导航切换，用户点「调度」「日志」「设置」时才实例化新的
+            // 控件树 —— 等它们挂上去就再也没人扫了，切换过页面后 Tab 又冒出系统虚线。
+            // 兜底：任何 FrameworkElement 一旦 Loaded 就清掉自己的 FocusVisualStyle。
             //
             // 不用 LayoutUpdated：它在滚动 / 鼠标移动时疯狂触发，
             // 每帧遍历整棵可视树会让界面明显卡顿。
@@ -821,11 +808,10 @@ namespace ZenForge
 
             // 键盘焦点落上去时补扫一次。
             //
-            // 这里曾经挂着一个 400ms 的常驻定时器，每 2.5 秒遍历一次整棵可视树。
-            // 程序改成常驻托盘之后，那个定时器会跟着进程跑一整天 —— 为了兜住
-            // 「Tab 进入 ListViewItem」这种边角情况，让 UI 线程永远背着一份开销，不值。
-            // Loaded 类处理器已经覆盖了所有元素（含虚拟化容器自动生成的那些），
-            // 焦点事件再补一刀，剩下就交给这两条，不再轮询。
+            // 这里曾经挂着一个常驻定时器每 2.5 秒遍历整棵可视树。程序改成常驻托盘后
+            // 它会跟着进程跑一整天 —— 为兜住「Tab 进入 ListViewItem」这种边角情况让
+            // UI 线程永远背一份开销，不值。Loaded 类处理器已覆盖所有元素（含虚拟化
+            // 容器自动生成的），焦点事件再补一刀即可，不再轮询。
             EventManager.RegisterClassHandler(typeof(FrameworkElement), Keyboard.GotKeyboardFocusEvent,
                 new KeyboardFocusChangedEventHandler(delegate (object s, KeyboardFocusChangedEventArgs e)
                 {

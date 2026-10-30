@@ -45,6 +45,18 @@ namespace ZenForge.Views
         private bool _suppress;
         private bool _initialized;
 
+        /// <summary>在屏蔽事件回调的前提下改控件状态，避免初始化 / 回滚被当成用户操作。</summary>
+        private void Suppressed(Action action)
+        {
+            _suppress = true;
+            try { action(); }
+            finally { _suppress = false; }
+        }
+
+        /// <summary>程序化拨动开关（不触发 Click）。</summary>
+        private void SetToggle(System.Windows.Controls.Primitives.ToggleButton toggle, bool value)
+            => Suppressed(() => toggle.IsChecked = value);
+
         public SettingsPage()
         {
             InitializeComponent();
@@ -110,60 +122,52 @@ namespace ZenForge.Views
         // ==================== 外观：读取 / 回写 ====================
 
         /// <summary>第 2 步：用 ui.json 中保存的值初始化控件（此时还没有事件订阅）。</summary>
-        private void LoadSettings()
+        private void LoadSettings() => Suppressed(() =>
         {
-            _suppress = true;
-            try
+            UiSettings settings = UiSettingsStore.Settings;
+
+            // 主题：跟随系统 / 深色 / 浅色（与 NvForge 同一套 Tag）
+            string themeTag = settings.ThemeMode switch
             {
-                UiSettings settings = UiSettingsStore.Settings;
+                AppThemeMode.Light => "light",
+                AppThemeMode.Dark => "dark",
+                _ => "system"
+            };
+            SelectByTag(ThemeCombo, themeTag);
 
-                // 主题：跟随系统 / 深色 / 浅色（与 NvForge 同一套 Tag）
-                string themeTag = settings.ThemeMode switch
-                {
-                    AppThemeMode.Light => "light",
-                    AppThemeMode.Dark => "dark",
-                    _ => "system"
-                };
-                SelectByTag(ThemeCombo, themeTag);
+            // 强调色：跟随系统 / 自定义
+            SelectByTag(AccentModeCombo, settings.FollowSystemAccent ? "follow" : "custom");
+            CustomAccentPanel.Visibility = settings.FollowSystemAccent
+                ? Visibility.Collapsed
+                : Visibility.Visible;
 
-                // 强调色：跟随系统 / 自定义
-                SelectByTag(AccentModeCombo, settings.FollowSystemAccent ? "follow" : "custom");
-                CustomAccentPanel.Visibility = settings.FollowSystemAccent
-                    ? Visibility.Collapsed
-                    : Visibility.Visible;
+            // 色值输入框回显「当前真正生效」的颜色：
+            // 跟随时是系统强调色，自定义时是保存的自定义色。
+            string hex = CurrentAccentHex();
+            AccentHexBox.Text = hex;
+            MarkActiveSwatch(hex);
 
-                // 色值输入框回显「当前真正生效」的颜色：
-                // 跟随时是系统强调色，自定义时是保存的自定义色。
-                string hex = CurrentAccentHex();
-                AccentHexBox.Text = hex;
-                MarkActiveSwatch(hex);
+            // ==================== 启动与后台开关回显 ====================
+            // 布局阶段只用配置缓存回显，保证页面立即渲染不卡顿。
+            // “开机自启”的真实状态（计划任务是否存在）稍后在 Loaded 里异步校准。
+            AutoStartToggle.IsChecked = settings.AutoStart;
+            ApplyTuningToggle.IsChecked = settings.ApplyTuningOnStartup;
 
-                // ==================== 启动与后台开关回显 ====================
-                // 布局阶段只用配置缓存回显，保证页面立即渲染不卡顿。
-                // “开机自启”的真实状态（计划任务是否存在）稍后在 Loaded 里异步校准。
-                AutoStartToggle.IsChecked = settings.AutoStart;
-                ApplyTuningToggle.IsChecked = settings.ApplyTuningOnStartup;
+            // 总闸与轻量模式：纯配置项，不存在“真实状态 ≠ 意愿值”的问题
+            BackendServiceToggle.IsChecked = settings.BackendService;
+            LightModeToggle.IsChecked = settings.LightMode;
 
-                // 总闸与轻量模式：纯配置项，不存在“真实状态 ≠ 意愿值”的问题
-                BackendServiceToggle.IsChecked = settings.BackendService;
-                LightModeToggle.IsChecked = settings.LightMode;
+            // 回显调度的**真实状态**而不是配置里的意愿值。
+            // 两者会不一致：另一个实例占着全局互斥体时 Start() 会静默跳过，
+            // 配置写着「开」实际一次都没绑 —— 以 IsRunning 为准，开关才不撒谎。
+            ProcessWatchToggle.IsChecked = ProcessWatcher.IsRunning;
 
-                // 回显调度的**真实状态**而不是配置里的意愿值。
-                // 两者会不一致：另一个实例占着全局互斥体时 Start() 会静默跳过，
-                // 配置写着「开」实际一次都没绑 —— 以 IsRunning 为准，开关才不撒谎。
-                ProcessWatchToggle.IsChecked = ProcessWatcher.IsRunning;
+            ShowTrayToggle.IsChecked = settings.ShowTrayIcon;
 
-                ShowTrayToggle.IsChecked = settings.ShowTrayIcon;
-
-                // 最后再算一遍显隐：上面的 IsChecked 赋值不会触发 Click，
-                // 但也不会自动刷新依赖行的可见性。
-                RefreshRowVisibility();
-            }
-            finally
-            {
-                _suppress = false;
-            }
-        }
+            // 最后再算一遍显隐：上面的 IsChecked 赋值不会触发 Click，
+            // 但也不会自动刷新依赖行的可见性。
+            RefreshRowVisibility();
+        });
 
         /// <summary>第 3 步：初始化完成后才挂事件，杜绝初始化反向覆盖。</summary>
         private void AttachHandlers()
@@ -221,17 +225,11 @@ namespace ZenForge.Views
         private void SyncAccentUi()
         {
             string hex = CurrentAccentHex();
-
-            _suppress = true;
-            try
+            Suppressed(() =>
             {
                 AccentHexBox.Text = hex;
                 MarkActiveSwatch(hex);
-            }
-            finally
-            {
-                _suppress = false;
-            }
+            });
         }
 
         // ==================== 外观：色板 ====================
@@ -359,18 +357,13 @@ namespace ZenForge.Views
             if (!TryNormalizeHex(hex, out norm, out _))
                 norm = DefaultAccent;
 
-            _suppress = true;
-            try
+            Suppressed(() =>
             {
                 SelectByTag(AccentModeCombo, "custom");
                 CustomAccentPanel.Visibility = Visibility.Visible;
                 AccentHexBox.Text = norm;
                 MarkActiveSwatch(norm);
-            }
-            finally
-            {
-                _suppress = false;
-            }
+            });
 
             ThemeService.ApplyAndSave(ThemeService.Mode, false, norm);
             LogService.Info($"自定义强调色：{norm}");
@@ -455,9 +448,7 @@ namespace ZenForge.Views
                 }
                 else
                 {
-                    _suppress = true;
-                    AutoStartToggle.IsChecked = !enable;
-                    _suppress = false;
+                    SetToggle(AutoStartToggle, !enable);
 
                     DarkDialog.ShowWarning(
                         enable
@@ -469,9 +460,7 @@ namespace ZenForge.Views
             catch (Exception ex)
             {
                 LogService.Error($"切换开机自启失败：{ex.Message}");
-                _suppress = true;
-                AutoStartToggle.IsChecked = !enable;
-                _suppress = false;
+                SetToggle(AutoStartToggle, !enable);
                 DarkDialog.ShowError($"操作失败：{ex.Message}", "ZenForge · 开机自启");
             }
             finally
@@ -550,19 +539,11 @@ namespace ZenForge.Views
         }
 
         /// <summary>改这两个开关会各自触发 Click，先屏蔽掉再赋值。</summary>
-        private void SetBackendDependentToggles(bool watch, bool tray)
+        private void SetBackendDependentToggles(bool watch, bool tray) => Suppressed(() =>
         {
-            _suppress = true;
-            try
-            {
-                ProcessWatchToggle.IsChecked = watch;
-                ShowTrayToggle.IsChecked = tray;
-            }
-            finally
-            {
-                _suppress = false;
-            }
-        }
+            ProcessWatchToggle.IsChecked = watch;
+            ShowTrayToggle.IsChecked = tray;
+        });
 
         /// <summary>仅留服务进程：只决定「关掉前台之后要不要销毁界面」，不决定后台存不存在。</summary>
         private void LightModeToggle_Click(object sender, RoutedEventArgs e)
@@ -665,10 +646,7 @@ namespace ZenForge.Views
                 // 以实际结果为准回写，别让开关停在「我以为开了」的状态。
                 // Start() 拿不到全局互斥体会静默跳过，此时必须把开关拨回去并说清楚。
                 bool actual = ProcessWatcher.IsRunning;
-
-                _suppress = true;
-                ProcessWatchToggle.IsChecked = actual;
-                _suppress = false;
+                SetToggle(ProcessWatchToggle, actual);
 
                 UiSettingsStore.Settings.WatchProcessBinding = actual;
                 UiSettingsStore.Save();
@@ -699,10 +677,7 @@ namespace ZenForge.Views
             catch (Exception ex)
             {
                 LogService.Error($"切换后台常驻调度失败：{ex.Message}");
-
-                _suppress = true;
-                ProcessWatchToggle.IsChecked = !enabled;
-                _suppress = false;
+                SetToggle(ProcessWatchToggle, !enabled);
             }
         }
 

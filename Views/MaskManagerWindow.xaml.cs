@@ -690,18 +690,19 @@ namespace ZenForge.Views
             }), System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
-        /// <summary>在可视树里按名字找后代元素（DataTemplate 内的具名元素只能这样取）。</summary>
+        /// <summary>
+        /// 在可视树里按名字找后代元素。DataTemplate 里具名元素的 Name 不在宿主容器的
+        /// 命名作用域内，FindName 找不到，只能自己走一遍树。
+        /// </summary>
         private static T? FindDescendant<T>(DependencyObject root, string name) where T : FrameworkElement
         {
-            int count = VisualTreeHelper.GetChildrenCount(root);
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
             {
                 DependencyObject child = VisualTreeHelper.GetChild(root, i);
-                if (child is T fe && fe.Name == name)
-                    return fe;
+                if (child is T match && match.Name == name)
+                    return match;
 
-                T? found = FindDescendant<T>(child, name);
-                if (found != null)
+                if (FindDescendant<T>(child, name) is { } found)
                     return found;
             }
             return null;
@@ -710,7 +711,7 @@ namespace ZenForge.Views
         /// <summary>行内删除图标：删的是这一行对应的掩码，与当前选中项无关。</summary>
         private void RowDelete_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is FrameworkElement fe && fe.DataContext is CustomMask mask)
+            if (sender is FrameworkElement { DataContext: CustomMask mask } fe)
             {
                 DeleteMask(mask);
                 e.Handled = true;

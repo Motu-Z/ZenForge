@@ -138,17 +138,10 @@ namespace ZenForge.Views
 
             (SmuSnapshot? snapshot, string? fatalError) = await ReadSnapshotAsync();
 
-            if (snapshot == null || !snapshot.Success)
-            {
-                LogService.Error($"SMU 只读探测失败: {snapshot?.Error ?? fatalError}");
-                SetSmuState(SmuUiState.Failed, snapshot?.Error ?? fatalError);
-                DarkDialog.ShowWarning(
-                    "读取失败，请确认已安装 PawnIO 驱动并以管理员身份运行。\n\n详细信息已写入日志（设置 → 日志）。",
-                    "SMU 探测失败");
+            if (!TryUseSnapshot(snapshot, fatalError, "SMU 只读探测失败", "读取失败", "SMU 探测失败"))
                 return;
-            }
 
-            ApplySnapshot(snapshot);
+            ApplySnapshot(snapshot!);
         }
 
         /// <summary>后台读一次快照。失败时返回 null，reason 说明原因。</summary>
@@ -170,6 +163,24 @@ namespace ZenForge.Views
             {
                 return (null, ex.Message);
             }
+        }
+
+        /// <summary>
+        /// 判断一次探测结果能不能用。失败时统一记日志、置状态、弹提示，并返回 false。
+        /// </summary>
+        private bool TryUseSnapshot(
+            SmuSnapshot? snapshot, string? fallbackError, string logPrefix, string dialogLead, string dialogTitle)
+        {
+            if (snapshot is { Success: true })
+                return true;
+
+            string reason = snapshot?.Error ?? fallbackError ?? "未知原因";
+            LogService.Error($"{logPrefix}：{reason}");
+            SetSmuState(SmuUiState.Failed, reason);
+            DarkDialog.ShowWarning(
+                $"{dialogLead}，请确认已安装 PawnIO 驱动并以管理员身份运行。\n\n详细信息已写入日志（设置 → 日志）。",
+                dialogTitle);
+            return false;
         }
 
         private void ApplySnapshot(SmuSnapshot snapshot)
@@ -255,10 +266,6 @@ namespace ZenForge.Views
 
         // ---------- 控件交互 ----------
 
-        // 全核负压输入框与「填充到全核」按钮已移除，FillAllButton_Click 一并删除。
-        // TODO(UI 重构)：参考朋友的软件界面重做 Curve Optimizer 区域，
-        // 届时若恢复批量填入，再用滑杆或步进器实现，不再用单个裸输入框。
-
         /// <summary>
         /// 从界面收集每个核心的 CO 值（允许 -50 ~ +50，负降压 / 正加压）。
         /// 仅拒绝“不是数字”的输入；区间内一律放行，不做安全拦截。
@@ -333,18 +340,7 @@ namespace ZenForge.Views
 
         private void ApplyAllButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_busy)
-                return;
-
-            int[]? margins = CollectCoreMargins(out string? coReject);
-            if (coReject != null)
-            {
-                DarkDialog.ShowWarning(coReject, "ZenForge · CO 输入非法");
-                return;
-            }
-
-            uint? fmax = CollectFMax();
-            if (fmax == null)
+            if (_busy || !TryCollectInputs(out int[]? margins, out uint fmax))
                 return;
 
             // 版式与 NvForge 的 V/F 确认窗保持一致：
@@ -357,10 +353,27 @@ namespace ZenForge.Views
                 $"若发生黑屏或闪退，重启电脑即可复原。",
                 "应用");
 
-            if (!confirmed)
-                return;
+            if (confirmed)
+                _ = ApplyAllAsync(margins!, fmax);
+        }
 
-            _ = ApplyAllAsync(margins!, fmax.Value);
+        /// <summary>收集 CO 与 FMax 两组输入；任一不合法就提示并返回 false。</summary>
+        private bool TryCollectInputs(out int[]? margins, out uint fmax)
+        {
+            fmax = 0;
+            margins = CollectCoreMargins(out string? coReject);
+            if (coReject != null)
+            {
+                DarkDialog.ShowWarning(coReject, "ZenForge · CO 输入非法");
+                return false;
+            }
+
+            uint? collected = CollectFMax();
+            if (collected == null)
+                return false;
+
+            fmax = collected.Value;
+            return true;
         }
 
         private async System.Threading.Tasks.Task ApplyAllAsync(int[] margins, uint fmax)
@@ -488,20 +501,12 @@ namespace ZenForge.Views
         /// </summary>
         private void SaveConfigButton_Click(object sender, RoutedEventArgs e)
         {
-            int[]? margins = CollectCoreMargins(out string? coReject);
-            if (coReject != null)
-            {
-                DarkDialog.ShowWarning(coReject, "ZenForge · CO 输入非法");
-                return;
-            }
-
-            uint? fmax = CollectFMax();
-            if (fmax == null)
+            if (!TryCollectInputs(out int[]? margins, out uint fmax))
                 return;
 
             TuningProfile profile = TuningStore.Profile;
             profile.CurveOptimizer = margins!.Where(v => v != int.MinValue).ToArray();
-            profile.FMaxMHz = fmax.Value;
+            profile.FMaxMHz = fmax;
 
             TuningStore.Save(profile);
 
@@ -566,19 +571,10 @@ namespace ZenForge.Views
                 SetWriteButtonsEnabled(true);
             }
 
-            if (snapshot == null || !snapshot.Success)
-            {
-                string reason = snapshot?.Error ?? error ?? "未知原因";
-                LogService.Error($"手动刷新失败：{reason}");
-                SetSmuState(SmuUiState.Failed, reason);
-                DarkDialog.ShowWarning(
-                    "刷新失败，请确认已安装 PawnIO 驱动并以管理员身份运行。\n\n详细信息已写入日志（设置 → 日志）。",
-                    "刷新失败");
+            if (!TryUseSnapshot(snapshot, error, "手动刷新失败", "刷新失败", "刷新失败"))
                 return;
-            }
 
-            ApplySnapshot(snapshot);
-
+            ApplySnapshot(snapshot!);
             LogService.Info("已按 SMU 现值刷新界面（未写入 SMU、未改本地配置）");
         }
     }

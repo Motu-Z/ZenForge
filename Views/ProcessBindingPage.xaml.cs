@@ -725,6 +725,14 @@ namespace ZenForge.Views
 
         // ---------- 规则解析 ----------
 
+        /// <summary>目标的人类可读名称：CCD 直接写名字，自定义走掩码名 / 掩码区间文本。</summary>
+        private static string TargetLabel(BindingTarget target, string maskId, ulong mask) => target switch
+        {
+            BindingTarget.CCD0 => "CCD0",
+            BindingTarget.CCD1 => "CCD1",
+            _ => MaskStore.FindById(maskId)?.Name ?? MaskFormatter.ToRangeText(mask)
+        };
+
         private static string RuleToSelection(BindingRule? rule)
         {
             if (rule == null || rule.Target == BindingTarget.None)
@@ -853,12 +861,7 @@ namespace ZenForge.Views
 
             if (target != BindingTarget.None)
             {
-                string label = target switch
-                {
-                    BindingTarget.CCD0 => "CCD0",
-                    BindingTarget.CCD1 => "CCD1",
-                    _ => MaskStore.FindById(maskId)?.Name ?? MaskFormatter.ToRangeText(mask)
-                };
+                string label = TargetLabel(target, maskId, mask);
 
                 // 热绑定：立刻遍历该进程名下所有运行实例并下发
                 int bound = BindGroupMembers(group, target, maskId, mask, label);
@@ -946,14 +949,8 @@ namespace ZenForge.Views
                 ? MaskStore.FindById(rule.MaskId)?.Mask ?? rule.Mask
                 : rule.Mask;
 
-            string label = rule.Target switch
-            {
-                BindingTarget.CCD0 => "CCD0",
-                BindingTarget.CCD1 => "CCD1",
-                _ => MaskStore.FindById(rule.MaskId)?.Name ?? MaskFormatter.ToRangeText(mask)
-            };
-
-            return BindGroupMembers(group, rule.Target, rule.MaskId, mask, label);
+            return BindGroupMembers(group, rule.Target, rule.MaskId, mask,
+                                    TargetLabel(rule.Target, rule.MaskId, mask));
         }
 
         /// <summary>整行闪一下青色，给「绑定指令已下发」的即时反馈。</summary>
@@ -992,22 +989,15 @@ namespace ZenForge.Views
             int bound = 0;
             foreach (ProcessGroupRow group in _allGroups)
             {
-                BindingRule? rule = BindingStore.LookupByName(group.Name);
-                if (rule is { Enabled: false })
+                if (BindingStore.LookupByName(group.Name) is { Enabled: false })
                     continue;
 
                 (BindingTarget target, string maskId, ulong mask) = SelectionToTarget(group.Selection);
                 if (target == BindingTarget.None)
                     continue;
 
-                foreach (ProcessMember m in group.Members)
-                {
-                    CpuSetBindResult result = BindMember(m.Pid, target, mask);
-                    if (result.Success)
-                        bound++;
-                    else
-                        LogService.Warn($"绑定失败 {group.Name}（PID {m.Pid}）：{result.Error}");
-                }
+                bound += BindGroupMembers(group, target, maskId, mask,
+                                          TargetLabel(target, maskId, mask));
             }
 
             ProcessWatcher.ResetCache();

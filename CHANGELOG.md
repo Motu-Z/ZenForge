@@ -29,6 +29,20 @@ ZenForge 各版本改动记录。安装包与 Release 正文均以本文件为�
 
 程序内部（日志、关于信息）显示的版本取自 `AssemblyInformationalVersion`，带后缀；资源管理器「属性 → 详细信息」里的文件版本是四段数字。两者一对照就能确定这个包是第几次发版。
 
+### 0.9.1-can2
+
+第二轮界面复核，仍是纯整理。
+
+`SettingsPage`：九处「屏蔽回调 → 改控件 → 恢复回调」的重复样板收敛成 `Suppressed` / `SetToggle` 两个辅助方法，`LoadSettings` 与 `SetBackendDependentToggles` 因此缩成表达式体。
+
+`ProcessBindingPage`：三处重复的目标名称推导收敛成 `TargetLabel`；`ApplySavedNow` 改为复用 `BindGroupMembers`，原先它是同一段下发循环的第二份拷贝（日志格式随之统一）。
+
+`TuningPage`：`ApplyAllButton_Click` 与 `SaveConfigButton_Click` 共用 `TryCollectInputs` 收集校验；只读探测与手动刷新的失败处理收敛成 `TryUseSnapshot`；删掉一段关于已删除控件的 TODO。
+
+`MaskManagerWindow`：可视树查找的递归实现收敛成单层循环。
+
+`App` / `MainWindow` / `UiSettingsStore` / `UiPresence`：压缩一批解释性注释的篇幅，删掉已经与代码不符的分支描述（例如「两个兜底」实际只剩一条），保留全部「为什么」而不重复代码字面意思。`MainWindow.UpdateUiPresence` 的文档注释此前是半句话，一并补完整。
+
 ### 0.9.1-can1
 
 界面层整理，不改动任何业务逻辑与执行流程。

@@ -72,14 +72,15 @@ namespace ZenForge
             }
         }
 
-        /// <summary>静态事件 ThemeChanged 的处理函数，必须能被解绑，所以不能写成 lambda。</summary>
+        /// <summary>静态事件 ThemeChanged 的处理函数。之所以是具名方法，因为它必须能被解绑。</summary>
         private void OnThemeChanged(object? sender, EventArgs e)
         {
             WindowHelper.ApplyTitleBarTheme(this, ThemeService.IsDark);
         }
 
         /// <summary>
-        /// 也靠它避免直接引用 App（那会把 WPF 拖进纯后台进程）。
+        /// 同步「用户看得见主窗口」的状态。后台组件读这个 bool 判断能否弹提示，
+        /// 这样它们就不必引用 App（那会把 WPF 拖进纯后台进程）。
         /// </summary>
         private void UpdateUiPresence()
         {
@@ -207,10 +208,7 @@ namespace ZenForge
 
         /// <summary>
         /// 到点执行「仅留服务进程」：销毁窗口，进程靠 OnExplicitShutdown 活着。
-        ///
-        /// 曾经还有一个「仅清空页面」的并行选项（保留窗口空壳、只拆页面树），
-        /// 实测两者工作集都被压到个位数 MB，差别落在测量噪声里，
-        /// 于是只保留这条更彻底的路径。
+        /// 曾并存的「仅清空页面」选项实测工作集同为个位数 MB，差别落在测量噪声里，已删。
         /// </summary>
         private void EnterLightMode()
         {
@@ -228,10 +226,8 @@ namespace ZenForge
         }
 
         /// <summary>
-        /// 销毁主窗口但**不退出进程**。
-        ///
-        /// 与「点 ×」的区别：点 × 时窗口只是 Hide，实例还在；
-        /// 这里把实例真正 Close 掉，让 WPF 连同可视树、绑定、页面全部回收。
+        /// 销毁主窗口但不退出进程。与「点 ×」的区别：点 × 只是 Hide，实例还在；
+        /// 这里真正 Close，让 WPF 连同可视树、绑定、页面全部回收，
         /// 之后托盘「打开界面」或双击 exe 会 new 一个新的。
         /// </summary>
         public void CloseAndDestroy()
