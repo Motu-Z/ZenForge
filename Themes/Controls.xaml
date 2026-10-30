@@ -267,15 +267,21 @@
     </Style>
 
     <!-- 侧栏导航图标：16×16 描边矢量，颜色跟随所在按钮的 Foreground。
-         用 Self 取 Foreground 而不是写死强调色：
          图标必须是「文字的附属」，选中/悬停时随着文字一起提亮，
-         写死颜色会出现「图标灰、文字白」的割裂感。 -->
+         写死颜色会出现「图标灰、文字白」的割裂感。
+
+         【必须取 AncestorType=ToggleButton，不能用 Self】
+         Path 是 Shape，它身上**没有 Foreground 属性**（那是 Control 的）。
+         RelativeSource=Self 的绑定找不到这个属性，绑定静默失败 → Stroke 为 null
+         → 图标整片不显示，而 XAML 编译期一句警告都没有。
+         1.0.2 第一版就是这么把七个图标全弄丢的。 -->
     <Style x:Key="NavIconPath" TargetType="Path">
         <Setter Property="Width" Value="16"/>
         <Setter Property="Height" Value="16"/>
         <Setter Property="Stretch" Value="Uniform"/>
         <Setter Property="Fill" Value="Transparent"/>
-        <Setter Property="Stroke" Value="{Binding Foreground, RelativeSource={RelativeSource Self}}"/>
+        <Setter Property="Stroke"
+                Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"/>
         <Setter Property="StrokeThickness" Value="1.8"/>
         <Setter Property="StrokeStartLineCap" Value="Round"/>
         <Setter Property="StrokeEndLineCap" Value="Round"/>

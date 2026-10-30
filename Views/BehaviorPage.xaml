@@ -104,9 +104,7 @@
 
                     <!-- 总闸关 → 整块消失。子项行距 20，最后一行归零，
                          与卡片内其它卡保持同一种行节奏。 -->
-                    <Border x:Name="SubOptions"
-                            Style="{StaticResource SubOptionsStyle}"
-                            Margin="24,0,0,0">
+                    <Border x:Name="SubOptions" Style="{StaticResource SubOptionsStyle}">
                         <StackPanel>
                             <Grid Style="{StaticResource BehaviorRowStyle}">
                                 <Grid.ColumnDefinitions>
