@@ -1070,14 +1070,17 @@
         <Setter Property="SnapsToDevicePixels" Value="True"/>
     </Style>
 
-    <!-- 文字链按钮：无底无边，hover 变强调色。用于「从 SMU 重新读取」这类次要入口 -->
-    <!-- 图标按钮：32×32 方形，无文字，内容是一个 Path / Viewbox。
-         用于「从 SMU 重读」这类动作 —— 原先做成页脚文字链（LinkButtonStyle），
-         功能在但位置不对：用户的注意力在 CPU 卡片上，读不到页脚那条小字。
-         视觉规格与 SecondaryButtonStyle 对齐（同高 32、同圆角 6、同边框色），
-         只是宽度收窄到正方形，这样四个控件并排时基线完全齐平。
-         内边距为 0：Path 由 Viewbox 自己居中，多余 Padding 会让图标偏下。 -->
-    <Style x:Key="IconButtonStyle" TargetType="Button">
+    <!-- 方形工具按钮（32×32，带边框，与 SecondaryButtonStyle 同高同圆角）。
+         用于 CPU 卡片的「从 SMU 重读」—— 它要和旁边的「保存 / 加载 / 应用全部」
+         并排对齐，所以必须与它们同高 32、同圆角 6、同边框色，只是收成正方形。
+
+         【为什么不复用 IconButtonStyle】
+         那个是列表行内的 28×28 透明底图标按钮（Segoe MDL2 字形），
+         用来塞进 Grid 的 Auto 列。两者尺寸、底色、用途都不同，
+         合并成一个会把行内按钮一起放大并加上边框。
+
+         内边距必须为 0：内容由 Viewbox 自己居中，多余 Padding 会让图标偏下。 -->
+    <Style x:Key="SquareIconButtonStyle" TargetType="Button">
         <Setter Property="Width" Value="32"/>
         <Setter Property="Height" Value="32"/>
         <Setter Property="Padding" Value="0"/>
@@ -1108,7 +1111,7 @@
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Button.Neutral.Hover}"/>
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Input.BorderHover}"/>
-                            <!-- 悬停时图标跟着亮成强调色，给出「这个能按」的暗示 -->
+                            <!-- 悬停时图标亮成强调色，给出「这个能按」的暗示 -->
                             <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">

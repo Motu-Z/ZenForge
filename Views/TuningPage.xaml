@@ -97,7 +97,7 @@
                              用 Viewbox 缩放到 15×15 —— 直接改 Path 的 Width/Height
                              不会缩放笔画，只会裁切。 -->
                         <Button x:Name="RefreshButton"
-                                Style="{StaticResource IconButtonStyle}"
+                                Style="{StaticResource SquareIconButtonStyle}"
                                 Margin="0,0,8,0"
                                 IsEnabled="False"
                                 ToolTip="从 SMU 重新读取当前值"
