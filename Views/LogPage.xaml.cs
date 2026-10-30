@@ -294,6 +294,21 @@ namespace ZenForge.Views
 
             List<LogEntry> matched = query.ToList();
 
+            // 内容一字未变就别重建。
+            // Clear + Add 会触发一次 Reset 通知，ListBox 随即重建可视容器、
+            // 把滚动位置弹回顶部 —— 表现在界面上就是「闪一下 + 被拽回顶部」。
+            // 定时刷新（每 5 秒）会重复触发这条路，所以这个判断不是省小事。
+            if (SameEntries(matched))
+            {
+                UpdateStats();
+                return;
+            }
+
+            // 重建会丢滚动位置：记住用户当时看到哪，重建后放回去。
+            // 只有原本就贴在底部时才继续跟到最新一条（那才是用户期待的）。
+            bool followLatest = IsAtBottom();
+            double keepOffset = ListScrollViewer()?.VerticalOffset ?? 0;
+
             VisibleEntries.Clear();
             foreach (LogEntry entry in matched)
                 VisibleEntries.Add(entry);
@@ -304,7 +319,66 @@ namespace ZenForge.Views
                 : "没有匹配的日志";
 
             UpdateStats();
-            ScrollToLatest();
+
+            if (followLatest)
+            {
+                ScrollToLatest();
+            }
+            else
+            {
+                // 用户正在往回翻历史，别把他拽回底部
+                ListScrollViewer()?.ScrollToVerticalOffset(keepOffset);
+            }
+        }
+
+        /// <summary>当前可见集合与匹配结果是否完全一致（同一批对象、同一顺序）。</summary>
+        private bool SameEntries(List<LogEntry> matched)
+        {
+            if (VisibleEntries.Count != matched.Count)
+                return false;
+
+            for (int i = 0; i < matched.Count; i++)
+                if (!ReferenceEquals(VisibleEntries[i], matched[i]))
+                    return false;
+
+            return true;
+        }
+
+        /// <summary>
+        /// 用户此刻是否贴着列表底部（容差 8px：滚动条是整数像素，浮点比较不可靠）。
+        ///
+        /// 判断这个是为了区分两种完全不同的意图：贴在底部 = 「跟着看最新」，
+        /// 往上翻 = 「我在查历史，别动我的位置」。以前新日志一到就无条件
+        /// ScrollToLatest，用户刚翻上去就被拽回底部，表现为整页在跳。
+        /// </summary>
+        private bool IsAtBottom()
+        {
+            ScrollViewer? sv = ListScrollViewer();
+            if (sv == null)
+                return true;      // 模板还没生成：按原行为（跟随）处理
+
+            return sv.VerticalOffset >= sv.ScrollableHeight - 8;
+        }
+
+        private ScrollViewer? ListScrollViewer() => FindChild<ScrollViewer>(LogListBox);
+
+        private static T? FindChild<T>(DependencyObject? parent) where T : DependencyObject
+        {
+            if (parent == null)
+                return null;
+
+            int count = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(parent, i);
+                if (child is T match)
+                    return match;
+
+                if (FindChild<T>(child) is T deep)
+                    return deep;
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -331,8 +405,10 @@ namespace ZenForge.Views
 
             try
             {
-                LogListBox.SelectedIndex = VisibleEntries.Count - 1;
-                LogListBox.ScrollIntoView(LogListBox.SelectedItem);
+                // 只滚动，不改选中项。
+                // 以前这里顺手把最后一行选中，于是每来一条日志就有一块高亮
+                // 底色跟着往下跳，并且会把用户手动选中的那行顶掉。
+                LogListBox.ScrollIntoView(VisibleEntries[VisibleEntries.Count - 1]);
             }
             catch
             {
@@ -376,6 +452,12 @@ namespace ZenForge.Views
             StopFollow();
 
             if (!_subscribed || !IsLoaded || Paused)
+                return;
+
+            // 用户已经往回翻历史了就不要再把他拽下来。
+            // 这一条是「日志页一直在跳」的主因：突发日志几十条时，
+            // 跟随定时器每 200ms 把视图拉到底，用户根本没法读上面几行。
+            if (!IsAtBottom())
                 return;
 
             ScrollToLatest();

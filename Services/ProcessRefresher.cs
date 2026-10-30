@@ -236,17 +236,26 @@ namespace ZenForge.Services
         /// </summary>
         public static event Action<IReadOnlyList<Entry>>? Refreshed;
 
-        /// <summary>采样周期（秒）。设为更小值时由搜索框聚焦场景驱动。
+        /// <summary>采样周期（秒）。
         ///
-        /// 默认 3 秒：进程列表刷新是 UI 侧最耗 CPU 的例程（Toolhelp32 快照 + 每进程
-        /// OpenProcess 取时间），数百进程规模下约占 1~3% 单核。
+        /// 默认 5 秒。这个值在 1.0.1 从 3 秒放宽：
+        /// 一是列表每 3 秒重排一次，用户伸手去点某一行的下拉框时经常点空；
+        /// 二是「用户在看列表」这件事本身不需要秒级精度 —— 进程占用是用来
+        /// 判断「谁在吃 CPU」的，5 秒足够看出趋势，而 3 秒只是在放大噪声。
+        /// 10 秒试过，滞后感明显：刚打开的进程要等近十秒才出现在列表里。
+        ///
+        /// 单帧开销没变（Toolhelp32 快照 + 每进程 OpenProcess 取时间），
+        /// 所以放宽周期等于把后台占用直接降到约六成（3 → 5 秒）。
         ///
         /// 这个周期只在「用户真的在看列表」时生效 —— 没人看时循环完全挂起
         /// （见 AcquireWatch / ReleaseWatch），不再是「降频到某个慢周期」。
         /// 自动绑定与此无关，那条链路走 ProcessWatcher 的 WMI 事件。
         ///
+        /// 想更灵敏就调小（最小 1 秒），想更省就调大。改这里一处即可，
+        /// 全工程没有第二个地方写死采样周期。
+        ///
         /// volatile：UI 线程写、后台采样线程读，不加会让循环可能长期读到缓存里的旧值。</summary>
-        private static volatile int _intervalSeconds = 3;
+        private static volatile int _intervalSeconds = 5;
         public static int IntervalSeconds
         {
             get => _intervalSeconds;

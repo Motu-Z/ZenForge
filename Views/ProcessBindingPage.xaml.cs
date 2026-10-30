@@ -43,6 +43,33 @@ namespace ZenForge.Views
             }
         }
 
+        private bool _isSelected;
+
+        /// <summary>
+        /// 该行是否处于选中态。
+        ///
+        /// 【为什么必须做成绑定而不是直接改 Border.Background】
+        /// 列表开启虚拟化 + Recycling 之后，滚出视野的行容器会被回收并交给
+        /// 新出现的行复用。WPF 在复用容器时只会重新求值绑定，
+        /// **不会**把上一行命令式设过的 Backgroud 清掉 ——
+        /// 结果就是「选中色跟着滚动条跑」，滚到哪儿哪行是蓝的。
+        ///
+        /// 所以选中态必须是数据的一部分（本属性），由 XAML 的 DataTrigger
+        /// 映射成底色；容器怎么复用都不会错。
+        /// </summary>
+        public bool IsSelected
+        {
+            get => _isSelected;
+            set
+            {
+                if (_isSelected == value)
+                    return;
+
+                _isSelected = value;
+                OnPropertyChanged(nameof(IsSelected));
+            }
+        }
+
         /// <summary>该名称下所有实例的平均 CPU 占用率（数值，用于排序）。</summary>
         private double _cpuValue;
         public double CpuValue
@@ -402,8 +429,21 @@ namespace ZenForge.Views
         private readonly List<ProcessGroupRow> _allGroups = new();
         private readonly ObservableCollection<SavedRuleRow> _savedRules = new();
 
-        /// <summary>当前是否按 CPU 从高到低排序（默认 true）。</summary>
-        private bool _sortByCpuDescending = true;
+        /// <summary>可排序的列。核心掩码不在其中 —— 它是位掩码，没有大小关系。</summary>
+        private enum SortColumn
+        {
+            Cpu,
+            Name,
+            Path,
+            Mask,
+            Priority,
+        }
+
+        /// <summary>当前排序列，默认按占用。</summary>
+        private SortColumn _sortColumn = SortColumn.Cpu;
+
+        /// <summary>当前是否降序。数值列默认降序（大的在前），名称/路径默认升序。</summary>
+        private bool _sortDescending = true;
 
         /// <summary>规则列表重建期间抑制开关回调，避免误写盘。</summary>
         private bool _loadingRules;
@@ -431,6 +471,10 @@ namespace ZenForge.Views
             // Themes/SearchBox.xaml 顶部注释），且 LostFocus 里读 IsKeyboardFocusWithin
             // 拿到的是旧值，于是占位符要么不消失、要么不回来。
             SearchBox.TextChanged += SearchBox_TextChanged;
+
+            // 列头初态：默认为「占用 ▼」，这里统一刷一遍，避免 XAML 里写的
+            // 初始文字与代码状态各写一份（改排序默认值时就只有一处要改）。
+            UpdateSortHeaders();
 
             // Ctrl+F 聚焦搜索框（常规习惯）
             CommandBindings.Add(new CommandBinding(
@@ -484,7 +528,7 @@ namespace ZenForge.Views
                 else
                 {
                     // 采样器刚开始跑、首轮还没出结果：主动催一次。
-                    // 不催的话要干等 3 秒，用户看到的是一个空列表 ——
+                    // 不催的话要干等一个采样周期（5 秒），用户看到的是一个空列表 ——
                     // 这会让人以为「列表坏了、不刷新」。
                     RequestImmediateSample();
                 }
@@ -917,23 +961,12 @@ namespace ZenForge.Views
             if (query.Length > 0)
                 rows = rows.Where(g => g.Name.ToLowerInvariant().Contains(query));
 
-            // 默认高占用在前；同占用时按名称排，保证顺序稳定。
-            //
-            // 【占用率要按 0.1% 取整再比】
-            // 悬浮窗口里那一列显示的是一位小数（"22.1%"），但排序用的是完整双精度值：
-            // 两行都显示 0.0% 时，实际值是 0.031 与 0.028，相对顺序会随采样抖动来回翻。
-            // 用户看到的是一堆一模一样的 0.0% 在互相换位 —— 这正是「列表一直在跳」的来源之一。
-            // 按显示精度取整后，显示相同的行之间只用进程名定序，屏幕上的顺序就稳定了。
-            rows = _sortByCpuDescending
-                ? rows.OrderByDescending(g => Math.Round(g.CpuValue, 1))
-                      .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
-                : rows.OrderBy(g => Math.Round(g.CpuValue, 1))
-                      .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase);
+            // 排序规则见 SortRows。这里只负责「过滤 → 排序 → 增量同步」中的排序一步。
+            List<ProcessGroupRow> desired = SortRows(rows).ToList();
 
             // 增量同步：原地增删 + 重排，避免每次刷新整列表重建
             // （Clear+Add 会让 ListView 重建设施，造成闪屏、滚动跳变、焦点丢失）。
             // 同一进程名的行对象在 _allGroups 中被复用，容器随之复用，无闪烁。
-            List<ProcessGroupRow> desired = rows.ToList();
             for (int i = _groups.Count - 1; i >= 0; i--)
                 if (!desired.Contains(_groups[i]))
                     _groups.RemoveAt(i);
@@ -969,6 +1002,189 @@ namespace ZenForge.Views
             ApplyFilter(true);
         }
 
+        // ==================== 排序 ====================
+
+        /// <summary>
+        /// 按当前排序列与方向排序。
+        ///
+        /// 【两条稳定性规则，缺一条列表就会「自己跳」】
+        ///
+        /// 1. 主键相同的行，必须再按名称定序。否则同值行的相对顺序由排序算法
+        ///    的内部实现决定，每次采样都可能不同的排列 —— 用户看到的是几行
+        ///    一模一样的数字在互相换位。
+        ///
+        /// 2. 占用率按**显示精度（0.1%）**取整后再比。列表里显示的是
+        ///    "0.0%"，而真实值是 0.031 与 0.028：不取整的话，显示完全相同的
+        ///    两行会随着这点误差来回翻。
+        ///
+        /// 反过来也要注意：取整不是为了让「排序变慢」，真实负载变化
+        /// （5% → 40%）该换位就得换位。刷新的节奏由采样周期控制，不由排序控制。
+        /// </summary>
+        private IEnumerable<ProcessGroupRow> SortRows(IEnumerable<ProcessGroupRow> rows)
+        {
+            // 掩码名的名次表：一次建好，排序比较时只做查字典。
+            Dictionary<string, int> maskRank = BuildMaskRank();
+
+            return _sortColumn switch
+            {
+                SortColumn.Name => _sortDescending
+                    ? rows.OrderByDescending(g => g.Name, StringComparer.OrdinalIgnoreCase)
+                    : rows.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase),
+
+                // 路径排序用系统默认的字符串比较（区分大小写、按码位）：
+                // 路径是唯一值，不存在稳定性问题，按字面排就够了。
+                SortColumn.Path => _sortDescending
+                    ? rows.OrderByDescending(g => g.Path, StringComparer.OrdinalIgnoreCase)
+                          .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
+                    : rows.OrderBy(g => g.Path, StringComparer.OrdinalIgnoreCase)
+                          .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase),
+
+                // 掩码按「下拉里显示的顺序」排。这里必须在排序前把 rank 算好：
+                // 比较器会被调用 O(n log n) 次，每次现查 IndexOf 就是白烧 CPU。
+                //
+                // 降序要先按「已知/未知」分组再排。直接 OrderByDescending(rank)
+                // 会把未知掩码用的 int.MaxValue 顶到最前面 —— 已删除掩码的进程
+                // 排在第一屏，是最糟的结果。
+                SortColumn.Mask => _sortDescending
+                    ? rows.OrderBy(g => IsUnknownMask(g, maskRank) ? 1 : 0)
+                          .ThenByDescending(g => MaskRank(g, maskRank))
+                          .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
+                    : rows.OrderBy(g => MaskRank(g, maskRank))
+                          .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase),
+
+                // 优先级的未知档位（驱动进程的 24 之类）同理：降序时也要压在最后，
+                // 不能让「不认识」变成「最优先」。
+                SortColumn.Priority => _sortDescending
+                    ? rows.OrderBy(g => IsUnknownPriority(g) ? 1 : 0)
+                          .ThenByDescending(PriorityRank)
+                          .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
+                    : rows.OrderBy(PriorityRank)
+                          .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase),
+
+                _ => _sortDescending
+                    ? rows.OrderByDescending(g => Math.Round(g.CpuValue, 1))
+                          .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
+                    : rows.OrderBy(g => Math.Round(g.CpuValue, 1))
+                          .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase),
+            };
+        }
+
+        /// <summary>
+        /// 掩码名 → 显示顺序（0 = 不绑定）。
+        ///
+        /// 顺序直接取 <see cref="TargetOptions"/> 的下标，也就是下拉框里从上到下
+        /// 看到的顺序：不绑定 / CCD0 / CCD1 / 各自定义掩码（用户自己的排列）。
+        /// 不用字母序：字母序会把「CCD0」「不绑定」和自定义名混在一起，
+        /// 用户眼里的「同类」被拆散，等于没排。
+        /// </summary>
+        private static Dictionary<string, int> BuildMaskRank()
+        {
+            Dictionary<string, int> rank = new(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < TargetOptions.Count; i++)
+                rank[TargetOptions[i]] = i;
+            return rank;
+        }
+
+        /// <summary>掩码名在显示顺序里的名次。不在表里的（已删除的掩码）排最后。</summary>
+        private static int MaskRank(ProcessGroupRow row, Dictionary<string, int> rank)
+            => rank.TryGetValue(row.Selection ?? string.Empty, out int index)
+                ? index
+                : int.MaxValue;
+
+        /// <summary>该行的掩码名不在当前选项表里（掩码已被删除 / 名字被改过）。</summary>
+        private static bool IsUnknownMask(ProcessGroupRow row, Dictionary<string, int> rank)
+            => !rank.ContainsKey(row.Selection ?? string.Empty);
+
+        /// <summary>该行的优先级不等于任何一个标准档位。</summary>
+        private static bool IsUnknownPriority(ProcessGroupRow row)
+            => Array.IndexOf(ProcessPriority.Options, row.PrioritySelection) < 0;
+
+        /// <summary>
+        /// 优先级档位 → 排序序号（0 = 最高）。
+        ///
+        /// 用下拉选项表的下标而不是 SetPriorityClass 的常量值：那些常量
+        /// （0x80 / 0x8000 / 0x20 …）是位标志，数值大小与「谁更优先」毫无关系，
+        /// 直接按常量排会把 Low(0x40) 排到 Normal(0x20) 前面。
+        ///
+        /// 不认识的档位（驱动的 24、High 的变体）统一排到末尾，而不是当成 0
+        /// 混进「高」里 —— 那些进程本来就不在任何标准档上，放在最末尾更诚实。
+        /// </summary>
+        private static int PriorityRank(ProcessGroupRow row)
+        {
+            int index = Array.IndexOf(ProcessPriority.Options, row.PrioritySelection);
+            return index < 0 ? ProcessPriority.Options.Length : index;
+        }
+
+        /// <summary>
+        /// 点击列头：同列切方向，异列切到该列的默认方向。
+        ///
+        /// 默认方向按「用户点这一列时想先看什么」定：数值列（占用、优先级）
+        /// 先给降序（大的在前），文本列（名称、路径）先给升序（A 在前）。
+        /// </summary>
+        private void SortHeader_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is not TextBlock { Tag: string tag })
+                return;
+
+            SortColumn column = tag switch
+            {
+                "Name" => SortColumn.Name,
+                "Path" => SortColumn.Path,
+                "Mask" => SortColumn.Mask,
+                "Priority" => SortColumn.Priority,
+                _ => SortColumn.Cpu,
+            };
+
+            if (column == _sortColumn)
+            {
+                _sortDescending = !_sortDescending;
+            }
+            else
+            {
+                _sortColumn = column;
+                // 数值列先给降序（大的在前）；名称/路径/掩码先给升序
+                // —— 掩码的升序就是下拉里的顺序，读起来是「不绑定在最上面」。
+                _sortDescending = column is SortColumn.Cpu or SortColumn.Priority;
+            }
+
+            UpdateSortHeaders();
+
+            // 用户主动排序，立即生效：不走「正在操作就先推迟」的让位逻辑。
+            ApplyFilter(true);
+            e.Handled = true;
+        }
+
+        /// <summary>
+        /// 把当前排序状态画到列头上：排序列带箭头且用主文字色，其余列用元数据色。
+        ///
+        /// 颜色必须用 SetResourceReference 而不是直接赋 Brush：主题切换时
+        /// 资源引用会自动重取，直接赋值的画刷会停在切换前那一版。
+        /// </summary>
+        private void UpdateSortHeaders()
+        {
+            Apply(NameHeaderText, "进程名", SortColumn.Name);
+            Apply(PathHeaderText, "路径", SortColumn.Path);
+            Apply(CpuHeaderText, "占用", SortColumn.Cpu);
+            Apply(MaskHeaderText, "核心掩码", SortColumn.Mask);
+            Apply(PriorityHeaderText, "优先级", SortColumn.Priority);
+
+            void Apply(TextBlock? header, string title, SortColumn column)
+            {
+                if (header == null)
+                    return;
+
+                bool active = _sortColumn == column;
+                header.Text = active ? title + (_sortDescending ? " ▼" : " ▲") : title;
+                header.SetResourceReference(
+                    TextBlock.ForegroundProperty,
+                    active ? "Text.Primary" : "Text.MetaBrush");
+
+                header.ToolTip = active
+                    ? $"点击切换排序方向（当前：{(_sortDescending ? "从高到低" : "从低到高")}）"
+                    : $"点击按{title}排序";
+            }
+        }
+
         private void TargetCombo_DropDownOpened(object sender, EventArgs e) => _comboOpen = true;
 
         private void TargetCombo_DropDownClosed(object sender, EventArgs e)
@@ -981,30 +1197,6 @@ namespace ZenForge.Views
             => FlushPendingRefresh();
 
         /// <summary>
-        /// 点击「占用」列头切换升序 / 降序。
-        ///
-        /// v12 改自绘表头后没有 GridViewColumnHeader 了，排序入口挂在
-        /// 表头里那个「占用」TextBlock 上（XAML 里 MouseLeftButtonUp）。
-        /// 排序方向的变化同时要反映到列头文字上，否则用户看不出当前是升还是降。
-        /// </summary>
-        private void CpuHeader_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-        {
-            _sortByCpuDescending = !_sortByCpuDescending;
-
-            if (sender is TextBlock header)
-            {
-                header.Text = _sortByCpuDescending ? "占用 ▼" : "占用 ▲";
-                header.ToolTip = _sortByCpuDescending
-                    ? "点击切换排序方向（当前：从高到低）"
-                    : "点击切换排序方向（当前：从低到高）";
-            }
-
-            // 用户主动排序，立即生效，不受交互保护推迟
-            ApplyFilter(true);
-            e.Handled = true;
-        }
-
-        /// <summary>
         /// 点击进程行：选中该行（v12 的 process-row.active 视觉）。
         ///
         /// 自绘行没有 ListBox 的选中态，这里自己记一个选中行对象，
@@ -1013,17 +1205,21 @@ namespace ZenForge.Views
         /// </summary>
         private void ProcessRow_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (sender is not Border clicked)
+            if (sender is not FrameworkElement element || element.DataContext is not ProcessGroupRow clicked)
                 return;
 
             // 点在下拉框上时不要抢走它自己的点击
             if (e.OriginalSource is DependencyObject src && FindAncestor<ComboBox>(src) != null)
                 return;
 
-            foreach (Border row in FindVisualChildren<Border>(ProcessListView))
-                row.ClearValue(Border.BackgroundProperty);
-
-            clicked.Background = (Brush)FindResource("AccentSoftBrush");
+            // 只改数据，不改视觉：底色由行模板里的 DataTrigger 绑 IsSelected 决定。
+            // 直接改 Border.Background 在虚拟化回收下会把选中色带到别的行上（见 IsSelected 的注释）。
+            foreach (ProcessGroupRow row in _allGroups)
+            {
+                bool shouldSelect = ReferenceEquals(row, clicked);
+                if (row.IsSelected != shouldSelect)
+                    row.IsSelected = shouldSelect;
+            }
         }
 
         /// <summary>向上找指定类型的祖先（点到下拉框内部时不抢事件用）。</summary>
@@ -1035,21 +1231,6 @@ namespace ZenForge.Views
                     return match;
             }
             return null;
-        }
-
-        /// <summary>深度遍历可视树，收集指定类型的子元素。</summary>
-        private static IEnumerable<T> FindVisualChildren<T>(DependencyObject root) where T : DependencyObject
-        {
-            int count = VisualTreeHelper.GetChildrenCount(root);
-            for (int i = 0; i < count; i++)
-            {
-                DependencyObject child = VisualTreeHelper.GetChild(root, i);
-                if (child is T match)
-                    yield return match;
-
-                foreach (T nested in FindVisualChildren<T>(child))
-                    yield return nested;
-            }
         }
 
         /// <summary>

@@ -71,14 +71,14 @@ namespace ZenForge.Services
         /// 程序现在是常驻的（关窗收进托盘后一直活着），日志集合只增不减会把内存
         /// 一点点吃光。超限后从头部丢弃，保证内存有界。
         ///
-        /// 【从 2000 降到 800】
+        /// 【2000 → 800 → 500】
         /// 2000 条按每条约 200 字节的字符串 + 对象头，常驻约 500KB～1MB；
-        /// 更贵的是 UI 侧：ListBox 的每一项都要参与布局计算，2000 条时
-        /// 筛选重建要几百毫秒。而实际上没人会翻到第 800 条以前 ——
-        /// 要看历史有磁盘日志，界面上只承担"最近发生了什么"。
-        /// 800 条 ≈ 满屏 30 行的 26 屏，足够定位刚刚发生的问题。
+        /// 更贵的是 UI 侧：每次新增都要让 ListBox 重排，筛选时还要整表重建。
+        /// 而实际上没人会翻到第 500 条以前 —— 要看历史有磁盘日志，
+        /// 界面上只承担「最近发生了什么」。
+        /// 500 条 ≈ 满屏 30 行的 16 屏，足够定位刚刚发生的问题。
         /// </summary>
-        private const int MaxEntries = 800;
+        private const int MaxEntries = 500;
 
         /// <summary>
         /// 单次丢弃的批量。
@@ -434,11 +434,31 @@ namespace ZenForge.Services
             EntryAdded?.Invoke(entry);
         }
 
+        /// <summary>
+        /// 待写队列的容量上限。
+        ///
+        /// 正常情况下这个队列只有个位数（后台线程每 500ms 清空一次），
+        /// 上限是给异常情况留的保险：磁盘被占用、杀软扫描、机械盘卡顿时，
+        /// 写线程会一直积压，而 UI 侧还在源源不断地产日志 ——
+        /// 没有上限的话这里就是一条隐形的内存泄漏，而且越卡越涨。
+        ///
+        /// 满了两千条说明落盘已经严重滞后，此时丢最旧的：日志是用来排查问题的，
+        /// 为了保住一条旧日志把进程撑爆，本末倒置。
+        /// </summary>
+        private const int MaxPendingFile = 2000;
+
         /// <summary>把条目排进落盘队列。UI 线程上只做入队，真正的写由后台线程完成。</summary>
         private static void EnqueueFile(LogEntry entry)
         {
             lock (FileGate)
+            {
                 PendingFile.Enqueue(entry);
+
+                // 只丢最旧的一条、不整队列清空：清空会让「刚发生了什么」这段
+                // 最关键的上下文一起消失，而丢一条的代价小得多。
+                while (PendingFile.Count > MaxPendingFile)
+                    PendingFile.Dequeue();
+            }
 
             FileSignal.Set();
         }

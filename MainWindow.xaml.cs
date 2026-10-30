@@ -299,6 +299,29 @@ namespace ZenForge
         private void NavigateToPage(string relativeUri)
         {
             _lastPage = relativeUri;
+
+            // 【导航前先清空历史栈】
+            // Frame 默认把每次导航记进 journal，每个条目都强引用着一个已经
+            // Unloaded 的 Page。进程页那种一页带三百多行模板的页面，来回切几次
+            // 就会把好几份旧视觉树一起留在内存里 —— 这是「切页面就涨一截、
+            // 切回来也不降」的直接来源。
+            //
+            // 这里没有后退 UI（NavigationUIVisibility=Hidden），journal 纯粹是
+            // 白白占内存，所以每次导航前把它压平：旧页面失去最后一个引用，
+            // 下一轮 GC 就能回收。
+            try
+            {
+                // 只清后退栈。前进栈不在这里处理：RemoveBackEntry 删不到它，
+                // 而且紧接着的 Navigate 本身就会把前进栈作废。
+                while (ContentFrame.CanGoBack)
+                    ContentFrame.RemoveBackEntry();
+            }
+            catch (Exception ex)
+            {
+                // 导航日志不可用时不能让导航本身失败
+                LogService.Warn($"清理导航历史失败：{ex.Message}");
+            }
+
             ContentFrame.Navigate(new Uri(relativeUri, UriKind.Relative));
             SetActiveNav(relativeUri);
         }

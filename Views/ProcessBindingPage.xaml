@@ -197,18 +197,57 @@
                                     <ColumnDefinition Width="150"/>
                                     <ColumnDefinition Width="128"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="进程名" Style="{StaticResource TableHeaderTextStyle}"/>
-                                <TextBlock Grid.Column="1" Text="路径"   Style="{StaticResource TableHeaderTextStyle}" Margin="0,0,16,0"/>
-                                <!-- 占用列头可点：切换排序方向 -->
+                                <!-- 可排序列头。统一点击行为：
+                                     点同一列 = 切换升降；点别的列 = 切到该列默认方向。
+                                     箭头由 UpdateSortHeaders 写入，非排序列不带箭头，
+                                     点击后立刻重排一帧（不受「正在操作」让位逻辑推迟）。 -->
+                                <TextBlock x:Name="NameHeaderText"
+                                           Grid.Column="0"
+                                           Text="进程名"
+                                           Style="{StaticResource TableHeaderTextStyle}"
+                                           Cursor="Hand"
+                                           Tag="Name"
+                                           ToolTip="点击按进程名排序"
+                                           MouseLeftButtonUp="SortHeader_MouseLeftButtonUp"/>
+                                <TextBlock x:Name="PathHeaderText"
+                                           Grid.Column="1"
+                                           Text="路径"
+                                           Style="{StaticResource TableHeaderTextStyle}"
+                                           Margin="0,0,16,0"
+                                           Cursor="Hand"
+                                           Tag="Path"
+                                           ToolTip="点击按路径排序"
+                                           MouseLeftButtonUp="SortHeader_MouseLeftButtonUp"/>
                                 <TextBlock x:Name="CpuHeaderText"
                                            Grid.Column="2"
                                            Text="占用 ▼"
                                            Style="{StaticResource TableHeaderTextStyle}"
                                            Cursor="Hand"
+                                           Tag="Cpu"
                                            ToolTip="点击切换排序方向（当前：从高到低）"
-                                           MouseLeftButtonUp="CpuHeader_MouseLeftButtonUp"/>
-                                <TextBlock Grid.Column="3" Text="核心掩码" Style="{StaticResource TableHeaderTextStyle}" Margin="0,0,10,0"/>
-                                <TextBlock Grid.Column="4" Text="优先级" Style="{StaticResource TableHeaderTextStyle}" Margin="0,0,10,0"/>
+                                           MouseLeftButtonUp="SortHeader_MouseLeftButtonUp"/>
+                                <!-- 核心掩码按「下拉里显示的顺序」排：不绑定 → CCD0 → CCD1 →
+                                     自定义掩码（按用户定义的先后）。不是按字母序，也不是按
+                                     位掩码数值 —— 位掩码是多值位串，本身没有大小关系；
+                                     而用户认的是自己排的那份列表。 -->
+                                <TextBlock x:Name="MaskHeaderText"
+                                           Grid.Column="3"
+                                           Text="核心掩码"
+                                           Style="{StaticResource TableHeaderTextStyle}"
+                                           Margin="0,0,10,0"
+                                           Cursor="Hand"
+                                           Tag="Mask"
+                                           ToolTip="点击按掩码排序（顺序同下拉列表）"
+                                           MouseLeftButtonUp="SortHeader_MouseLeftButtonUp"/>
+                                <TextBlock x:Name="PriorityHeaderText"
+                                           Grid.Column="4"
+                                           Text="优先级"
+                                           Style="{StaticResource TableHeaderTextStyle}"
+                                           Margin="0,0,10,0"
+                                           Cursor="Hand"
+                                           Tag="Priority"
+                                           ToolTip="点击按优先级排序"
+                                           MouseLeftButtonUp="SortHeader_MouseLeftButtonUp"/>
                             </Grid>
                         </Border>
                     </Grid>
@@ -224,16 +263,58 @@
                              ItemsControl 会把每一项都实测高度，虚拟化直接失效。
                              Recycling 而非 Standard：Standard 每次滚动都新建容器
                              （下拉框 + 3 个 TextBlock），复用能降一个数量级的分配。 -->
-                        <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled"
-                                      CanContentScroll="True">
-                            <ItemsControl x:Name="ProcessListView" Focusable="False"
-                                          VirtualizingStackPanel.IsVirtualizing="True"
-                                          VirtualizingStackPanel.VirtualizationMode="Recycling">
-                                <ItemsControl.ItemTemplate>
+                        <ItemsControl x:Name="ProcessListView" Focusable="False"
+                                      VirtualizingStackPanel.IsVirtualizing="True"
+                                      VirtualizingStackPanel.VirtualizationMode="Recycling">
+                            <!-- 【虚拟化必须自己写 Template + ItemsPanel，缺一即失效】
+
+                                 原来这里是「手写 ScrollViewer 包住 ItemsControl」。
+                                 那种写法在视觉上看不出问题，但虚拟化是**完全不生效**的：
+                                 VirtualizingStackPanel 靠 IScrollInfo 找滚动宿主，
+                                 而手写 ScrollViewer 的 Content 是 ItemsControl 而不是
+                                 ItemsPresenter，面板和滚动宿主之间断了一环。结果是
+                                 「所有行一次性实例化」——每行含一个 ComboBox（内部还有
+                                 Popup、ScrollViewer、Border 一整套模板），三百行就是
+                                 十几 MB 常驻内存 + 一次几百毫秒的布局。
+
+                                 正确结构：Template 里放 ScrollViewer + ItemsPresenter，
+                                 ItemsPanel 显式换成 VirtualizingStackPanel。
+                                 CanContentScroll=True 仍然必填：为 False 时是物理滚动，
+                                 面板会被测成全部高度，虚拟化再次失效。 -->
+                            <ItemsControl.Template>
+                                <ControlTemplate TargetType="ItemsControl">
+                                    <ScrollViewer CanContentScroll="True"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled"
+                                                  Focusable="False">
+                                        <ItemsPresenter/>
+                                    </ScrollViewer>
+                                </ControlTemplate>
+                            </ItemsControl.Template>
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Border x:Name="Row" Style="{StaticResource ProcessRowStyle}"
+                                        <!-- 行底色走 Style + DataTrigger，不靠代码改 Background：
+                                             虚拟化 Recycling 会复用容器，命令式设过的颜色不会自动复原，
+                                             选中色就会跟着滚动条跑到别的行上。 -->
+                                        <Border x:Name="Row"
                                                 MouseLeftButtonDown="ProcessRow_MouseLeftButtonDown">
+                                            <Border.Style>
+                                                <Style TargetType="Border" BasedOn="{StaticResource ProcessRowStyle}">
+                                                    <Style.Triggers>
+                                                        <!-- 放在最后：选中行的底色要压过 ProcessRowStyle 里的
+                                                             悬停色，否则鼠标扫过去就看不出哪行是选中的。 -->
+                                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                            <Setter Property="Background"
+                                                                    Value="{DynamicResource AccentSoftBrush}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="3*"/>
@@ -300,8 +381,7 @@
                                         </DataTemplate.Triggers>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
+                        </ItemsControl>
 
                         <TextBlock x:Name="EmptyHint"
                                    Text="暂无进程"
@@ -371,13 +451,27 @@
                     </Grid>
 
                     <Grid Height="300">
-                        <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled"
-                                      CanContentScroll="True">
-                            <ItemsControl x:Name="SavedRulesList" Focusable="False"
-                                          VirtualizingStackPanel.IsVirtualizing="True"
-                                          VirtualizingStackPanel.VirtualizationMode="Recycling">
-                                <ItemsControl.ItemTemplate>
+                        <ItemsControl x:Name="SavedRulesList" Focusable="False"
+                                      VirtualizingStackPanel.IsVirtualizing="True"
+                                      VirtualizingStackPanel.VirtualizationMode="Recycling">
+                            <!-- 与进程列表同一套结构，原因见上方那段长注释：
+                                 手写 ScrollViewer 包 ItemsControl 时虚拟化不生效。 -->
+                            <ItemsControl.Template>
+                                <ControlTemplate TargetType="ItemsControl">
+                                    <ScrollViewer CanContentScroll="True"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled"
+                                                  Focusable="False">
+                                        <ItemsPresenter/>
+                                    </ScrollViewer>
+                                </ControlTemplate>
+                            </ItemsControl.Template>
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Border Style="{StaticResource ProcessRowStyle}" Margin="0,0,0,2">
                                             <Grid>
@@ -443,8 +537,7 @@
                                         </Border>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
+                        </ItemsControl>
 
                         <TextBlock x:Name="EmptyRulesHint"
                                    Text="暂无已保存规则"
