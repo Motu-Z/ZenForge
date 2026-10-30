@@ -7,7 +7,35 @@
       Focusable="False"
       FocusVisualStyle="{x:Null}">
 
-    <!-- 与其他页面统一：外边距 16 -->
+    <!--
+        ============================================================
+        设置页版式规格（v12）
+        ============================================================
+        三张卡片：外观 / 行为 / 容错。每张都是 .card-title + 若干 .row，
+        .row = 左「标签 + 弱化说明」/ 右「控件」，行间 22px。
+
+        外观卡：
+          主题模式（下拉）+ 强调色（下拉）
+          + 色相选择器（色块预览 / 彩虹滑杆 / 色值输入），
+          仅在「强调色 = 自定义」时显示。
+
+        行为卡：开机静默自启 / 自动应用调校 / 开启后台服务 / 后台常驻调度 /
+                后台轻量模式 / 显示托盘图标
+        容错卡：智能休眠感知 / 软硬双重防砖保护 / 出错时通知我
+
+        为什么保留页面级滚动而不是卡内滚动：
+          三张卡总高度约 900px，窗口最小高 620。卡内各自滚动会让"哪一屏滚到哪"
+          变得难以预期，页面级滚动是设置页的常规做法。
+    -->
+
+    <Page.Resources>
+        <!-- 设置行：与 Controls.xaml 的 CardRowStyle 同构，但行距略收（24 → 22），
+             因为设置项密度比调校页高，24 会让三卡总高溢出太多。 -->
+        <Style x:Key="SettingRowStyle" TargetType="Grid">
+            <Setter Property="Margin" Value="0,0,0,22"/>
+        </Style>
+    </Page.Resources>
+
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="24,24,32,24">
 
@@ -17,185 +45,318 @@
             </StackPanel>
 
             <!-- ===== 外观 ===== -->
-            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
                 <StackPanel>
                     <TextBlock Text="外观" Style="{StaticResource CardTitleStyle}"/>
 
-                    <!-- 主题模式 + 强调色：并列两列（与 NvForge 完全一致） -->
-                    <Grid Margin="0,12,0,8">
+                    <!-- 主题模式 -->
+                    <Grid Style="{StaticResource SettingRowStyle}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-
-                        <!-- 左：主题模式
-                             顺序与 NvForge 一致：跟随系统 / 深色 / 浅色。
+                        <TextBlock Grid.Column="0" Text="主题模式"
+                                   Style="{StaticResource CardRowLabelStyle}"
+                                   VerticalAlignment="Center"/>
+                        <!-- 顺序与 NvForge 一致：跟随系统 / 深色 / 浅色。
                              刻意不写 SelectedIndex / SelectionChanged，
                              初值在代码里读 ui.json 后按 Tag 赋值，事件在赋值之后才挂载，
-                             否则初始化阶段会反向触发 SelectionChanged 把主题重置成下拉框默认值。 -->
-                        <StackPanel Grid.Column="0" Margin="0,0,16,0">
-                            <TextBlock Text="主题模式" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
-                            <ComboBox x:Name="ThemeCombo" HorizontalAlignment="Stretch">
-                                <ComboBoxItem Content="跟随系统" Tag="system"/>
-                                <ComboBoxItem Content="深色" Tag="dark"/>
-                                <ComboBoxItem Content="浅色" Tag="light"/>
-                            </ComboBox>
-                        </StackPanel>
-
-                        <!-- 右：强调色 -->
-                        <StackPanel Grid.Column="1" Margin="16,0,0,0">
-                            <TextBlock Text="强调色" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,6"/>
-                            <ComboBox x:Name="AccentModeCombo" HorizontalAlignment="Stretch">
-                                <ComboBoxItem Content="跟随系统" Tag="follow"/>
-                                <ComboBoxItem Content="自定义" Tag="custom"/>
-                            </ComboBox>
-                        </StackPanel>
+                             否则初始化阶段会反向触发 SelectionChanged 把主题重置成默认值。 -->
+                        <ComboBox Grid.Column="1" x:Name="ThemeCombo"
+                                  Width="150"
+                                  VerticalAlignment="Center">
+                            <ComboBoxItem Content="跟随系统" Tag="system"/>
+                            <ComboBoxItem Content="深色" Tag="dark"/>
+                            <ComboBoxItem Content="浅色" Tag="light"/>
+                        </ComboBox>
                     </Grid>
 
-                    <!--
-                        色板行：圆形色块 + 自定义色值输入，全部放在同一行。
-                        与 NvForge 完全一致（同一套 8 个预设、同样的 34px 圆形 + 3px 选中环、
-                        同样的右侧输入框 + 应用按钮）。
-                        不设「恢复默认外观」按钮：第一个色块就是默认青，点它即恢复。
-                        色块由代码按 PresetAccents 生成，不在 XAML 里写死，避免两处不同步。
-                    -->
-                    <StackPanel x:Name="CustomAccentPanel" Orientation="Horizontal" Margin="0,12,0,0">
-                        <StackPanel x:Name="AccentPresetRow" Orientation="Horizontal" VerticalAlignment="Center"/>
+                    <!-- 强调色模式 -->
+                    <Grid Style="{StaticResource SettingRowStyle}" Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="强调色"
+                                   Style="{StaticResource CardRowLabelStyle}"
+                                   VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1" x:Name="AccentModeCombo"
+                                  Width="150"
+                                  VerticalAlignment="Center">
+                            <ComboBoxItem Content="跟随系统" Tag="follow"/>
+                            <ComboBoxItem Content="自定义" Tag="custom"/>
+                        </ComboBox>
+                    </Grid>
 
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
-                                    HorizontalAlignment="Right" Margin="16,0,0,0">
-                            <TextBox x:Name="AccentHexBox" Width="110"
-                                     VerticalContentAlignment="Center"
-                                     ToolTip="支持 #RRGGBB 或 RRGGBB"/>
-                            <Button x:Name="ApplyAccentBtn" Content="应用颜色"
-                                    Style="{StaticResource SecondaryButtonStyle}"
-                                    Padding="18,0"
-                                    Margin="8,0,0,0" Click="ApplyAccentBtn_Click"/>
-                        </StackPanel>
-                    </StackPanel>
+                    <!-- 色相选择器：色块预览 + 彩虹滑杆 + 色值输入。
+                         v12 原稿只有这三件，没有 8 个预设圆点 —— 圆点行已按用户要求移除，
+                         滑杆本身就是全部色相，比 8 个固定色更自由。 -->
+                    <Border x:Name="CustomAccentPanel" Style="{StaticResource ColorPickerGroupStyle}"
+                            Visibility="Collapsed">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- 当前色预览。加一层同色柔和外发光，让色块在深底上有"亮着"的质感。
+                                 发光色的 Color 由代码按当前强调色赋值（Effect 是 Freezable，
+                                 不能在 XAML 里绑定到资源字典的画刷）。 -->
+                            <Border x:Name="ColorPreviewBorder"
+                                    Grid.Column="0"
+                                    Style="{StaticResource ColorPreviewStyle}"
+                                    VerticalAlignment="Center">
+                                <Border.Effect>
+                                    <DropShadowEffect x:Name="ColorPreviewGlow"
+                                                      BlurRadius="14" ShadowDepth="0" Opacity="0.55"
+                                                      Color="#60CDFF"/>
+                                </Border.Effect>
+                            </Border>
+
+                            <!-- 色相滑杆：0–360，值变化即实时改色 -->
+                            <Slider x:Name="HueSlider"
+                                    Grid.Column="1"
+                                    Margin="20,0,20,0"
+                                    Minimum="0" Maximum="360"
+                                    SmallChange="1" LargeChange="15"
+                                    Style="{StaticResource HueSliderStyle}"
+                                    VerticalAlignment="Center"
+                                    ValueChanged="HueSlider_ValueChanged"/>
+
+                            <!-- 色值输入 + 应用。回车等同点「应用」。 -->
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBox x:Name="AccentHexBox" Width="112"
+                                         Height="36"
+                                         FontFamily="Consolas, Cascadia Mono, monospace"
+                                         FontSize="14"
+                                         VerticalContentAlignment="Center"
+                                         ToolTip="支持 #RRGGBB 或 RRGGBB，回车直接应用"
+                                         KeyDown="AccentHexBox_KeyDown"/>
+                                <Button x:Name="ApplyAccentBtn" Content="应用"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Margin="8,0,0,0"
+                                        Click="ApplyAccentBtn_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </Border>
 
-            <!-- ===== 启动与后台 =====
-                 六项全部平铺、同一级视觉：不再有「子菜单」与「顶层」混排。
-                 「开启后台服务」是总闸，关掉后其余三项 Collapsed ——
+            <!-- ===== 行为 =====
+                 「开启后台服务」是总闸，关掉后其余相关项 Collapsed ——
                  显隐一律用 Visibility.Collapsed，不用 IsEnabled=False 灰显，
                  灰显会留下「这一项存在但暂时不能用」的误导，而这里是真的不存在。 -->
-            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
                 <StackPanel>
-                    <TextBlock Text="启动与后台" Style="{StaticResource CardTitleStyle}"/>
+                    <TextBlock Text="行为" Style="{StaticResource CardTitleStyle}"/>
 
                     <!-- 开机静默自启 -->
-                    <Grid Style="{StaticResource SettingsRowStyle}">
+                    <Grid Style="{StaticResource SettingRowStyle}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="开机静默自启" Style="{StaticResource FieldLabelStyle}"/>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="开机静默自启" Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock Text="通过计划任务启动，不弹 UAC" Style="{StaticResource CardRowDescStyle}"/>
+                        </StackPanel>
                         <ToggleButton Grid.Column="1" x:Name="AutoStartToggle"
                                       Style="{StaticResource ToggleSwitchStyle}"
+                                      VerticalAlignment="Center"
                                       Click="AutoStartToggle_Click"/>
                     </Grid>
 
-                    <!-- 自动应用调校 -->
-                    <Grid Style="{StaticResource SettingsRowStyle}">
+                    <!-- 自动应用调校（v12 未列，但这是既有功能，不能丢） -->
+                    <Grid Style="{StaticResource SettingRowStyle}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="自动应用调校" Style="{StaticResource FieldLabelStyle}"/>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="自动应用调校" Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock Text="启动时把已保存的 CO / FMax 重新下发到硬件"
+                                       Style="{StaticResource CardRowDescStyle}"/>
+                        </StackPanel>
                         <ToggleButton Grid.Column="1" x:Name="ApplyTuningToggle"
                                       Style="{StaticResource ToggleSwitchStyle}"
+                                      VerticalAlignment="Center"
                                       Click="ApplyTuningToggle_Click"/>
                     </Grid>
 
                     <!-- 开启后台服务（总闸） -->
-                    <Grid Style="{StaticResource SettingsRowStyle}">
+                    <Grid Style="{StaticResource SettingRowStyle}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="开启后台服务" Style="{StaticResource FieldLabelStyle}"/>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="开启后台服务" Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock Text="关闭后进程监听、轻量模式、托盘一并失效"
+                                       Style="{StaticResource CardRowDescStyle}"/>
+                        </StackPanel>
                         <ToggleButton Grid.Column="1" x:Name="BackendServiceToggle"
                                       Style="{StaticResource ToggleSwitchStyle}"
+                                      VerticalAlignment="Center"
                                       Click="BackendServiceToggle_Click"/>
                     </Grid>
 
                     <!-- 后台常驻调度 -->
-                    <Grid x:Name="RowProcessWatch" Style="{StaticResource SettingsRowStyle}">
+                    <Grid x:Name="RowProcessWatch" Style="{StaticResource SettingRowStyle}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <!-- 文案与「调度」页对齐：这里管的是那个页面里保存的规则要不要常驻生效，
-                             不是另一个叫「绑核」的功能。 -->
-                        <TextBlock Text="后台常驻调度" Style="{StaticResource FieldLabelStyle}"/>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="后台常驻调度" Style="{StaticResource CardRowLabelStyle}"/>
+                            <!-- 文案与「进程」页对齐：这里管的是那个页面里保存的规则要不要常驻生效，
+                                 不是另一个叫「绑核」的功能。 -->
+                            <TextBlock Text="让进程页保存的绑核规则持续生效，新实例启动即自动绑定"
+                                       Style="{StaticResource CardRowDescStyle}"/>
+                        </StackPanel>
                         <ToggleButton Grid.Column="1" x:Name="ProcessWatchToggle"
                                       Style="{StaticResource ToggleSwitchStyle}"
+                                      VerticalAlignment="Center"
                                       Click="ProcessWatchToggle_Click"/>
                     </Grid>
 
-                    <!-- 仅留服务进程 -->
-                    <Grid x:Name="RowLightMode" Style="{StaticResource SettingsRowStyle}">
+                    <!-- 后台轻量模式 -->
+                    <Grid x:Name="RowLightMode" Style="{StaticResource SettingRowStyle}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="仅留服务进程" Style="{StaticResource FieldLabelStyle}"/>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="后台轻量模式" Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock Text="闲置后释放界面内存，只留服务进程"
+                                       Style="{StaticResource CardRowDescStyle}"/>
+                        </StackPanel>
                         <ToggleButton Grid.Column="1" x:Name="LightModeToggle"
                                       Style="{StaticResource ToggleSwitchStyle}"
+                                      VerticalAlignment="Center"
                                       Click="LightModeToggle_Click"/>
                     </Grid>
 
                     <!-- 显示托盘图标 -->
-                    <Grid x:Name="RowShowTray" Style="{StaticResource SettingsRowStyle}">
+                    <Grid x:Name="RowShowTray" Style="{StaticResource SettingRowStyle}" Margin="0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="显示托盘图标" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBlock Grid.Column="0" Text="显示托盘图标"
+                                   Style="{StaticResource CardRowLabelStyle}"
+                                   VerticalAlignment="Center"/>
                         <ToggleButton Grid.Column="1" x:Name="ShowTrayToggle"
                                       Style="{StaticResource ToggleSwitchStyle}"
+                                      VerticalAlignment="Center"
                                       Click="ShowTrayToggle_Click"/>
                     </Grid>
                 </StackPanel>
             </Border>
 
-            <!-- ===== 其他 ===== -->
-            <Border Style="{StaticResource CardBorderStyle}">
+            <!-- ===== 容错 =====
+                 v12 的三项里，只有「出错时通知我」是真实已实现的开关；
+                 「智能休眠感知」「软硬双重防砖保护」目前是固定开启的保护逻辑，
+                 没有可关的入口 —— 按 v12 显示为开启态且不可点，
+                 并在 ToolTip 里说清为什么不能关。不假装成可切换的开关。 -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
                 <StackPanel>
-                    <TextBlock Text="其他" Style="{StaticResource CardTitleStyle}"/>
+                    <TextBlock Text="容错" Style="{StaticResource CardTitleStyle}"/>
 
-                    <Grid Margin="0,12,0,0">
+                    <Grid Style="{StaticResource SettingRowStyle}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="SMU 自检" Style="{StaticResource FieldLabelStyle}"
-                                   VerticalAlignment="Center"/>
-                        <!-- 按钮只写动作：报告文件由自检自己写出并打开目录，不用在文案里再强调「导出」。 -->
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="智能休眠感知" Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock Text="系统唤醒后自动重新下发硬件调校"
+                                       Style="{StaticResource CardRowDescStyle}"/>
+                        </StackPanel>
+                        <ToggleButton Grid.Column="1" x:Name="SleepResumeToggle"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      IsChecked="True"
+                                      IsHitTestVisible="False"
+                                      Opacity="0.55"
+                                      VerticalAlignment="Center"
+                                      ToolTip="唤醒后重新下发是保证调校不丢的必要动作，不提供关闭入口"/>
+                    </Grid>
+
+                    <Grid Style="{StaticResource SettingRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="软/硬双重防砖保护" Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock Text="异常蓝屏重启后，自动跳过危险调校"
+                                       Style="{StaticResource CardRowDescStyle}"/>
+                        </StackPanel>
+                        <ToggleButton Grid.Column="1" x:Name="BrickGuardToggle"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      IsChecked="True"
+                                      IsHitTestVisible="False"
+                                      Opacity="0.55"
+                                      VerticalAlignment="Center"
+                                      ToolTip="防砖保护是写 SMU 前的最后一道闸，不允许关闭"/>
+                    </Grid>
+
+                    <Grid Style="{StaticResource SettingRowStyle}" Margin="0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="出错时通知我" Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock Text="使用系统气泡提示非阻塞错误"
+                                       Style="{StaticResource CardRowDescStyle}"/>
+                        </StackPanel>
+                        <ToggleButton Grid.Column="1" x:Name="ErrorNotifyToggle"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      VerticalAlignment="Center"
+                                      Click="ErrorNotifyToggle_Click"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 维护 =====
+                 v12 没有这一块，但 SMU 自检与全局重置是排查问题的唯一入口，
+                 删掉它们等于让用户失去自救手段。放在最后、视觉上压一级。 -->
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel>
+                    <TextBlock Text="维护" Style="{StaticResource CardTitleStyle}"/>
+
+                    <Grid Style="{StaticResource SettingRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="SMU 自检" Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock Text="导出驱动与 SMU 通信的诊断报告"
+                                       Style="{StaticResource CardRowDescStyle}"/>
+                        </StackPanel>
                         <Button Grid.Column="1" x:Name="SmuDiagButton"
                                 Content="运行"
                                 Style="{StaticResource SecondaryButtonStyle}"
-                                HorizontalAlignment="Right"
-                                Padding="18,0" Margin="0"
+                                VerticalAlignment="Center"
                                 Click="SmuDiagButton_Click"/>
                     </Grid>
 
-                    <Grid Margin="0,12,0,0">
+                    <Grid Style="{StaticResource SettingRowStyle}" Margin="0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="全局重置" Style="{StaticResource FieldLabelStyle}"
-                                   VerticalAlignment="Center"/>
-                        <!-- 文案分工：左侧标签负责说明「这是全局重置」，按钮只写动作「重置」。
-                             两处都写「全局重置」会重复，而且和 NvForge 设置页不一致。 -->
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="全局重置" Style="{StaticResource CardRowLabelStyle}"/>
+                            <TextBlock Text="清空调校与调度配置，回到出厂状态"
+                                       Style="{StaticResource CardRowDescStyle}"/>
+                        </StackPanel>
                         <Button Grid.Column="1" x:Name="GlobalResetButton"
                                 Content="重置"
                                 Style="{StaticResource SecondaryButtonStyle}"
-                                HorizontalAlignment="Right"
-                                Padding="18,0" Margin="0"
+                                VerticalAlignment="Center"
                                 Click="GlobalResetButton_Click"/>
                     </Grid>
                 </StackPanel>

@@ -15,12 +15,12 @@
 
             <!-- 系统画刷兜底：弹层 / 提示 / 右键菜单不再出现白底。
                  ThemeService.SwapPalette 会随主题改写这些键。 -->
-            <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#1E1E1E"/>
-            <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#252526"/>
-            <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#F0F0F0"/>
+            <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#121214"/>
+            <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#18181A"/>
+            <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#FFFFFF"/>
             <SolidColorBrush x:Key="{x:Static SystemColors.MenuBrushKey}" Color="#1E1E1E"/>
-            <SolidColorBrush x:Key="{x:Static SystemColors.MenuTextBrushKey}" Color="#F0F0F0"/>
-            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#00B4D8"/>
+            <SolidColorBrush x:Key="{x:Static SystemColors.MenuTextBrushKey}" Color="#FFFFFF"/>
+            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#60CDFF"/>
             <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#101010"/>
 
             <!-- 全局默认字体 -->
@@ -397,8 +397,9 @@
 
             <Style x:Key="AppScrollBarStyle" TargetType="ScrollBar">
                 <Setter Property="Background" Value="Transparent"/>
-                <Setter Property="Width" Value="10"/>
-                <Setter Property="MinWidth" Value="10"/>
+                <!-- v12：极细滚动条 6px，滑块圆角 3 = 宽度除二 -->
+                <Setter Property="Width" Value="6"/>
+                <Setter Property="MinWidth" Value="6"/>
                 <Setter Property="Focusable" Value="False"/>
                 <Setter Property="IsTabStop" Value="False"/>
                 <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -425,8 +426,8 @@
                                 <Trigger Property="Orientation" Value="Horizontal">
                                     <Setter Property="Width" Value="Auto"/>
                                     <Setter Property="MinWidth" Value="0"/>
-                                    <Setter Property="Height" Value="10"/>
-                                    <Setter Property="MinHeight" Value="10"/>
+                                    <Setter Property="Height" Value="6"/>
+                                    <Setter Property="MinHeight" Value="6"/>
                                     <Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False"/>
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
@@ -473,6 +474,84 @@
                                                   VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                                   TextElement.Foreground="{TemplateBinding Foreground}"/>
                             </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- ==================================================================
+                 CheckBox 全局样式（隐式，含完整 Template）
+                 ==================================================================
+                 此前完全没有 CheckBox 样式，掩码管理窗口里动态创建的勾选框
+                 （MaskManagerWindow.xaml.cs）是系统默认的白底方框，
+                 在一片深色界面里非常突兀。
+
+                 必须写完整模板 —— 见文件顶部「重要设计约定」：
+                 只写 FocusVisualStyle 的空样式会把完整模板顶掉，历史上三次白块事故都源于此。
+                 ================================================================== -->
+            <Style TargetType="CheckBox">
+                <Setter Property="FontFamily" Value="Microsoft YaHei UI, Microsoft YaHei, Segoe UI"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="CheckBox">
+                            <Grid Background="Transparent">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <Border x:Name="Box"
+                                        Width="16" Height="16"
+                                        CornerRadius="4"
+                                        Background="{DynamicResource Input.Background}"
+                                        BorderBrush="{DynamicResource Input.Border}"
+                                        BorderThickness="1"
+                                        VerticalAlignment="Center"
+                                        SnapsToDevicePixels="True">
+                                    <Path x:Name="Tick"
+                                          Width="9" Height="7"
+                                          Stretch="Fill"
+                                          Visibility="Collapsed"
+                                          Stroke="{DynamicResource AccentTextBrush}"
+                                          StrokeThickness="1.6"
+                                          StrokeStartLineCap="Round"
+                                          StrokeEndLineCap="Round"
+                                          StrokeLineJoin="Round"
+                                          Data="M 0,3.5 L 3,6.5 L 9,0"/>
+                                </Border>
+
+                                <ContentPresenter Grid.Column="1"
+                                                  Margin="8,0,0,0"
+                                                  VerticalAlignment="Center"
+                                                  RecognizesAccessKey="True"/>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Input.BorderHover}"/>
+                                </Trigger>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="Box" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                    <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                    <Setter TargetName="Tick" Property="Visibility" Value="Visible"/>
+                                </Trigger>
+                                <Trigger Property="IsChecked" Value="{x:Null}">
+                                    <Setter TargetName="Box" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                    <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                    <Setter TargetName="Tick" Property="Visibility" Value="Visible"/>
+                                    <Setter TargetName="Tick" Property="Height" Value="2"/>
+                                    <Setter TargetName="Tick" Property="Data" Value="M 0,1 L 9,1"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="Box" Property="Opacity" Value="0.5"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource Disabled.Foreground}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>

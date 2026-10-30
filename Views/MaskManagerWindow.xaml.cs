@@ -848,8 +848,20 @@ namespace ZenForge.Views
 
         private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (e.ButtonState == MouseButtonState.Pressed)
+            if (e.ButtonState != MouseButtonState.Pressed)
+                return;
+
+            // DragMove 内部会调用 SetCapture，若鼠标在这之前已经松开（快速点击、
+            // 或者点在标题栏的边缘触发一次自动取消捕获），它会抛 InvalidOperationException。
+            // 这类异常在 UI 线程上未捕获会直接把进程打掉，必须吞掉 —— 拖不动是小事，闪退是大事。
+            try
+            {
                 DragMove();
+            }
+            catch (InvalidOperationException)
+            {
+                // 鼠标已释放，忽略
+            }
         }
     }
 }

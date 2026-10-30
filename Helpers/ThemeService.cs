@@ -13,7 +13,7 @@ namespace ZenForge.Helpers
     {
         private const string PaletteDark = "Themes/Palette.Dark.xaml";
         private const string PaletteLight = "Themes/Palette.Light.xaml";
-        private const string DefaultAccentHex = "#00B4D8";
+        private const string DefaultAccentHex = "#60CDFF";
         private const string FallbackSystemAccentHex = "#0078D4";
 
         private static ResourceDictionary? _accentDictionary;
@@ -245,11 +245,11 @@ namespace ZenForge.Helpers
 
             ResourceDictionary res = Application.Current.Resources;
 
-            res[SystemColors.WindowBrushKey] = Frozen(dark ? Color.FromRgb(0x1E, 0x1E, 0x1E) : Color.FromRgb(0xF2, 0xF2, 0xF4));
-            res[SystemColors.ControlBrushKey] = Frozen(dark ? Color.FromRgb(0x25, 0x25, 0x26) : Color.FromRgb(0xFF, 0xFF, 0xFF));
-            res[SystemColors.ControlTextBrushKey] = Frozen(dark ? Color.FromRgb(0xF0, 0xF0, 0xF0) : Color.FromRgb(0x1C, 0x1C, 0x1E));
-            res[SystemColors.MenuBrushKey] = Frozen(dark ? Color.FromRgb(0x1E, 0x1E, 0x1E) : Color.FromRgb(0xFF, 0xFF, 0xFF));
-            res[SystemColors.MenuTextBrushKey] = Frozen(dark ? Color.FromRgb(0xF0, 0xF0, 0xF0) : Color.FromRgb(0x1C, 0x1C, 0x1E));
+            res[SystemColors.WindowBrushKey] = Frozen(dark ? Color.FromRgb(0x12, 0x12, 0x14) : Color.FromRgb(0xF2, 0xF2, 0xF4));
+            res[SystemColors.ControlBrushKey] = Frozen(dark ? Color.FromRgb(0x18, 0x18, 0x1A) : Color.FromRgb(0xFF, 0xFF, 0xFF));
+            res[SystemColors.ControlTextBrushKey] = Frozen(dark ? Color.FromRgb(0xFF, 0xFF, 0xFF) : Color.FromRgb(0x1C, 0x1C, 0x1E));
+            res[SystemColors.MenuBrushKey] = Frozen(dark ? Color.FromRgb(0x12, 0x12, 0x14) : Color.FromRgb(0xFF, 0xFF, 0xFF));
+            res[SystemColors.MenuTextBrushKey] = Frozen(dark ? Color.FromRgb(0xFF, 0xFF, 0xFF) : Color.FromRgb(0x1C, 0x1C, 0x1E));
             res[SystemColors.HighlightBrushKey] = Frozen(ParseAccentHex(FallbackSystemAccentHex));
             res[SystemColors.HighlightTextBrushKey] = Frozen(dark ? Color.FromRgb(0x10, 0x10, 0x10) : Color.FromRgb(0xFF, 0xFF, 0xFF));
         }

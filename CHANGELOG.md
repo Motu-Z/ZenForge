@@ -29,6 +29,192 @@ ZenForge 各版本改动记录。安装包与 Release 正文均以本文件为�
 
 程序内部（日志、关于信息）显示的版本取自 `AssemblyInformationalVersion`，带后缀；资源管理器「属性 → 详细信息」里的文件版本是四段数字。两者一对照就能确定这个包是第几次发版。
 
+### 1.0.0-can2
+
+界面重做完成版：按 v12 视觉稿把五个页面全部落到纯原生 WPF。大版本号从 0.x 跳到 1.0.0，
+因为这一轮改的是整体外壳、全部页面的版式、以及主题 token 的全量替换，不是增量修补。
+
+**硬约束（本轮第一条验收标准）**
+
+全程零 WebView2 / WebBrowser / 任何网页嵌套。布局只用 `Grid` / `Border` / `StackPanel`
+/ `WrapPanel` / `UniformGrid`，颜色与圆角全部落在 `ResourceDictionary` 里。
+grep 结果是 0 处命中的 `WebView2|WebBrowser|WebView`。
+
+**版本号**
+
+`Version` = `1.0.0-can2`，`FileVersion` = `1.0.0.2`，`AssemblyVersion` = `1.0.0.0`。
+第四段记的是「1.0.0 下的第 3 次出包」（step1 用了 .0，上一轮 0.10.0 也算一次迭代，这里按发版次序落到 .2）。
+
+---
+
+#### 第二步：五页版式全部按 v12 重排
+
+**调校页**
+
+CPU 信息卡改成「左身份 / 右按钮」两列：18px 600 字重的 CPU 名 + 13px 副行
+（`N 核 · M 个 CCD · 每 CCD K 核`），右侧三按钮改成「保存 / 加载 / 应用全部」。
+第四个按钮「刷新」在 v12 里没有位置，但它承担的「把 SMU 现值读回界面」这个动作不能丢，
+所以降级成页脚的一条文字链，不占卡片版式。
+
+Curve Optimizer 从「StackPanel + 代码里逐行拼 Grid」改成 `<UniformGrid Columns="8"/>`。
+**这是本轮唯一一处确定会跑崩的地方**：`CoreGrid` 的元素类型从 `StackPanel` 变 `UniformGrid`
+之后，原代码里的 `line.ColumnDefinitions.Add(...)` 和 `Grid.SetColumn(box, c + 1)` 全部失效。
+`BuildCoreGrid` 整体重写：所有格子平铺进去，填充顺序严格等于核心号 `0..n-1`，
+`CoreBoxes` 的下标就是核心号，`ApplySnapshot` / `CollectMargins` 的对位逻辑一行没动。
+CCD 标签行取消，改由网格下方的提示文字说明拓扑。
+
+**UniformGrid 没有 RowSpacing** —— 行间距只能靠格子自身的 `Margin` 制造。
+所以每个框的 `Margin` 是按位置算的：横向留 6、纵向留 8，最后一列和最后一行不留，
+否则外沿会多出一截、跟卡片内边距对不上。
+
+新增 PBO 占位卡，恒为 `Visibility="Collapsed"`。各代 SMU 的 PBO 消息号与载荷差异极大，
+写错可能直接黑屏，必须先做能力探测。探测没实现之前，这张卡就是占位，不做「猜测式写入」。
+
+**进程页**
+
+整页抛弃 `ListView + GridView`，改自绘 `ItemsControl` + `Grid`。
+
+理由不是审美：v12 的表头是「12px 次要色小字、无底无边、与数据行同样的 1.5fr / 2fr 弹性配比」。
+`GridView` 的列头模板做不到弹性配比，还得额外写列宽同步代码 —— 上一版那套
+`ApplyColumnWidths` + `RequestColumnWidthsUpdate` + 尺寸去抖（`_lastWidthForColumns`）
+就是为这件事存在的，而它的注释里已经写满了「名称列封顶 170、增量全给路径列」这类补丁。
+换成共享列定义之后，列宽天然一致，那段代码整体删除。
+
+五列：进程名 / 路径 / 占用 / 核心掩码 / **优先级**。
+
+优先级列是**只读**的。`PROCESSENTRY32.pcPriClassBase` 是从 Toolhelp 快照白拿的字段，
+不需要 `OpenProcess` 额外权限，对受保护进程也能读到值，成本为零 —— 所以取它没有风险。
+但 `SetPriorityClass` 不一样：把任意进程提到 `High` 以上，如果它对 CPU 是忙等型，
+会把桌面响应一起饿死，表现就是整机卡死。所以这一版只把真实值显示出来，不给改的入口。
+
+`ProcessRefresher.Entry` 新增 `PriorityClass` 字段，`ProcessMember` / `ProcessGroupRow`
+各加一个对应字段与 `PriorityText`，映射表是 `pcPriClassBase → Idle / Below Normal /
+Normal / Above Normal / High / RealTime`，未知值原样带出，不猜。
+
+排序入口从 `GridViewColumnHeader.Click` 换成表头里「占用」那个 `TextBlock` 的
+`MouseLeftButtonUp`。点了会同时改箭头方向与 ToolTip，用户才看得出当前是升还是降。
+
+行选中态自己实现：点行清掉所有行的 `Background`，只给当前行铺强调色淡底。
+点在行内的下拉框上时不抢事件 —— 用一个 `FindAncestor<ComboBox>` 判断。
+
+警告横幅的两个写死色值 `#33E5534B` / `#E5534B` 换成 token：
+`DangerSoft`（两册各自取值）与 `Danger`。`DangerSoft` 是新增的第 52 个键。
+
+**设置页**
+
+三卡重组：外观 / 行为 / 容错。原「启动与后台」六项拆成行为卡（四项）与容错卡（三项）。
+
+强调色的 8 个预设圆点**整行删除**，换成 v12 的色相选择器：
+36px 色块预览（带同色柔和外发光）+ 6px 彩虹渐变滑杆（0–360）+ 色值输入框。
+这是用户明确要求的「完全按 v12，只留滑杆」。
+
+新建 `Helpers/ColorHsl.cs`。WPF 的 `Color` 只有 RGB，没有 H 分量，
+「当前颜色 → 滑杆位置」这一步必须自己算回来。用的公式是 CSS Color Module Level 3
+的 HSL 定义，跟浏览器 `hsl()` 行为一致，色值能和用户在其他工具里看到的数字对上。
+亮点是 `HueOf` 对灰阶返回 195 而不是 0 —— 强调色是灰的时候滑杆不该跳到最左。
+
+滑杆拖动时的写盘做了区分：`HueSlider.IsMouseCaptureWithin` 为真说明用户还按着，
+这一阶段只改画刷与预览，不落盘；松开后 `ValueChanged` 会再触发一次，这次才走
+`ApplyCustomAccent` 存盘。否则拖一次滑杆就是几十次 `ui.json` 写入。
+
+容错卡里「智能休眠感知」「软硬双重防砖保护」按 v12 显示为开启态但 `IsHitTestVisible="False"`
++ `Opacity 0.55`，ToolTip 写明为什么不能关。不假装成可切换的开关 ——
+这两项目前是固定开启的保护逻辑，没有可关的入口。
+
+「出错时通知我」是**真开关**：`UiSettingsStore` 新增 `NotifyOnError`（默认 true）。
+它只控制要不要弹气泡，错误本身照样完整进日志。
+
+「维护」卡是新加的（v12 没有）：SMU 自检与全局重置是排查问题的唯一入口，
+删掉等于让用户失去自救手段。放在最后，视觉上压一级。
+
+**日志页**
+
+统计从底部一行「共 N 条」拆成顶部四枚 pill：调试 / 信息 / 警告 / 错误，
+每枚带 6px 圆点 + 计数 + 级别色。pill 由代码生成（四份结构相同，XAML 写四份会让
+「加一级」变成改五处）。
+
+pill 的计数**不跟过滤走**。点一枚 WARN 筛选后，INFO 的计数仍是全量值 ——
+pill 的作用是「告诉我总量里各有多少」，如果跟着过滤变成 0，用户会以为日志丢了。
+
+pill 可点：点一下筛选，再点同一枚取消。用 `_levelFilter` 记当前筛选，
+选中态是描边加粗 + 不降透明度，未选中降到 55%。
+
+日志行从「整段按级别染色」改成「正文主色 + 只染左侧 3px 竖条和级别徽章」。
+旧版 INFO 全是青色文字，一眼看过去满屏彩色反而找不到问题。
+
+时间精确到毫秒（`HH:mm:ss.fff`），列宽固定 84 保证逐行对齐。
+
+搜索框支持多关键词 AND 匹配，匹配范围是正文 + 级别名 + 时间。
+
+「暂停」是真按钮：只冻结界面刷新，`LogService` 照常写文件。恢复时整体重建一次，
+把暂停期间攒下的条目一次性补上。
+
+「详细日志」开关保留（v12 没有）。这条过去只能靠启动参数或环境变量打开，
+用户遇到问题得先知道去哪儿加参数，等于没有。
+
+**对话框收口**
+
+`MaskManagerWindow.TitleBar_MouseLeftButtonDown` 的 `DragMove()` 补上 `try/catch`。
+`DragMove` 内部会 `SetCapture`，若鼠标在这之前已经松开，它抛
+`InvalidOperationException`。UI 线程上未捕获的异常会直接把进程打掉 ——
+拖不动是小事，闪退是大事。`DarkDialog` 那边早就有这个保护，这次对齐。
+
+---
+
+#### token 全量替换
+
+两册 palette 从 51 键扩到 55 键，**差集为空**：
+
+| 新增键 | Dark | Light | 用途 |
+| --- | --- | --- | --- |
+| `DangerSoft` | `#26E5534B` | `#1FE5534B` | 警告横幅淡底 |
+| `Log.InfoTint` | `#1F60CDFF` | `#1F005FB8` | 日志 pill 底色 |
+| `Log.WarnTint` | `#1FFFD60A` | `#1FC8A300` | 同上 |
+| `Log.ErrorTint` | `#1FFF453A` | `#1FC42B1C` | 同上 |
+
+调色板按 v12 全量替换：Window `#121214`、SideBar `#18181A`、
+Card 3% 白、Card.Border 8% 白、Text.Secondary 60% 白、Text.Disabled 30% 白、
+Input.Background 20% 黑、Scrollbar.Thumb 15% 白。
+
+`Themes/Controls.xaml` 新增的组合样式：
+
+| 样式 | 规格 |
+| --- | --- |
+| `ProcessRowStyle` | 透明底 + 圆角 6 + Padding 12,10 + hover 6% 白 |
+| `TableHeaderTextStyle` | 12px 次要色 |
+| `TableCellSubStyle` | 12px 次要色（路径 / 占用） |
+| `TableCellMainStyle` | 13px 600 主色（进程名） |
+| `HueSliderStyle` | 6px 彩虹轨道 + 18px 白圆 + 半透明黑描边 |
+| `ColorPreviewStyle` | 36×36 圆角 6 |
+| `ColorPickerGroupStyle` | 灰底 + 1px 边 + 24 内边距 |
+| `LogItemBorderStyle` | 灰底 + 卡片边框 + 圆角 6 + Padding 12,10 |
+| `LogTimeTextStyle` | 等宽 12px 30% 白 |
+| `LogBadgeBorderStyle` | 圆角 4 + Padding 6,2 |
+| `LogBadgeTextStyle` | 11px Bold |
+
+`App.xaml` 的滚动条从 10px 收到 6px（横竖同步），与 v12 的 `::-webkit-scrollbar` 一致。
+
+---
+
+#### 验证
+
+| 项 | 结果 |
+| --- | --- |
+| 编译 | **0 error / 0 warning** |
+| 控件字段 | 61 → **66**（+15 新增 / −10 移除，逐项核对无悬空引用） |
+| 事件处理器 | 55 → **60** |
+| 两册 palette | 均 **55** 键，**差集为空** |
+| `Accent.xaml` | **5** 键（代码契约未破） |
+| 互操作红线 | `DllImport\|extern\|StructLayout\|FieldOffset` 在 `Views/` 下命中 **0** |
+| 网页嵌套 | `WebView2\|WebBrowser\|WebView` 命中 **0** |
+
+移除的 10 个控件名（`AccentPresetRow` / `FollowToggle` / `LogCountText` /
+`ProcNameColumn` / `ProcPathColumn` / `ProcCpuColumn` / `ProcMaskColumn` /
+`RuleNameColumn` / `RuleMaskColumn` / `RuleActionColumn`）在全部 `.cs` 与 `.xaml` 里
+grep 结果均为 0 处引用。
+
+---
+
 ### 0.10.0
 
 界面重做，分三步走。这是第一步：窗口外壳与导航骨架。

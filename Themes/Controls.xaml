@@ -58,7 +58,7 @@
         <Setter Property="BorderBrush" Value="{DynamicResource Card.Border}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="CornerRadius" Value="8"/>
-        <Setter Property="Padding" Value="20,16"/>
+        <Setter Property="Padding" Value="20,24"/>
         <Setter Property="SnapsToDevicePixels" Value="True"/>
     </Style>
 
@@ -270,10 +270,13 @@
          HorizontalAlignment="Stretch" 即可，不要写死 Height。
     -->
     <Style x:Key="SecondaryButtonStyle" TargetType="Button">
-        <Setter Property="Height" Value="36"/>
-        <Setter Property="Padding" Value="18,0"/>
+        <!-- 0.10.0 按 v12：高 32 / 水平内缩 16 / 不再强制 156 最小宽。
+             156 是为「管理自定义掩码」这种七字文案定的，代价是所有短按钮
+             （保存/加载/刷新/应用）都跟着变宽，并排时把 CPU 名挤出视野。 -->
+        <Setter Property="Height" Value="32"/>
+        <Setter Property="Padding" Value="16,0"/>
         <Setter Property="Margin" Value="0,0,10,0"/>
-        <Setter Property="MinWidth" Value="156"/>
+        <Setter Property="MinWidth" Value="0"/>
         <Setter Property="FontSize" Value="13"/>
         <Setter Property="HorizontalContentAlignment" Value="Center"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
@@ -463,8 +466,9 @@
 
     <!-- ===================== 开关（Win11 风格） ===================== -->
     <Style x:Key="ToggleSwitchStyle" TargetType="ToggleButton">
-        <Setter Property="Width" Value="42"/>
-        <Setter Property="Height" Value="22"/>
+        <!-- v12：轨道 36×20、滑块 16、内缩 2、圆角 10（= 高度除二） -->
+        <Setter Property="Width" Value="36"/>
+        <Setter Property="Height" Value="20"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="Template">
@@ -472,24 +476,24 @@
                 <ControlTemplate TargetType="ToggleButton">
                     <Border x:Name="Track"
                             Background="{DynamicResource Toggle.Off}"
-                            CornerRadius="11"
+                            CornerRadius="10"
                             SnapsToDevicePixels="True">
                         <!-- 原先 Fill="White" 写死：浅色主题下轨道为 #C8C8CC，
                              白色滑块几乎不可见，整个开关看起来是空的。
                              改为资源色 + 描边（深色版描边为 Transparent，视觉不变）。 -->
                         <Ellipse x:Name="Thumb"
-                                 Width="14" Height="14"
+                                 Width="16" Height="16"
                                  Fill="{DynamicResource Toggle.Thumb}"
                                  Stroke="{DynamicResource Toggle.ThumbBorder}"
                                  StrokeThickness="1"
                                  HorizontalAlignment="Left"
-                                 Margin="4,0,0,0"/>
+                                 Margin="2,0,0,0"/>
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="Track" Property="Background" Value="{DynamicResource AccentBrush}"/>
                             <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right"/>
-                            <Setter TargetName="Thumb" Property="Margin" Value="0,0,4,0"/>
+                            <Setter TargetName="Thumb" Property="Margin" Value="0,0,2,0"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="Track" Property="Opacity" Value="0.5"/>
@@ -529,6 +533,79 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+    </Style>
+
+    <!-- ===================== 色相滑杆（设置页强调色） =====================
+         v12 的色相条是一条 6px 高的彩虹渐变，亮度固定 70%，
+         渐变停靠点就是 HSL 色环的六个基准色相（0/60/120/180/240/300/360）。
+         轨道用 Border.Background = LinearGradientBrush 画，
+         滑块是 18px 白圆 + 一圈半透明黑边（深色底上才看得见边界）。
+
+         注意：这是「色相」专用滑杆，不要让其他地方的 Slider 继承它 ——
+         所以给了 x:Key，不走隐式样式。 -->
+    <Style x:Key="HueSliderStyle" TargetType="Slider">
+        <Setter Property="Height" Value="24"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Slider">
+                    <Grid VerticalAlignment="Center">
+                        <Border Height="6" CornerRadius="3">
+                            <Border.Background>
+                                <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                                    <GradientStop Color="#FF6B6B" Offset="0.000"/>
+                                    <GradientStop Color="#FFE066" Offset="0.166"/>
+                                    <GradientStop Color="#8BE68B" Offset="0.333"/>
+                                    <GradientStop Color="#6BE6E6" Offset="0.500"/>
+                                    <GradientStop Color="#6B8BFF" Offset="0.666"/>
+                                    <GradientStop Color="#E66BE6" Offset="0.833"/>
+                                    <GradientStop Color="#FF6B6B" Offset="1.000"/>
+                                </LinearGradientBrush>
+                            </Border.Background>
+                        </Border>
+                        <Track x:Name="PART_Track">
+                            <Track.Thumb>
+                                <Thumb Cursor="Hand">
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Ellipse Width="18" Height="18" Fill="White"
+                                                     Stroke="#80000000" StrokeThickness="2"/>
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Opacity="0" Focusable="False" Command="Slider.IncreaseLarge"/>
+                            </Track.IncreaseRepeatButton>
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Opacity="0" Focusable="False" Command="Slider.DecreaseLarge"/>
+                            </Track.DecreaseRepeatButton>
+                        </Track>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- 色值输入框旁的色块预览：36×36 圆角 6，底色由代码按当前色赋值 -->
+    <Style x:Key="ColorPreviewStyle" TargetType="Border">
+        <Setter Property="Width" Value="36"/>
+        <Setter Property="Height" Value="36"/>
+        <Setter Property="CornerRadius" Value="6"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Input.Border}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+    </Style>
+
+    <!-- 色相选择器的外框：灰底 + 1px 边 + 24 内边距。v12 的 .color-picker-group -->
+    <Style x:Key="ColorPickerGroupStyle" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource Input.Background}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Input.Border}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="6"/>
+        <Setter Property="Padding" Value="24"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
     </Style>
 
     <!-- 滚动条的深色样式已统一上移到 App.xaml 的 AppScrollBarStyle，
@@ -817,6 +894,171 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+    </Style>
+
+    <!-- ===================== 0.10.0：v12 版式所需的组合样式 ===================== -->
+
+    <!-- 主按钮：强调色实底 + 深色字。v12 的 .btn.primary -->
+    <Style x:Key="PrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+        <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            CornerRadius="6"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentPressedBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- 卡片头部：标题 + 右侧动作区，底部一条分隔线。v12 的 .card-header-with-actions -->
+    <Style x:Key="CardHeaderBorderStyle" TargetType="Border">
+        <Setter Property="BorderBrush" Value="{DynamicResource Card.Border}"/>
+        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+        <Setter Property="Padding" Value="0,0,0,16"/>
+        <Setter Property="Margin" Value="0,0,0,16"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+    </Style>
+
+    <!-- 卡片内的一行：左文字块、右控件，行间 24。v12 的 .row -->
+    <Style x:Key="CardRowStyle" TargetType="Grid">
+        <Setter Property="Margin" Value="0,0,0,24"/>
+    </Style>
+
+    <Style x:Key="CardRowLabelStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontWeight" Value="Medium"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
+        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+    </Style>
+
+    <Style x:Key="CardRowDescStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.Secondary}"/>
+        <Setter Property="Margin" Value="0,6,0,0"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+
+    <!-- 配置项：灰底圆角行，选中态套强调色描边。v12 的 .config-item / .config-item.active -->
+    <Style x:Key="ConfigItemBorderStyle" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource Input.Background}"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="6"/>
+        <Setter Property="Padding" Value="16,14"/>
+        <Setter Property="Margin" Value="0,0,0,8"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+    </Style>
+
+    <!-- ===================== 自绘表格（v12 进程页） =====================
+         不再用 ListView + GridView：v12 的表头是「次要色小字 + 无底无边 + 行内间距」，
+         GridView 的列头模板只能改外观、无法做到与数据行同样的 1.5fr/2fr 弹性配比，
+         还要额外处理列宽同步。直接用 Grid + ItemsControl 更可控，
+         三处（表头 / 数据行 / 空态提示）共享同一套 ColumnDefinitions。 -->
+
+    <!-- 数据行容器：透明底，hover 铺 6% 白，选中铺 12% 强调色 + 强调色左边框 -->
+    <Style x:Key="ProcessRowStyle" TargetType="Border">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="CornerRadius" Value="6"/>
+        <Setter Property="Padding" Value="12,10"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Nav.Button.Hover}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- 表头单元格文字：12px 次要色，左对齐 -->
+    <Style x:Key="TableHeaderTextStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.Secondary}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+    </Style>
+
+    <!-- 行内次要文字：12px 次要色（路径 / 占用） -->
+    <Style x:Key="TableCellSubStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.Secondary}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+    </Style>
+
+    <!-- 行内主文字：13px 主色、600 字重（进程名） -->
+    <Style x:Key="TableCellMainStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.Primary}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+    </Style>
+
+    <!-- 日志级别 pill：圆角 20，10% 级别色底 + 30% 级别色边 -->
+    <Style x:Key="LogPillStyle" TargetType="Border">        <Setter Property="Height" Value="26"/>
+        <Setter Property="Padding" Value="14,0"/>
+        <Setter Property="CornerRadius" Value="13"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Background" Value="{DynamicResource Input.Background}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Input.Border}"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+    </Style>
+
+    <!-- 文字链按钮：无底无边，hover 变强调色。用于「从 SMU 重新读取」这类次要入口 -->
+    <Style x:Key="LinkButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource Text.Secondary}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <TextBlock x:Name="Txt"
+                               Text="{TemplateBinding Content}"
+                               Foreground="{TemplateBinding Foreground}"
+                               FontSize="{TemplateBinding FontSize}"
+                               TextDecorations="Underline"
+                               VerticalAlignment="Center"/>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Txt" Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Txt" Property="Opacity" Value="0.45"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- 页面级搜索框：高 38，与 pill 组、日志卡片同宽 -->
+    <Style x:Key="SearchBoxStyle" TargetType="TextBox" BasedOn="{StaticResource AppTextBoxStyle}">
+        <Setter Property="Height" Value="38"/>
+        <Setter Property="Padding" Value="16,0"/>
     </Style>
 
     <!-- 分隔线颜色也写死在默认模板里，同样要重写，否则会拖出一条亮灰线 -->

@@ -13,26 +13,26 @@
     <SolidColorBrush x:Key="TitleBar.Background" Color="#121214"/>
     <SolidColorBrush x:Key="Nav.Background" Color="#18181A"/>
 
-    <SolidColorBrush x:Key="Card.Background" Color="#252526"/>
-    <SolidColorBrush x:Key="Card.Border" Color="#3A3A3C"/>
+    <SolidColorBrush x:Key="Card.Background" Color="#08FFFFFF"/>
+    <SolidColorBrush x:Key="Card.Border" Color="#14FFFFFF"/>
 
-    <SolidColorBrush x:Key="Text.Primary" Color="#F0F0F0"/>
-    <SolidColorBrush x:Key="Text.Secondary" Color="#9D9DA0"/>
-    <SolidColorBrush x:Key="Text.Disabled" Color="#6C6C70"/>
+    <SolidColorBrush x:Key="Text.Primary" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Text.Secondary" Color="#9AFFFFFF"/>
+    <SolidColorBrush x:Key="Text.Disabled" Color="#4DFFFFFF"/>
 
-    <SolidColorBrush x:Key="Input.Background" Color="#1E1E1E"/>
+    <SolidColorBrush x:Key="Input.Background" Color="#33000000"/>
     <SolidColorBrush x:Key="Input.Foreground" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="Input.Border" Color="#3F3F46"/>
-    <SolidColorBrush x:Key="Input.BorderHover" Color="#5A5A62"/>
+    <SolidColorBrush x:Key="Input.Border" Color="#1AFFFFFF"/>
+    <SolidColorBrush x:Key="Input.BorderHover" Color="#40FFFFFF"/>
 
-    <SolidColorBrush x:Key="Nav.Button.Hover" Color="#2D2D30"/>
-    <SolidColorBrush x:Key="Nav.Button.Active" Color="#333336"/>
+    <SolidColorBrush x:Key="Nav.Button.Hover" Color="#0FFFFFFF"/>
+    <SolidColorBrush x:Key="Nav.Button.Active" Color="#14FFFFFF"/>
 
-    <SolidColorBrush x:Key="Toggle.Off" Color="#4A4A4E"/>
+    <SolidColorBrush x:Key="Toggle.Off" Color="#1AFFFFFF"/>
 
     <SolidColorBrush x:Key="List.Background" Color="#252526"/>
     <SolidColorBrush x:Key="List.Header" Color="#1E1E1E"/>
-    <SolidColorBrush x:Key="List.Hover" Color="#333333"/>
+    <SolidColorBrush x:Key="List.Hover" Color="#0FFFFFFF"/>
 
     <!-- 掩码列表行内删除按钮的衬底：左透明 → 右为 List.Background (#252526)。
          左侧留 10px 过渡，长名称被省略号截断时不会出现一刀切的硬边。
@@ -47,17 +47,25 @@
     <SolidColorBrush x:Key="Disabled.Background" Color="#2A2A2C"/>
     <SolidColorBrush x:Key="Disabled.Foreground" Color="#6C6C70"/>
 
-    <SolidColorBrush x:Key="Log.Background" Color="#171718"/>
-    <SolidColorBrush x:Key="Log.Border" Color="#333336"/>
-    <SolidColorBrush x:Key="Log.Info" Color="#B8B8BC"/>
-    <SolidColorBrush x:Key="Log.Warn" Color="#E8A33D"/>
-    <SolidColorBrush x:Key="Log.Error" Color="#E86A6A"/>
+    <SolidColorBrush x:Key="Log.Background" Color="#33000000"/>
+    <SolidColorBrush x:Key="Log.Border" Color="#14FFFFFF"/>
+    <SolidColorBrush x:Key="Log.Info" Color="#60CDFF"/>
+    <SolidColorBrush x:Key="Log.Warn" Color="#FFD60A"/>
+    <SolidColorBrush x:Key="Log.Error" Color="#FF453A"/>
 
-    <SolidColorBrush x:Key="Scrollbar.Thumb" Color="#4A4A4E"/>
-    <SolidColorBrush x:Key="Scrollbar.ThumbHover" Color="#6E6E76"/>
+    <!-- 日志级别 pill 的底色：级别色的 12% 透明度版本 -->
+    <SolidColorBrush x:Key="Log.InfoTint" Color="#1F60CDFF"/>
+    <SolidColorBrush x:Key="Log.WarnTint" Color="#1FFFD60A"/>
+    <SolidColorBrush x:Key="Log.ErrorTint" Color="#1FFF453A"/>
 
-    <SolidColorBrush x:Key="Separator" Color="#333336"/>
+    <SolidColorBrush x:Key="Scrollbar.Thumb" Color="#26FFFFFF"/>
+    <SolidColorBrush x:Key="Scrollbar.ThumbHover" Color="#4DFFFFFF"/>
+
+    <SolidColorBrush x:Key="Separator" Color="#14FFFFFF"/>
     <SolidColorBrush x:Key="Danger" Color="#C42B1C"/>
+
+    <!-- 警告横幅 / 危险操作的淡底（Danger 的低透明度版本，深浅两册各自取值） -->
+    <SolidColorBrush x:Key="DangerSoft" Color="#26E5534B"/>
 
     <!-- 中性单色按钮（不跟随主题强调色，低调深灰） -->
     <SolidColorBrush x:Key="Button.Neutral.Background" Color="#4E4E54"/>
@@ -88,7 +96,7 @@
 
     <!-- 状态徽章底色：必须比所在卡片(Card.Background #252526)明亮一档。
          原先沿用 List.Header(#1E1E1E)，比卡片还暗，徽章看起来像在卡片上挖了个洞。 -->
-    <SolidColorBrush x:Key="Badge.Background" Color="#2F2F33"/>
+    <SolidColorBrush x:Key="Badge.Background" Color="#14FFFFFF"/>
 
     <!-- 语义状态色：与日志三色同源，避免同一含义在界面上出现第二种灰/黄 -->
     <SolidColorBrush x:Key="State.Info" Color="#B8B8BC"/>

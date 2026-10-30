@@ -42,8 +42,14 @@ namespace ZenForge.Views
 
         /// <summary>
         /// 按真实核心数构建 CO 输入框网格（Z-2 修复：原版写死 2 CCD × 8 核 = 16 个框，
-        /// 非 16 核 CPU 会静默丢核或留空框）。行数由 ceil(totalCores / coresPerCcd) 决定，
-        /// 不再假设固定 2 行。每次重建前清空旧网格与列表，换 CPU / 驱动升级后能自愈。
+        /// 非 16 核 CPU 会静默丢核或留空框）。
+        ///
+        /// 版式说明（v12）：容器是 <c>UniformGrid Columns=8</c>，不再按 CCD 分行、
+        /// 不再有 CCD 标签。所有格子平铺进去，填充顺序严格等于核心号 0..n-1，
+        /// 这样 <see cref="CoreBoxes"/> 的下标就是核心号，回填与收集都靠它。
+        /// UniformGrid 没有 RowSpacing，行间距只能靠格子自身的 Margin 制造：
+        /// 横向留 6、纵向留 8，最后一列/最后一行不留（避免外沿多出一截）。
+        /// 每 8 个核插一个小的 CCD 分隔（由提示文字承担，网格本身不画线）。
         /// </summary>
         private void BuildCoreGrid(int totalCores, int coresPerCcd)
         {
@@ -53,47 +59,28 @@ namespace ZenForge.Views
             // 显式取 Style 而非依赖隐式查找：隐式样式在 Page 层可能被局部覆盖而回落系统默认白底；
             // 只赋 Style，不设局部 Background/Foreground/BorderBrush（局部值会压掉「聚焦青边」触发器）。
             Style? coreBoxStyle = TryFindResource("TuningBoxStyle") as Style;
-            int rowCount = (int)Math.Ceiling(totalCores / (double)coresPerCcd);
 
-            for (int r = 0; r < rowCount; r++)
+            const int Columns = 8;   // 必须与 XAML 里 UniformGrid.Columns 一致
+
+            for (int core = 0; core < totalCores; core++)
             {
-                Grid line = new() { Margin = new Thickness(0, 0, 0, 8) };
+                int col = core % Columns;
+                int row = core / Columns;
+                bool lastCol = col == Columns - 1;
+                bool lastRow = core + Columns >= totalCores;
 
-                // 第 0 列：CCD 标签（固定宽 44，保证各行输入框左边缘对齐）
-                line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
-
-                TextBlock tag = new()
+                TextBox box = new()
                 {
-                    Text = $"CCD{r}",
-                    Style = (Style)FindResource("CcdTagStyle")
+                    Tag = core,
+                    IsEnabled = false,
+                    Style = coreBoxStyle,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    Margin = new Thickness(0, 0, lastCol ? 0 : 6, lastRow ? 0 : 8),
+                    ToolTip = $"核心 {core}（CCD{core / coresPerCcd}）"
                 };
-                Grid.SetColumn(tag, 0);
-                line.Children.Add(tag);
 
-                for (int c = 0; c < coresPerCcd; c++)
-                {
-                    int core = r * coresPerCcd + c;
-                    if (core >= totalCores) break;   // 末行可能不满一行
-
-                    // 等分剩余宽度
-                    line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-                    TextBox box = new()
-                    {
-                        Tag = core,
-                        IsEnabled = false,
-                        Style = coreBoxStyle,
-                        HorizontalAlignment = HorizontalAlignment.Stretch,
-                        Margin = new Thickness(0, 0, c == coresPerCcd - 1 ? 0 : 8, 0),
-                        ToolTip = $"核心 {core}（CCD{r}）"
-                    };
-
-                    Grid.SetColumn(box, c + 1);
-                    line.Children.Add(box);
-                    CoreBoxes.Add(box);
-                }
-
-                CoreGrid.Children.Add(line);
+                CoreBoxes.Add(box);
+                CoreGrid.Children.Add(box);
             }
         }
 
@@ -196,6 +183,16 @@ namespace ZenForge.Views
             // 核心数变化时才重建网格（换 CPU / 驱动升级自愈）；否则保留用户已填的值。
             if (totalCores > 0 && CoreBoxes.Count != totalCores)
                 BuildCoreGrid(totalCores, coresPerCcd);
+
+            // 副行与网格提示（v12 新增的两处文字位）：
+            // 副行给「拓扑概览」，网格提示给「输入范围 + 当前读取情况」，
+            // 两者都是只读描述，不参与任何写入逻辑。
+            if (totalCores > 0)
+            {
+                int ccdCount = (int)Math.Ceiling(totalCores / (double)coresPerCcd);
+                CpuSubText.Text = $"{totalCores} 核 · {ccdCount} 个 CCD · 每 CCD {coresPerCcd} 核";
+                CoreGridHint.Text = $"共 {totalCores} 个核心，每格对应一个物理核心；负值降压、正值加压，留“--”表示不写入。";
+            }
             int filled = 0;
             for (int i = 0; i < CoreBoxes.Count && i < snapshot.CoreMargins.Length; i++)
             {

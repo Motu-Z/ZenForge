@@ -13,34 +13,19 @@ namespace ZenForge.Views
     /// <summary>
     /// SettingsPage：外观设置 + 启动开关 + 全局重置。
     ///
-    /// 「外观」区的版式、色板、交互与 NvForge 的 SettingsPage 完全一致：
-    ///   · 主题模式 与 强调色 并列两列，两个下拉框都用 Tag 驱动（system/dark/light、follow/custom）
-    ///   · 色板行 = 8 个 34px 圆 + 3px 固定选中环 + 右侧 Hex 输入框 + 应用按钮，同一行
-    ///   · 点色块或手输色值都会自动切到「自定义」并立即生效
+    /// 「外观」区按 v12 稿：两行下拉（主题模式 / 强调色）+ 一个色相选择器。
+    ///   · 两个下拉框都用 Tag 驱动（system/dark/light、follow/custom）
+    ///   · 色相选择器 = 当前色预览 + 彩虹滑杆 + 色值输入框 + 应用按钮，同一行
+    ///   · 滑杆实时改色（拖动即生效），输入框回车 / 点「应用」也会切到自定义
+    ///   · 原来那 8 个预设色圆点已移除：滑杆本身就是全部色相，圆点是冗余
     ///
     /// 初始化顺序（关键，修复“打开设置页主题被重置”）：
-    ///   1. BuildSwatches()  —— 先建色块，否则 MarkActiveSwatch 扫不到子元素
-    ///   2. LoadSettings()   —— 读 ui.json，把控件设成用户保存的值
-    ///   3. AttachHandlers() —— 最后才挂 SelectionChanged，杜绝初始化反向覆盖
+    ///   1. LoadSettings()   —— 读 ui.json，把控件设成用户保存的值
+    ///   2. AttachHandlers() —— 最后才挂 SelectionChanged，杜绝初始化反向覆盖
     /// </summary>
     public partial class SettingsPage : Page
     {
-        /// <summary>
-        /// 与 NvForge 完全一致的 8 个预设强调色（顺序也一致，第一个即默认色）。
-        /// </summary>
-        private static readonly string[] PresetAccents =
-        {
-            "#00B4D8", // 默认青（两程序同款）
-            "#0078D4", // Windows 蓝
-            "#8B5CF6", // 紫
-            "#E3008C", // 品红
-            "#F7630C", // 橙
-            "#FFB900", // 金黄
-            "#16C60C", // 绿
-            "#C42B1C", // 红
-        };
-
-        private const string DefaultAccent = "#00B4D8";
+        private const string DefaultAccent = "#60CDFF";
 
         private bool _suppress;
         private bool _initialized;
@@ -62,7 +47,6 @@ namespace ZenForge.Views
             InitializeComponent();
 
             // ↓↓↓ 顺序不可调换 ↓↓↓
-            BuildSwatches();
             LoadSettings();
             AttachHandlers();
 
@@ -145,7 +129,8 @@ namespace ZenForge.Views
             // 跟随时是系统强调色，自定义时是保存的自定义色。
             string hex = CurrentAccentHex();
             AccentHexBox.Text = hex;
-            MarkActiveSwatch(hex);
+            SyncHueSliderFromHex(hex);
+            UpdateColorPreview(hex);
 
             // ==================== 启动与后台开关回显 ====================
             // 布局阶段只用配置缓存回显，保证页面立即渲染不卡顿。
@@ -163,6 +148,7 @@ namespace ZenForge.Views
             ProcessWatchToggle.IsChecked = ProcessWatcher.IsRunning;
 
             ShowTrayToggle.IsChecked = settings.ShowTrayIcon;
+            ErrorNotifyToggle.IsChecked = settings.NotifyOnError;
 
             // 最后再算一遍显隐：上面的 IsChecked 赋值不会触发 Click，
             // 但也不会自动刷新依赖行的可见性。
@@ -221,66 +207,124 @@ namespace ZenForge.Views
             }
         }
 
-        /// <summary>把输入框与色板选中环同步到「当前真正生效」的颜色。</summary>
+        /// <summary>把输入框、色相滑杆、色块预览同步到「当前真正生效」的颜色。</summary>
         private void SyncAccentUi()
         {
             string hex = CurrentAccentHex();
             Suppressed(() =>
             {
                 AccentHexBox.Text = hex;
-                MarkActiveSwatch(hex);
+                SyncHueSliderFromHex(hex);
+                UpdateColorPreview(hex);
             });
         }
 
-        // ==================== 外观：色板 ====================
+        // ==================== 外观：色相选择器 ====================
 
         /// <summary>
-        /// 生成圆形预设色块。与 NvForge 用同一份色值、同样的 34px 圆 + 3px 固定选中环，
-        /// 两个程序的「外观」区因此完全一致。
+        /// 把滑杆拨到指定颜色对应的色相位置。
+        ///
+        /// 为什么必须「抑制」：HueSlider.Value 一改就会触发 ValueChanged，
+        /// 而那个处理器会去写盘。初始化 / 主题切换回填时如果不管，会把
+        /// 「跟随系统」状态意外改成「自定义」。
+        /// 这里除了 _suppress 之外还要额外判一次——滑块拖到 195 附近时
+        /// 由于浮点误差可能与当前值差 0.0001，ValueChanged 仍会触发，
+        /// 所以回填完成后立刻把标志位放开，靠 _suppress 挡住这一轮。
         /// </summary>
-        private void BuildSwatches()
+        private void SyncHueSliderFromHex(string hex)
         {
-            if (AccentPresetRow == null)
+            if (HueSlider == null || !TryParseColor(hex, out Color color))
                 return;
 
-            AccentPresetRow.Children.Clear();
-            foreach (string hex in PresetAccents)
-            {
-                Border swatch = new()
-                {
-                    Width = 34,
-                    Height = 34,
-                    Margin = new Thickness(0, 0, 10, 0),
-                    CornerRadius = new CornerRadius(17),
-                    BorderThickness = new Thickness(3),
-                    BorderBrush = Brushes.Transparent,
-                    Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex)),
-                    Cursor = System.Windows.Input.Cursors.Hand,
-                    Tag = hex,
-                    ToolTip = hex,
-                };
-                swatch.MouseLeftButtonUp += Swatch_Click;
-                AccentPresetRow.Children.Add(swatch);
-            }
+            double hue = ColorHsl.HueOf(color);
+            // 只在真的需要时才赋值，避免每次刷新都把用户正在拖的滑块踢回原位
+            if (Math.Abs(HueSlider.Value - hue) > 0.5)
+                HueSlider.Value = hue;
         }
 
-        /// <summary>白框标记当前生效色。环宽固定 3px，只改颜色 —— 否则圆的直径会跳变。</summary>
-        private void MarkActiveSwatch(string hex)
+        /// <summary>刷新色块预览的底色与外发光颜色。</summary>
+        private void UpdateColorPreview(string hex)
         {
-            if (AccentPresetRow == null || string.IsNullOrEmpty(hex))
+            if (!TryParseColor(hex, out Color color))
                 return;
 
-            foreach (object child in AccentPresetRow.Children)
-            {
-                if (child is not Border b)
-                    continue;
+            SolidColorBrush brush = new(color);
+            brush.Freeze();
 
-                bool active = b.Tag is string tag &&
-                              string.Equals(tag, hex, StringComparison.OrdinalIgnoreCase);
-                b.BorderBrush = active
-                    ? (Brush)Application.Current.TryFindResource("Text.Primary")
-                    : Brushes.Transparent;
+            if (ColorPreviewBorder != null)
+                ColorPreviewBorder.Background = brush;
+
+            if (ColorPreviewGlow != null)
+                ColorPreviewGlow.Color = color;
+        }
+
+        /// <summary>宽松解析色值；失败返回 false，不抛。</summary>
+        private static bool TryParseColor(string? hex, out Color color)
+        {
+            color = Colors.Transparent;
+            if (string.IsNullOrWhiteSpace(hex))
+                return false;
+
+            try
+            {
+                if (ColorConverter.ConvertFromString(hex.Trim()) is Color c)
+                {
+                    color = c;
+                    return true;
+                }
             }
+            catch (FormatException)
+            {
+                // 用户正在输入中间态（比如只敲了 "#60"），解析失败是正常的
+            }
+            catch (NotSupportedException)
+            {
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 滑杆拖动：实时改色。
+        ///
+        /// 这里把「拖一下就写一次配置、刷一次主题」简化成「拖就刷主题，松手才落盘」：
+        /// 拖动过程中 60 次 ValueChanged 若每次都写 json，会把磁盘敲出几百次无效写入。
+        /// 判据是 Thumb 是否被捕获 —— 捕获中 = 用户还按着，先只改视觉；
+        /// 松开时再走一次完整的 ApplyCustomAccent 落盘。
+        /// </summary>
+        private void HueSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suppress || !_initialized)
+                return;
+
+            string hex = ColorHsl.HexFromHue(e.NewValue);
+
+            // 滑块正在被拖动：只更新预览与输入框，不写盘
+            bool dragging = HueSlider.IsMouseCaptureWithin;
+            Suppressed(() =>
+            {
+                AccentHexBox.Text = hex;
+                UpdateColorPreview(hex);
+            });
+
+            if (dragging)
+            {
+                // 拖动过程中就把主题画刷换掉，用户能看到整个界面的强调色在跟着变
+                ThemeService.Apply(ThemeService.Mode, false, hex);
+                return;
+            }
+
+            ApplyCustomAccent(hex);
+        }
+
+        /// <summary>输入框里按回车 = 点「应用」。</summary>
+        private void AccentHexBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key != System.Windows.Input.Key.Enter)
+                return;
+
+            ApplyAccentBtn_Click(sender, e);
+            e.Handled = true;
         }
 
         // ==================== 外观：事件 ====================
@@ -323,14 +367,6 @@ namespace ZenForge.Views
             LogService.Info(follow ? "强调色：跟随系统" : "强调色：自定义");
         }
 
-        private void Swatch_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
-        {
-            if (sender is not Border swatch || swatch.Tag is not string hex)
-                return;
-
-            ApplyCustomAccent(hex);
-        }
-
         /// <summary>
         /// 「应用颜色」：接受用户手输的色值。
         /// 支持 #RRGGBB / RRGGBB / #RGB / #AARRGGBB 几种常见写法，比用户更宽容一点 ——
@@ -362,7 +398,8 @@ namespace ZenForge.Views
                 SelectByTag(AccentModeCombo, "custom");
                 CustomAccentPanel.Visibility = Visibility.Visible;
                 AccentHexBox.Text = norm;
-                MarkActiveSwatch(norm);
+                SyncHueSliderFromHex(norm);
+                UpdateColorPreview(norm);
             });
 
             ThemeService.ApplyAndSave(ThemeService.Mode, false, norm);
@@ -626,6 +663,27 @@ namespace ZenForge.Views
             LogService.Info(visible
                 ? "托盘图标：已显示"
                 : "托盘图标：已隐藏（后台服务仍在运行；双击 ZenForge.exe 唤出界面）");
+        }
+
+        /// <summary>
+        /// 出错时通知我：只控制「要不要弹气泡」，不影响错误是否写进日志。
+        ///
+        /// 这个开关不做任何跨进程联动 —— 弹窗的决定在出错现场读取
+        /// <see cref="UiSettings.NotifyOnError"/>，这里只负责改值 + 存盘。
+        /// 之所以不在开关里直接调用任何通知服务：开关是「意愿」，
+        /// 下一次出错才是「执行」，两者的调用点不该缠在一起。
+        /// </summary>
+        private void ErrorNotifyToggle_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_initialized || _suppress)
+                return;
+
+            bool enabled = ErrorNotifyToggle.IsChecked == true;
+
+            UiSettingsStore.Settings.NotifyOnError = enabled;
+            UiSettingsStore.Save();
+
+            LogService.Info(enabled ? "错误通知：已开启" : "错误通知：已关闭（错误仍会写入日志）");
         }
 
         /// <summary>后台常驻调度：立即启停 ProcessWatcher。</summary>

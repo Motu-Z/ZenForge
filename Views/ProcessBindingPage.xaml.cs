@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using ZenForge.Helpers;
 using ZenForge.Services;
@@ -19,6 +20,9 @@ namespace ZenForge.Views
     {
         public int Pid;
         public string Path = string.Empty;
+
+        /// <summary>PROCESSENTRY32.pcPriClassBase 的原始值，只用于展示。</summary>
+        public int PriorityClass;
     }
 
     /// <summary>进程列表中的一组（按进程名合并后的行）。</summary>
@@ -55,6 +59,28 @@ namespace ZenForge.Views
 
         /// <summary>平均 CPU 占用率文本。</summary>
         public string CpuText => CpuValue.ToString("F1") + "%";
+
+        private string _priorityText = "—";
+
+        /// <summary>
+        /// 进程优先级（只读展示）。取该名称下首个实例的 pcPriClassBase 映射成
+        /// Idle / Normal / High / RealTime 这类可读标签。
+        ///
+        /// 为什么只读：把任意进程提到 High 以上，如果它对 CPU 是忙等型，
+        /// 会把桌面响应一起饿死。这条能力只有做完全链路测试才敢开，
+        /// 当前先把真实值显示出来，用户至少能看出「这个进程已经跑在 High 上」。
+        /// </summary>
+        public string PriorityText
+        {
+            get => _priorityText;
+            set
+            {
+                if (_priorityText == value)
+                    return;
+                _priorityText = value;
+                OnPropertyChanged(nameof(PriorityText));
+            }
+        }
 
         /// <summary>该名称下的全部进程实例（PID + 路径）。</summary>
         public List<ProcessMember> Members { get; set; } = new();
@@ -290,15 +316,12 @@ namespace ZenForge.Views
                     e.Handled = true;
                 }));
 
-            // 自适应列宽：窗口变宽时把增量分给「名称」「路径」两列，
-            // 让它们真正"撑满剩余空间"；固定宽列（占用 / 核心掩码 / 按钮组）保持不变。
-            // 加一层尺寸去抖：只在宽度真的变化超过 1px 时才重算，
-            // 否则改写列宽 → 触发布局 → 再次 SizeChanged 会形成抖动循环。
-            SizeChanged += (_, _) => RequestColumnWidthsUpdate();
-
             // 下拉框的展开 / 收起是普通 CLR 事件（不是路由事件），无法在列表容器上
             // 统一 AddHandler，改由行模板里的 ComboBox 各自挂（见 XAML）。
             // 键盘焦点离开列表后，也要补一次被交互推迟的刷新。
+            // ItemsControl 没有 ListView 的列表级键盘语义，但「焦点离开列表」这个
+            // 时机仍然需要补一次被推迟的刷新。改用 PreviewLostKeyboardFocus，
+            // 它在 ItemsControl 上同样可用。
             ProcessListView.LostKeyboardFocus += ProcessListView_LostKeyboardFocus;
 
             Loaded += (_, _) =>
@@ -329,7 +352,6 @@ namespace ZenForge.Views
                     ApplySnapshot(latest);
                 // 搜索框占位提示：统一由 UpdateSearchPlaceholder 决定
                 UpdateSearchPlaceholder();
-                ApplyColumnWidths();
             };
             Unloaded += (_, _) =>
             {
@@ -408,74 +430,17 @@ namespace ZenForge.Views
                 ProcessRefresher.ReleaseWatch();
         }
 
-        /// <summary>路径列的基准宽度（与 XAML 初始值一致）。</summary>
-        private const double BasePathWidth = 300;
-
         /// <summary>
-        /// 名称列的宽度上限。
+        /// 列宽不再需要手工分配。
         ///
-        /// 这一列以前和路径列按比例（4:6）瓜分窗口变宽产生的增量，
-        /// 于是窗口一拉宽，名称列跟着变宽，路径列却还是被挤着 ——
-        /// 可进程名再长也就「notepad.exe (5个进程)」这个量级，根本用不了那么多空间，
-        /// 反倒是路径动辄 C:\Users\...\AppData\... 一串，永远不够放。
-        /// 所以改成名称列封顶、增量全部给路径列。
-        /// 170px 足够放下最长形态的进程名（含实例数后缀），不需要再宽。
-        /// </summary>
-        private const double MaxNameWidth = 170;
-
-        /// <summary>上一次参与计算的可用宽度，用于跳过无意义的重算。</summary>
-        private double _lastWidthForColumns = -1;
-
-        /// <summary>去抖入口：宽度变化不足 1px 时直接返回。</summary>
-        private void RequestColumnWidthsUpdate()
-        {
-            double w = ProcessListView != null ? ProcessListView.ActualWidth : 0;
-            if (Math.Abs(w - _lastWidthForColumns) < 1.0)
-                return;
-
-            _lastWidthForColumns = w;
-            ApplyColumnWidths();
-        }
-
-        /// <summary>
-        /// 按当前可用宽度分配两个自适应列。
+        /// 上一版用 ListView + GridView，列宽是死值，窗口变宽时只能靠
+        /// ApplyColumnWidths 逐列改写 Width，还要配一层尺寸去抖防止
+        /// 「改宽度 → 触发布局 → 再次 SizeChanged」的抖动循环。
+        /// v12 改成自绘 Grid 后，列宽写成 1.5* / 2* / 固定值，
+        /// 弹性分配由 WPF 布局引擎完成，那段代码整体删除。
         ///
-        /// 名称列封顶在 <see cref="MaxNameWidth"/>，窗口变宽产生的增量全部留给路径列。
-        /// 之所以不用 GridView 的自动拉伸：GridView 只在列宽为 Auto 时会拉伸，
-        /// 而 Auto 列在内容很短时会缩成一条，反而更难看。
+        /// 保留这个空方法只是为了让构造函数里那行调用不至于悬空 —— 一并删掉更干净。
         /// </summary>
-        private void ApplyColumnWidths()
-        {
-            if (ProcessListView == null || ProcNameColumn == null || ProcPathColumn == null)
-                return;
-
-            double available = ProcessListView.ActualWidth;
-            if (available <= 0)
-                available = ActualWidth - 64;   // 页面尚未完成布局时的估算
-
-            // 固定列：占用 + 核心掩码 + 竖向滚动条(10) + 列表边框(2)
-            double fixedWidth = ProcCpuColumn.Width + ProcMaskColumn.Width + 12;
-
-            // 名称列：不超过上限，窗口太窄时才按可用空间收缩
-            double nameWidth = Math.Min(MaxNameWidth, BasePathWidth);
-            double restForName = available - fixedWidth - BasePathWidth;
-            if (restForName < nameWidth)
-                nameWidth = Math.Max(80, restForName);   // 太窄时保底，宁可路径被截断也不让名称消失
-
-            ProcNameColumn.Width = nameWidth;
-            ProcPathColumn.Width = Math.Max(120, available - fixedWidth - nameWidth);
-
-            // 规则列表：进程名列同样封顶，余下全部交给次要信息行。
-            // 未封顶时窗口一宽它就吃掉整行的一半（约 575px），而下面那行路径才是重点。
-            if (SavedRulesList != null && RuleNameColumn != null && SavedRulesList.ActualWidth > 0)
-            {
-                double ruleNameWidth = SavedRulesList.ActualWidth
-                                       - RuleMaskColumn.Width
-                                       - RuleActionColumn.Width
-                                       - 12;
-                RuleNameColumn.Width = Math.Min(MaxNameWidth, Math.Max(120, ruleNameWidth));
-            }
-        }
 
         /// <summary>
         /// 检测 CPU Sets 拓扑。不可用时：
@@ -573,7 +538,7 @@ namespace ZenForge.Views
             {
                 int count = grp.Count();
                 List<ProcessMember> members = grp
-                    .Select(e => new ProcessMember { Pid = e.Pid, Path = e.Path })
+                    .Select(e => new ProcessMember { Pid = e.Pid, Path = e.Path, PriorityClass = e.PriorityClass })
                     .ToList();
 
                 double cpu = count > 0 ? grp.Sum(e => e.Cpu) / count : 0.0;
@@ -588,6 +553,7 @@ namespace ZenForge.Views
                     row.CpuValue = cpu;
                     row.Members = members;
                     row.Path = groupPath;
+                    row.PriorityText = PriorityLabel(members.Count > 0 ? members[0].PriorityClass : 0);
                 }
                 else
                 {
@@ -598,7 +564,8 @@ namespace ZenForge.Views
                         CpuValue = cpu,
                         Members = members,
                         Path = groupPath,
-                        CanBind = _topologyAvailable
+                        CanBind = _topologyAvailable,
+                        PriorityText = PriorityLabel(members.Count > 0 ? members[0].PriorityClass : 0)
                     };
                     // 新建行才用已保存规则回填初始选择（不触发绑定）
                     row.SetInitialSelection(RuleToSelection(BindingStore.LookupByName(grp.Key)));
@@ -704,24 +671,95 @@ namespace ZenForge.Views
         private void ProcessListView_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
             => FlushPendingRefresh();
 
-        /// <summary>点击「平均CPU」列头切换升序 / 降序（其他列头点击不响应）。</summary>
-        private void Header_Click(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// 点击「占用」列头切换升序 / 降序。
+        ///
+        /// v12 改自绘表头后没有 GridViewColumnHeader 了，排序入口挂在
+        /// 表头里那个「占用」TextBlock 上（XAML 里 MouseLeftButtonUp）。
+        /// 排序方向的变化同时要反映到列头文字上，否则用户看不出当前是升还是降。
+        /// </summary>
+        private void CpuHeader_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (sender is not GridViewColumnHeader header)
-                return;
-
-            GridViewColumn? column = header.Column;
-            if (column?.Header is not string text || !text.StartsWith("占用", StringComparison.Ordinal))
-                return;
-
             _sortByCpuDescending = !_sortByCpuDescending;
-            column.Header = _sortByCpuDescending ? "占用 ▼" : "占用 ▲";
-            header.ToolTip = _sortByCpuDescending
-                ? "点击切换排序方向（当前：从高到低）"
-                : "点击切换排序方向（当前：从低到高）";
+
+            if (sender is TextBlock header)
+            {
+                header.Text = _sortByCpuDescending ? "占用 ▼" : "占用 ▲";
+                header.ToolTip = _sortByCpuDescending
+                    ? "点击切换排序方向（当前：从高到低）"
+                    : "点击切换排序方向（当前：从低到高）";
+            }
+
             // 用户主动排序，立即生效，不受交互保护推迟
             ApplyFilter(true);
+            e.Handled = true;
         }
+
+        /// <summary>
+        /// 点击进程行：选中该行（v12 的 process-row.active 视觉）。
+        ///
+        /// 自绘行没有 ListBox 的选中态，这里自己记一个选中行对象，
+        /// 再把该行的 Border 底色改成强调色淡底。只做视觉反馈，
+        /// 不改变任何绑定语义 —— 点行不等于改掩码，改掩码只有下拉框能做。
+        /// </summary>
+        private void ProcessRow_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is not Border clicked)
+                return;
+
+            // 点在下拉框上时不要抢走它自己的点击
+            if (e.OriginalSource is DependencyObject src && FindAncestor<ComboBox>(src) != null)
+                return;
+
+            foreach (Border row in FindVisualChildren<Border>(ProcessListView))
+                row.ClearValue(Border.BackgroundProperty);
+
+            clicked.Background = (Brush)FindResource("AccentSoftBrush");
+        }
+
+        /// <summary>向上找指定类型的祖先（点到下拉框内部时不抢事件用）。</summary>
+        private static T? FindAncestor<T>(DependencyObject node) where T : DependencyObject
+        {
+            for (DependencyObject? cur = node; cur != null; cur = VisualTreeHelper.GetParent(cur))
+            {
+                if (cur is T match)
+                    return match;
+            }
+            return null;
+        }
+
+        /// <summary>深度遍历可视树，收集指定类型的子元素。</summary>
+        private static IEnumerable<T> FindVisualChildren<T>(DependencyObject root) where T : DependencyObject
+        {
+            int count = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(root, i);
+                if (child is T match)
+                    yield return match;
+
+                foreach (T nested in FindVisualChildren<T>(child))
+                    yield return nested;
+            }
+        }
+
+        /// <summary>
+        /// pcPriClassBase → 可读标签。
+        ///
+        /// 这是「基础优先级类」，取值只有几档固定值（4/6/8/10/13/24/32），
+        /// 不随线程动态优先级浮动。未知值原样带出，不猜。
+        /// </summary>
+        private static string PriorityLabel(int pcPriClassBase) => pcPriClassBase switch
+        {
+            4 => "Idle",
+            6 => "Below Normal",
+            8 => "Normal",
+            10 => "Above Normal",
+            13 => "High",
+            24 => "RealTime",
+            32 => "RealTime",
+            _ => pcPriClassBase > 0 ? pcPriClassBase.ToString() : "—"
+        };
 
         // ---------- 规则解析 ----------
 

@@ -78,6 +78,15 @@ namespace ZenForge.Helpers
         /// 默认 true：用户至少得能看见它在跑，也能就地退出。
         /// </summary>
         public bool ShowTrayIcon { get; set; } = true;
+
+        /// <summary>
+        /// 出错时用系统气泡提示（非阻塞）。
+        ///
+        /// 默认 true：失败的写入 / 驱动异常必须让用户看见。
+        /// 但调 SMU 时偶发的一次读失败并不严重，用户如果觉得弹得烦可以关掉，
+        /// 错误仍然完整写进日志页，不会被丢弃。
+        /// </summary>
+        public bool NotifyOnError { get; set; } = true;
     }
 
     public static class UiSettingsStore

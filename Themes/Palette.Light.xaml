@@ -10,26 +10,26 @@
     <SolidColorBrush x:Key="TitleBar.Background" Color="#F3F3F4"/>
     <SolidColorBrush x:Key="Nav.Background" Color="#EBEBED"/>
 
-    <SolidColorBrush x:Key="Card.Background" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="Card.Border" Color="#E2E2E6"/>
+    <SolidColorBrush x:Key="Card.Background" Color="#F2FFFFFF"/>
+    <SolidColorBrush x:Key="Card.Border" Color="#14000000"/>
 
-    <SolidColorBrush x:Key="Text.Primary" Color="#1C1C1E"/>
-    <SolidColorBrush x:Key="Text.Secondary" Color="#6E6E73"/>
-    <SolidColorBrush x:Key="Text.Disabled" Color="#A0A0A5"/>
+    <SolidColorBrush x:Key="Text.Primary" Color="#E4000000"/>
+    <SolidColorBrush x:Key="Text.Secondary" Color="#99000000"/>
+    <SolidColorBrush x:Key="Text.Disabled" Color="#4D000000"/>
 
-    <SolidColorBrush x:Key="Input.Background" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Input.Background" Color="#0A000000"/>
     <SolidColorBrush x:Key="Input.Foreground" Color="#1C1C1E"/>
-    <SolidColorBrush x:Key="Input.Border" Color="#CFCFD4"/>
-    <SolidColorBrush x:Key="Input.BorderHover" Color="#9A9AA0"/>
+    <SolidColorBrush x:Key="Input.Border" Color="#14000000"/>
+    <SolidColorBrush x:Key="Input.BorderHover" Color="#33000000"/>
 
-    <SolidColorBrush x:Key="Nav.Button.Hover" Color="#E7E7EB"/>
-    <SolidColorBrush x:Key="Nav.Button.Active" Color="#DCDCE0"/>
+    <SolidColorBrush x:Key="Nav.Button.Hover" Color="#0D000000"/>
+    <SolidColorBrush x:Key="Nav.Button.Active" Color="#14000000"/>
 
-    <SolidColorBrush x:Key="Toggle.Off" Color="#C8C8CC"/>
+    <SolidColorBrush x:Key="Toggle.Off" Color="#1F000000"/>
 
     <SolidColorBrush x:Key="List.Background" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="List.Header" Color="#F2F2F4"/>
-    <SolidColorBrush x:Key="List.Hover" Color="#E7E7EB"/>
+    <SolidColorBrush x:Key="List.Hover" Color="#0D000000"/>
 
     <!-- 深色版的同款刷子，颜色对齐 List.Background (#FFFFFF)。 -->
     <LinearGradientBrush x:Key="Row.FadeBrush" StartPoint="0,0" EndPoint="1,0">
@@ -42,17 +42,25 @@
     <SolidColorBrush x:Key="Disabled.Background" Color="#F0F0F2"/>
     <SolidColorBrush x:Key="Disabled.Foreground" Color="#A0A0A5"/>
 
-    <SolidColorBrush x:Key="Log.Background" Color="#FAFAFB"/>
-    <SolidColorBrush x:Key="Log.Border" Color="#E2E2E6"/>
-    <SolidColorBrush x:Key="Log.Info" Color="#5A5A5E"/>
+    <SolidColorBrush x:Key="Log.Background" Color="#0A000000"/>
+    <SolidColorBrush x:Key="Log.Border" Color="#14000000"/>
+    <SolidColorBrush x:Key="Log.Info" Color="#005FB8"/>
     <SolidColorBrush x:Key="Log.Warn" Color="#B26A00"/>
     <SolidColorBrush x:Key="Log.Error" Color="#C42B1C"/>
 
-    <SolidColorBrush x:Key="Scrollbar.Thumb" Color="#C0C0C5"/>
-    <SolidColorBrush x:Key="Scrollbar.ThumbHover" Color="#9A9AA0"/>
+    <!-- 日志级别 pill 的底色：级别色的 12% 透明度版本 -->
+    <SolidColorBrush x:Key="Log.InfoTint" Color="#1F005FB8"/>
+    <SolidColorBrush x:Key="Log.WarnTint" Color="#1FC8A300"/>
+    <SolidColorBrush x:Key="Log.ErrorTint" Color="#1FC42B1C"/>
 
-    <SolidColorBrush x:Key="Separator" Color="#E2E2E6"/>
+    <SolidColorBrush x:Key="Scrollbar.Thumb" Color="#26000000"/>
+    <SolidColorBrush x:Key="Scrollbar.ThumbHover" Color="#4D000000"/>
+
+    <SolidColorBrush x:Key="Separator" Color="#14000000"/>
     <SolidColorBrush x:Key="Danger" Color="#C42B1C"/>
+
+    <!-- 警告横幅 / 危险操作的淡底（Danger 的低透明度版本，深浅两册各自取值） -->
+    <SolidColorBrush x:Key="DangerSoft" Color="#1FE5534B"/>
 
     <!-- 中性单色按钮（不跟随主题强调色，低调浅灰） -->
     <SolidColorBrush x:Key="Button.Neutral.Background" Color="#F7F7F9"/>
@@ -80,7 +88,7 @@
     <SolidColorBrush x:Key="CloseButton.Pressed" Color="#C42B1C"/>
 
     <!-- 浅色下卡片为纯白，徽章取一档浅灰以区分 -->
-    <SolidColorBrush x:Key="Badge.Background" Color="#ECECF0"/>
+    <SolidColorBrush x:Key="Badge.Background" Color="#14000000"/>
 
     <SolidColorBrush x:Key="State.Info" Color="#5A5A5E"/>
     <SolidColorBrush x:Key="State.Success" Color="#1F8A34"/>

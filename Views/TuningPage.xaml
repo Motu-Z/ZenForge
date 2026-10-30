@@ -42,84 +42,141 @@
                 <TextBlock Text="调校" Style="{StaticResource PageTitleStyle}"/>
             </StackPanel>
 
-            <!-- ======= 设备信息与操作按钮组 ======= -->
-            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+            <!-- ======= CPU 信息卡（v12：名字 18px/600 + 副行，右侧三按钮） ======= -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- 设备身份：左列，垂直居中。
+                    <!-- 设备身份：左列。
                          初值不用任何具体型号：探测失败时写着「AMD Ryzen 9 9955HX」会误导用户
-                         以为识别成功。/ 由探测结果覆盖为真实 CPU 名。 -->
-                    <TextBlock Grid.Column="0"
-                               x:Name="CpuNameText"
-                               Text="/"
-                               Style="{StaticResource PageHeaderTitleStyle}"
-                               VerticalAlignment="Center"
-                               TextTrimming="CharacterEllipsis"/>
+                         以为识别成功。「/」由探测结果覆盖为真实 CPU 名。 -->
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <TextBlock x:Name="CpuNameText"
+                                   Text="/"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Text.Primary}"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <TextBlock x:Name="CpuSubText"
+                                   Text="正在探测处理器…"
+                                   FontSize="13"
+                                   Margin="0,6,0,0"
+                                   Foreground="{DynamicResource Text.Secondary}"
+                                   TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
 
-                    <!-- 标题行右侧：保存 / 加载 / 刷新 / 应用（统一规格、等间距）
-                         四个动作的语义严格区分，互不重叠：
-                           保存 = 界面 → tuning.json（不碰 SMU）
-                           加载 = tuning.json → 界面（不碰 SMU）
-                           刷新 = SMU 现值 → 界面（不写盘）
-                           应用 = 界面 → SMU，并落盘（唯一的写入口） -->
+                    <!-- 右侧三个按钮。v12 只有「保存 / 加载 / 应用全部」，
+                         「刷新」移到副行做文字链 —— 四个按钮并排会把 CPU 名挤没。 -->
                     <StackPanel Grid.Column="1"
                                 Orientation="Horizontal"
                                 VerticalAlignment="Center"
                                 Margin="16,0,0,0">
                         <Button x:Name="SaveConfigButton" Content="保存"
-                                Style="{StaticResource TuningButtonStyle}"
-                                Margin="0"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Margin="0,0,8,0"
                                 Click="SaveConfigButton_Click"/>
                         <Button x:Name="LoadConfigButton" Content="加载"
-                                Style="{StaticResource TuningButtonStyle}"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Margin="0,0,8,0"
                                 Click="LoadConfigButton_Click"/>
-                        <Button x:Name="RefreshButton" Content="刷新"
-                                Style="{StaticResource TuningButtonStyle}"
-                                IsEnabled="False"
-                                Click="RefreshButton_Click"/>
-                        <Button x:Name="ApplyAllButton" Content="应用"
-                                Style="{StaticResource TuningButtonStyle}"
+                        <Button x:Name="ApplyAllButton" Content="应用全部"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                Margin="0"
                                 IsEnabled="False"
                                 Click="ApplyAllButton_Click"/>
                     </StackPanel>
                 </Grid>
             </Border>
 
-            <!-- ======= Curve Optimizer ======= -->
-            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+            <!-- ======= Curve Optimizer (逐核负压) =======
+                 v12 是「8 列等宽网格、无 CCD 标签」。这里用 UniformGrid Columns=8，
+                 每格一个输入框，由 BuildCoreGrid 在代码里按核数填充。
+                 行间距靠每个格子的 Margin 制造，UniformGrid 没有 RowSpacing。
+                 注意：输入框的填充顺序必须严格等于核心号（0..n-1），
+                 ApplySnapshot / CollectMargins 都按 CoreBoxes 的索引对位。 -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
                 <StackPanel>
-                    <TextBlock Text="Curve Optimizer"
-                               Style="{StaticResource CardTitleStyle}"/>
+                    <TextBlock Text="Curve Optimizer (逐核负压)"
+                               Style="{StaticResource CardTitleStyle}"
+                               Margin="0,0,0,20"/>
 
-                    <!-- 全核负压输入框已移除。整块 CO 区域待按参考 UI 重构，见 TODO 注释。 -->
-                    <!-- TODO(UI 重构)：参考朋友的软件界面重做 Curve Optimizer 整块布局，
-                         届时一并决定是否恢复「全核批量填入」入口，以及是否改为滑杆 / 步进器。 -->
+                    <UniformGrid x:Name="CoreGrid" Columns="8"/>
 
-                    <StackPanel x:Name="CoreGrid" Margin="0,16,0,0"/>
+                    <TextBlock x:Name="CoreGridHint"
+                               Text="正在读取处理器拓扑…"
+                               Style="{StaticResource HintTextStyle}"
+                               Margin="0,14,0,0"/>
                 </StackPanel>
             </Border>
 
             <!-- ======= FMax ======= -->
-            <Border Style="{StaticResource CardBorderStyle}">
-                <StackPanel>
-                    <TextBlock Text="FMax" Style="{StaticResource CardTitleStyle}"/>
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
+                <Grid Style="{StaticResource CardRowStyle}" Margin="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <TextBlock Text="最高加速频率 (FMax)" Style="{StaticResource CardRowLabelStyle}"/>
+                        <TextBlock Text="单位 MHz，留空沿用固件默认" Style="{StaticResource CardRowDescStyle}"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                         <!-- 初值留空：4750 是 9955HX 的典型值，换机器后是个错误暗示。
                              探测成功后由 ApplySnapshot 回填真实 FMax。 -->
-                        <TextBox x:Name="FMaxBox" Text="" Width="140"
+                        <TextBox x:Name="FMaxBox" Text="" Width="100"
                                  Style="{StaticResource TuningBoxStyle}"
                                  IsEnabled="False"/>
-                        <TextBlock Text="MHz" Margin="10,0,0,0"
+                        <TextBlock Text="MHz" Margin="12,0,0,0"
                                    Foreground="{DynamicResource Text.Secondary}"
                                    VerticalAlignment="Center"/>
                     </StackPanel>
-                </StackPanel>
+                </Grid>
             </Border>
+
+            <!-- ======= 动态 PBO 策略 =======
+                 蓝图标注：各代 SMU 的 PBO 消息号与载荷差异大，写错可能直接黑屏，
+                 必须先做能力探测；读不到就整个功能不显示，不做「猜测式写入」。
+                 探测（ProbePbo）尚未实现，所以整卡恒为 Collapsed —— 占位而非假开关。 -->
+            <Border x:Name="PboCard"
+                    Style="{StaticResource CardBorderStyle}"
+                    Visibility="Collapsed">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <TextBlock Text="动态 PBO 策略" Style="{StaticResource CardRowLabelStyle}"/>
+                        <TextBlock Text="控制 Precision Boost Overdrive 行为"
+                                   Style="{StaticResource CardRowDescStyle}"/>
+                    </StackPanel>
+
+                    <ComboBox Grid.Column="1" x:Name="PboCombo"
+                              Width="140" HorizontalAlignment="Right"
+                              VerticalAlignment="Center">
+                        <ComboBoxItem Content="Enabled"/>
+                        <ComboBoxItem Content="Disabled"/>
+                        <ComboBoxItem Content="Auto"/>
+                    </ComboBox>
+                </Grid>
+            </Border>
+
+            <!-- ======= 刷新入口 =======
+                 v12 没有独立的「刷新」按钮，但「SMU 现值 → 界面」这个动作不能丢。
+                 放在页脚做成一条低调的文字链，既保留功能又不占卡片版式。 -->
+            <StackPanel Orientation="Horizontal" Margin="4,4,0,0">
+                <Button x:Name="RefreshButton"
+                        Content="从 SMU 重新读取当前值"
+                        Style="{StaticResource LinkButtonStyle}"
+                        IsEnabled="False"
+                        Click="RefreshButton_Click"/>
+            </StackPanel>
         </StackPanel>
     </ScrollViewer>
 </Page>

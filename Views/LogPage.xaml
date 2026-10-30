@@ -1,192 +1,249 @@
 <Page x:Class="ZenForge.Views.LogPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      xmlns:services="clr-namespace:ZenForge.Services"
+      xmlns:local="clr-namespace:ZenForge.Views"
       Title="日志"
       Focusable="False"
       FocusVisualStyle="{x:Null}">
 
-    <!-- 单卡结构（与 NvForge 对齐）：标题行 → 内容面板 → 工具行。
-         原独立页头卡已移除，标题与「打开日志目录」移入本卡标题行。 -->
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-    <StackPanel Margin="24,24,32,24">
+    <!--
+        ============================================================
+        日志页版式规格（v12）
+        ============================================================
+        页头：左「日志 + 本次会话共 N 条」/ 右 [暂停] [目录] [清空]
+        pill 组：调试 / 信息 / 警告 / 错误 四枚圆角胶囊，各带一个 6px 圆点与计数
+        搜索框：通栏 38 高，按文本 / 字段 / 来源筛选
+        日志卡片：左侧 3px 级别色竖条 + 等宽时间 + 级别徽章 + 正文
 
-    <!-- ======= 页头 ======= -->
-    <StackPanel Margin="0,0,0,20">
-        <TextBlock Text="日志" Style="{StaticResource PageTitleStyle}"/>
-    </StackPanel>
+        与旧版的差别：
+          · 旧版把所有日志塞进一个深色面板，正文按级别整段染色（INFO 是青色文字），
+            一眼看过去全是彩色，反而不容易定位问题。v12 改成「正文主色 + 只染竖条和徽章」。
+          · 级别不再用文字 "INFO"/"WARN" 直接换色，而是套一个 20% 级别色底的圆角小徽章。
+          · 统计从底部一行 "共 N 条" 拆成顶部四枚 pill，能看到级别分布。
+    -->
 
-    <Border Style="{StaticResource CardBorderStyle}" Margin="0">
-        <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
+    <Page.Resources>
+        <!-- 日志行容器：灰底 + 1px 边 + 左侧 3px 级别色条。v12 的 .log-item -->
+        <Style x:Key="LogItemBorderStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource Input.Background}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Card.Border}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="12,10,16,10"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+        </Style>
 
-            <!-- ======= 标题行：左「运行日志」，右「打开日志目录」 ======= -->
-            <Grid Grid.Row="0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Text="运行日志"
-                           Style="{StaticResource CardTitleStyle}"
-                           VerticalAlignment="Center"/>
-                <Button Grid.Column="1"
-                        Content="打开日志目录"
-                        Style="{StaticResource HeaderActionButtonStyle}"
-                        VerticalAlignment="Center"
-                        Click="OpenLogFolderButton_Click"/>
-            </Grid>
+        <!-- 时间列：等宽字体、次要色、固定 84 宽保证各行对齐 -->
+        <Style x:Key="LogTimeTextStyle" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Consolas, Cascadia Mono, monospace"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{DynamicResource Text.Disabled}"/>
+            <Setter Property="VerticalAlignment" Value="Top"/>
+            <Setter Property="Margin" Value="0,2,0,0"/>
+        </Style>
 
-            <!-- ======= 日志列表（深色圆角面板，按级别着色） ======= -->
-            <Border Grid.Row="1"
-                    Background="{DynamicResource Log.Background}"
-                    BorderBrush="{DynamicResource Log.Border}"
-                    BorderThickness="1"
-                    CornerRadius="6"
-                    Margin="0,12,0,0"
-                    MinHeight="320">
-                <!-- CanContentScroll=True 是虚拟化的开关。
-                     ListBox 默认不开（只有 ListView 默认开），不写这一条，
-                     日志上限 2000 条就会被全部实例化成真实容器：
-                     列表越滚越卡，点「清空」时要一次性销毁两千个带模板的项，
-                     表现就是界面直接卡死。 -->
-                <ListBox x:Name="LogListBox"
-                         ItemsSource="{Binding Source={x:Static services:LogService.Entries}}"
-                         HorizontalContentAlignment="Stretch"
-                         Background="Transparent"
-                         Foreground="{DynamicResource Log.Info}"
-                         BorderThickness="0"
-                         Padding="6,4"
-                         ScrollViewer.CanContentScroll="True"
-                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                         ScrollViewer.VerticalScrollBarVisibility="Auto">
-                    <ListBox.ItemContainerStyle>
-                        <Style TargetType="ListBoxItem">
-                            <Setter Property="Padding" Value="6,3"/>
-                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="ListBoxItem">
-                                        <Border x:Name="Bd"
-                                                Background="Transparent"
-                                                CornerRadius="4"
-                                                Padding="{TemplateBinding Padding}">
-                                            <ContentPresenter VerticalAlignment="Top"/>
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource List.Hover}"/>
-                                            </Trigger>
-                                            <Trigger Property="IsSelected" Value="True">
-                                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Nav.Button.Hover}"/>
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                        </Style>
-                    </ListBox.ItemContainerStyle>
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
+        <!-- 级别徽章：2,6 内边距 + 圆角 4 + 12% 级别色底。底色由触发器按级别切换 -->
+        <Style x:Key="LogBadgeBorderStyle" TargetType="Border">
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="6,2"/>
+            <Setter Property="VerticalAlignment" Value="Top"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+        </Style>
+
+        <Style x:Key="LogBadgeTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="{DynamicResource Log.Info}"/>
+        </Style>
+    </Page.Resources>
+
+    <Grid Margin="24,24,32,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>   <!-- 页头 + pill + 搜索 -->
+            <RowDefinition Height="*"/>      <!-- 日志列表 -->
+        </Grid.RowDefinitions>
+
+        <!-- ======= 页头 ======= -->
+        <Grid Grid.Row="0" Margin="0,0,0,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" VerticalAlignment="Bottom">
+                <TextBlock Text="日志" Style="{StaticResource PageTitleStyle}"/>
+                <TextBlock x:Name="LogSubText"
+                           Text="本次会话暂无记录"
+                           Style="{StaticResource PageSubStyle}"/>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom">
+                <Button x:Name="PauseButton" Content="暂停"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Margin="0,0,8,0"
+                        Click="PauseButton_Click"
+                        ToolTip="暂停只冻结界面刷新，日志仍照常写入文件"/>
+                <Button Content="目录"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Margin="0,0,8,0"
+                        Click="OpenLogFolderButton_Click"
+                        ToolTip="在资源管理器中打开日志目录"/>
+                <Button Content="清空"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Margin="0,0,8,0"
+                        Click="ClearLogButton_Click"
+                        ToolTip="清空内存中的日志（文件保留，便于事后追溯）"/>
+
+                <!-- 详细日志开关：v12 原稿没有，但这是排查现场的唯一入口。
+                     过去 Debug 级只在启动参数 / 环境变量里开，用户遇到问题
+                     得知道去哪儿加参数才有日志，等于没有。这里给一个当场可切的开关。 -->
+                <Border Background="{DynamicResource Input.Background}"
+                        BorderBrush="{DynamicResource Input.Border}"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="12,0"
+                        Height="32"
+                        Margin="0">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <ToggleButton x:Name="VerboseToggle"
+                                      Style="{StaticResource ToggleSwitchStyle}"
+                                      VerticalAlignment="Center"
+                                      Click="VerboseToggle_Click"/>
+                        <TextBlock Text="详细日志" Margin="8,0,0,0"
+                                   FontSize="12"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource Text.Secondary}"
+                                   ToolTip="记录每次点击、焦点变化、列表刷新等细节。&#10;只在排查问题时临时打开，日志文件增长较快。"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Grid>
+
+        <!-- ======= 级别统计 pill ======= -->
+        <WrapPanel x:Name="PillHost" Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,16" VerticalAlignment="Bottom"/>
+
+        <!-- ======= 搜索 ======= -->
+        <Grid Grid.Row="0" Margin="0,0,0,16" VerticalAlignment="Bottom">
+            <TextBox x:Name="SearchBox"
+                     Style="{StaticResource SearchBoxStyle}"
+                     TextChanged="SearchBox_TextChanged"
+                     GotFocus="SearchBox_GotFocus"
+                     LostFocus="SearchBox_LostFocus"
+                     KeyDown="SearchBox_KeyDown"/>
+            <TextBlock x:Name="SearchPlaceholder"
+                       Text="按文本、字段或来源筛选"
+                       Margin="17,0,0,0"
+                       VerticalAlignment="Center"
+                       IsHitTestVisible="False"
+                       FontSize="12"
+                       Foreground="{DynamicResource Text.Disabled}"/>
+        </Grid>
+
+        <!-- ======= 日志列表 ======= -->
+        <Grid Grid.Row="1">
+            <ListBox x:Name="LogListBox"
+                     ItemsSource="{Binding Source={x:Static local:LogPage.VisibleEntries}}"
+                     HorizontalContentAlignment="Stretch"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     Padding="0"
+                     ScrollViewer.CanContentScroll="True"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto">
+                <ListBox.ItemContainerStyle>
+                    <!-- 容器不画任何东西：底色、边框、左边色条全由行模板里的 Border 负责，
+                         容器只保留 hit-test 与选中态的半透明高亮。 -->
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Padding" Value="0"/>
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <Border x:Name="Sel" Background="Transparent" CornerRadius="6">
+                                        <ContentPresenter/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="Sel" Property="Background"
+                                                    Value="{DynamicResource Nav.Button.Hover}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border x:Name="Card" Style="{StaticResource LogItemBorderStyle}">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Text="{Binding Time, StringFormat='HH:mm:ss'}"
-                                           Foreground="{DynamicResource Text.Disabled}"
-                                           FontFamily="Consolas, Cascadia Mono"
-                                           FontSize="12"/>
-                                <TextBlock Grid.Column="1"
-                                           Text="{Binding LevelText}"
-                                           Margin="8,0,8,0"
-                                           FontFamily="Consolas, Cascadia Mono"
-                                           FontSize="12">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Setter Property="Foreground" Value="{DynamicResource Log.Info}"/>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding Level}" Value="Warn">
-                                                    <Setter Property="Foreground" Value="{DynamicResource Log.Warn}"/>
-                                                </DataTrigger>
-                                                <DataTrigger Binding="{Binding Level}" Value="Error">
-                                                    <Setter Property="Foreground" Value="{DynamicResource Log.Error}"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
+
+                                <TextBlock Grid.Column="0"
+                                           Text="{Binding Time, StringFormat='HH:mm:ss.fff'}"
+                                           Width="84"
+                                           Style="{StaticResource LogTimeTextStyle}"/>
+
+                                <Border x:Name="Badge" Grid.Column="1"
+                                        Style="{StaticResource LogBadgeBorderStyle}"
+                                        Margin="0,0,12,0">
+                                    <TextBlock x:Name="BadgeText"
+                                               Text="{Binding LevelText}"
+                                               Style="{StaticResource LogBadgeTextStyle}"/>
+                                </Border>
+
                                 <TextBlock Grid.Column="2"
                                            Text="{Binding Message}"
                                            TextWrapping="Wrap"
-                                           FontSize="12">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Setter Property="Foreground" Value="{DynamicResource Log.Info}"/>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding Level}" Value="Warn">
-                                                    <Setter Property="Foreground" Value="{DynamicResource Log.Warn}"/>
-                                                </DataTrigger>
-                                                <DataTrigger Binding="{Binding Level}" Value="Error">
-                                                    <Setter Property="Foreground" Value="{DynamicResource Log.Error}"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
+                                           FontSize="13"
+                                           LineHeight="21"
+                                           Foreground="{DynamicResource Text.Primary}"/>
                             </Grid>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </Border>
+                        </Border>
 
-            <!-- ======= 底部工具行 ======= -->
-            <Grid Grid.Row="2" Margin="0,12,0,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <StackPanel Orientation="Horizontal">
-                    <ToggleButton x:Name="FollowToggle"
-                                  Style="{StaticResource ToggleSwitchStyle}"
-                                  IsChecked="True"
-                                  VerticalAlignment="Center"/>
-                    <TextBlock Text="跟随最新" Margin="8,0,0,0" VerticalAlignment="Center"
-                               Foreground="{DynamicResource Text.Secondary}"/>
+                        <DataTemplate.Triggers>
+                            <!-- 级别配色：只染左边竖条 + 徽章底色 + 徽章文字 -->
+                            <DataTrigger Binding="{Binding Level}" Value="Debug">
+                                <Setter TargetName="Card" Property="BorderBrush"
+                                        Value="{DynamicResource Text.Disabled}"/>
+                                <Setter TargetName="Badge" Property="Background" Value="#1FFFFFFF"/>
+                                <Setter TargetName="BadgeText" Property="Foreground"
+                                        Value="{DynamicResource Text.Disabled}"/>
+                            </DataTrigger>
 
-                    <!-- 详细日志开关：
-                         过去 Debug 级只在启动参数 / 环境变量里开，用户遇到问题时
-                         得知道去哪儿加参数才有日志，等于没有。这里给一个当场可切
-                         的开关，复现前打开即可。 -->
-                    <ToggleButton x:Name="VerboseToggle"
-                                  Style="{StaticResource ToggleSwitchStyle}"
-                                  Margin="20,0,0,0"
-                                  VerticalAlignment="Center"
-                                  Click="VerboseToggle_Click"/>
-                    <TextBlock Text="详细日志" Margin="8,0,0,0" VerticalAlignment="Center"
-                               Foreground="{DynamicResource Text.Secondary}"
-                               ToolTip="记录每次点击、焦点变化、改名开始/提交/取消、列表刷新等细节。&#10;只在排查问题时临时打开，日志文件增长较快。"/>
-                </StackPanel>
-                <TextBlock Grid.Column="1"
-                           x:Name="LogCountText"
-                           HorizontalAlignment="Center"
-                           VerticalAlignment="Center"
-                           Foreground="{DynamicResource Text.Secondary}"
-                           FontSize="12"/>
-                <Button Grid.Column="2" Content="清空日志"
-                        Style="{StaticResource SecondaryButtonStyle}"
-                        HorizontalAlignment="Right"
-                        Padding="18,0" Margin="0"
-                        Click="ClearLogButton_Click"/>
-            </Grid>
+                            <DataTrigger Binding="{Binding Level}" Value="Warn">
+                                <Setter TargetName="Card" Property="BorderBrush"
+                                        Value="{DynamicResource Log.Warn}"/>
+                                <Setter TargetName="Badge" Property="Background" Value="#2EFFD60A"/>
+                                <Setter TargetName="BadgeText" Property="Foreground"
+                                        Value="{DynamicResource Log.Warn}"/>
+                            </DataTrigger>
+
+                            <DataTrigger Binding="{Binding Level}" Value="Error">
+                                <Setter TargetName="Card" Property="BorderBrush"
+                                        Value="{DynamicResource Log.Error}"/>
+                                <Setter TargetName="Badge" Property="Background" Value="#2EFF453A"/>
+                                <Setter TargetName="BadgeText" Property="Foreground"
+                                        Value="{DynamicResource Log.Error}"/>
+                            </DataTrigger>
+                        </DataTemplate.Triggers>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <TextBlock x:Name="EmptyHint"
+                       Text="暂无日志"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       IsHitTestVisible="False"
+                       Style="{StaticResource HintTextStyle}"/>
         </Grid>
-    </Border>
-    </StackPanel>
-    </ScrollViewer>
+    </Grid>
 </Page>

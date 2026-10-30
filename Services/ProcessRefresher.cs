@@ -107,6 +107,16 @@ namespace ZenForge.Services
             public int Pid { get; init; }
             public string Path { get; init; } = string.Empty;
             public double Cpu { get; init; }
+
+            /// <summary>
+            /// 进程基础优先级类（来自 PROCESSENTRY32.pcPriClassBase），只读展示用。
+            ///
+            /// 只取不设：SetPriorityClass 提到 RealTime / High 可能让一个忙循环的进程
+            /// 独占 CPU，把输入响应一起锁死（整机看起来像卡死）。而 pcPriClassBase
+            /// 是 Toolhelp 快照自带字段，不需要 OpenProcess 额外权限，
+            /// 对受保护进程也能拿到值，成本为零。
+            /// </summary>
+            public int PriorityClass { get; init; }
         }
 
         private static readonly Dictionary<int, ProcSample> _samples = new();
@@ -424,7 +434,8 @@ namespace ZenForge.Services
                             Name = name,
                             Pid = pid,
                             Path = sample.Path,
-                            Cpu = cpu
+                            Cpu = cpu,
+                            PriorityClass = entry.pcPriClassBase
                         });
                     }
                     while (Process32NextW(snapshot, ref entry));
