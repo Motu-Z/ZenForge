@@ -1,6 +1,6 @@
 # ZenForge UI 设计规范与实现标准
 
-> 基线：`1.0.0-can10` · WPF / .NET 10 · Windows 桌面
+> 基线：`1.0.1` · WPF / .NET 10 · Windows 桌面
 > 本文档的所有数值、键名均从代码中逐条核对得出，不是设计理想值。
 > **引用键名，不要发明新值。** 文末「已知漂移」列出了代码里存在但不该再用的东西。
 
@@ -477,6 +477,27 @@ Window 1120×780（min 920×600）
 进程列表是自绘 `Grid` + `Border`，**不是** `DataGrid`，所以行高由内容撑开、不受 `RowHeight` 约束。两套实现不要混用。
 
 **列表更新必须增量**：`Move` / `Insert` / `Remove`，禁止 `Clear()` + 重新 `Add`。后者会重建设施，造成闪屏、滚动跳变、焦点丢失、下拉框被强制关闭。
+
+**虚拟化必须写在 `ItemsControl.Template` 里**，不能用外层手写 `ScrollViewer` 包住 `ItemsControl`——那样 `VirtualizingStackPanel` 找不到 `IScrollInfo` 宿主，虚拟化静默失效，所有行一次性实例化（1.0.1 的内存问题就是这么来的）：
+
+```xml
+<ItemsControl VirtualizingStackPanel.IsVirtualizing="True"
+              VirtualizingStackPanel.VirtualizationMode="Recycling">
+    <ItemsControl.Template>
+        <ControlTemplate TargetType="ItemsControl">
+            <ScrollViewer CanContentScroll="True"
+                          VerticalScrollBarVisibility="Auto">
+                <ItemsPresenter/>
+            </ScrollViewer>
+        </ControlTemplate>
+    </ItemsControl.Template>
+    <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate><VirtualizingStackPanel/></ItemsPanelTemplate>
+    </ItemsControl.ItemsPanel>
+</ItemsControl>
+```
+
+**行状态不能用命令式改容器属性。** 开启 `Recycling` 后容器会被复用，代码直接设的 `Background` 不会复原（选中色会跟着滚动条跑）。行内的状态一律放进数据（`IsSelected` 之类），由 `DataTrigger` 映射成视觉。同一规则适用于任何 `Style`/模板里能表达的东西。
 
 ### 5.12 滚动条
 
