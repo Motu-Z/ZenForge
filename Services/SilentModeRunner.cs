@@ -56,6 +56,11 @@ namespace ZenForge.Services
             BindingStore.Load();
             UiSettingsStore.Load();
 
+            // 静默实例是场景自动切换的主战场：它常驻后台、没有界面，
+            // 方案列表与场景规则必须在任何事件到达之前就位。
+            ProfileService.Load();
+            ScenarioService.Load();
+
             TuningProfile profile = TuningStore.Profile;
             int[] margins = profile.CurveOptimizer ?? Array.Empty<int>();
             uint fMax = profile.FMaxMHz;

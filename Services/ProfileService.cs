@@ -24,10 +24,41 @@ namespace ZenForge.Services
     /// 现在把字段定死，等于逼着 v1.1.x 为了兼容这些字段去改写那两个已经稳定的类。
     /// 这里留空，等那两个类提供 CurrentValue 快照接口后再加。
     /// </summary>
-    public sealed class ProfileSnapshot
+    public sealed class ProfileSnapshot : System.ComponentModel.INotifyPropertyChanged
     {
         /// <summary>方案 Id（32 位无横线 GUID）。改名不改 Id —— 场景规则引用的是 Id。</summary>
         public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+        /// <summary>
+        /// 这一份是否当前生效中。
+        ///
+        /// 【为什么放在数据模型上，而不是让界面自己记】
+        /// 生效状态会被场景自动切换在后台改掉 —— 界面没参与那次切换，
+        /// 自己记的那份立刻就过时了。放在模型上，由 ProfileService 统一刷新，
+        /// 界面只需要一个 DataTrigger。
+        ///
+        /// 【为什么实现 INotifyPropertyChanged】
+        /// ObservableCollection 只管集合的增删，不管元素属性变化。
+        /// 切换方案时集合一条没动，变的只是哪个元素的 IsActive 为真；
+        /// 不发属性通知，界面上的「生效中」标记就永远停在第一份方案上。
+        /// </summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsActive
+        {
+            get => _isActive;
+            set
+            {
+                if (_isActive == value)
+                    return;
+
+                _isActive = value;
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsActive)));
+            }
+        }
+
+        private bool _isActive;
+
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 
         public string Name { get; set; } = string.Empty;
 
@@ -84,6 +115,16 @@ namespace ZenForge.Services
         /// <summary>当前生效方案的 Id；没有（启动后未切换过任何方案）时为 null。</summary>
         public static string? ActiveId { get; private set; }
 
+        /// <summary>
+        /// 把生效标记刷到每项上。集合本身不变，只改元素的 IsActive。
+        /// 每次写 ActiveId 之后都要调一次，否则界面上的标记会停在旧的那一套。
+        /// </summary>
+        private static void RefreshActiveMarks()
+        {
+            foreach (ProfileSnapshot snapshot in Items)
+                snapshot.IsActive = snapshot.Id == ActiveId;
+        }
+
         /// <summary>程序启动、或 store 被别处改动后重新读盘。</summary>
         public static void Load()
         {
@@ -105,6 +146,7 @@ namespace ZenForge.Services
                 // 增量对齐而不是 Clear() 重建：Clear 会让列表重建全部可视容器，
                 // 表现为一次闪烁 + 滚动弹回顶部（v1.0.3 在日志列表上修过同一个问题）。
                 MergeInto(loaded);
+                RefreshActiveMarks();
             }
 
             Changed?.Invoke();
@@ -177,7 +219,10 @@ namespace ZenForge.Services
                 // 刻意不回滚硬件：删掉一份方案只是不再留着这张卡片，
                 // 用户没说「把机器恢复原样」—— 那是「清除全部数据」的职责。
                 if (ActiveId == id)
+                {
                     ActiveId = null;
+                    RefreshActiveMarks();
+                }
 
                 Persist();
             }
@@ -221,6 +266,7 @@ namespace ZenForge.Services
             lock (Sync)
             {
                 ActiveId = snapshot.Id;
+                RefreshActiveMarks();
                 Persist();
             }
 

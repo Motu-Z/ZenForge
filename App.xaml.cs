@@ -369,6 +369,10 @@ namespace ZenForge
             // 日志服务在 UI 线程上下文中注册，后台线程写日志时自动封送回 UI 线程
             LogService.UiContext = SynchronizationContext.Current;
 
+            // 场景自动切换的调用方是后台的进程 / 电源事件线程，同样需要回到 UI 线程
+            // 才能动方案集合（v1.1.x 接入事件源后生效）。
+            ScenarioService.UiContext = SynchronizationContext.Current;
+
             // 全局禁用焦点虚线框（必须在任何控件被创建之前执行）
             DisableFocusVisuals();
 
@@ -965,6 +969,11 @@ namespace ZenForge
             TuningStore.Load();
             MaskStore.Load();
             BindingStore.Load();
+
+            // 方案与场景规则也要在启动时读进来：场景自动切换可能在界面还没打开
+            // 的时候就被后台事件触发，那时再读盘就晚了（规则还没进内存）。
+            ProfileService.Load();
+            ScenarioService.Load();
         }
 
         /// <summary>命令行 / 环境变量里是否要求详细日志。解析失败一律当作不开启。</summary>

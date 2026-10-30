@@ -6,26 +6,23 @@
 
     <!--
         ============================================================
-        配置页（v1.0.2）：场景自动切换 / 总体配置方案 / 规则库双列
+        配置页（v1.1.x 骨架接通）：场景自动切换 / 总体配置方案 / 规则库双列
         ============================================================
-        【本页的骨架先落地，功能留到 v1.1.x】
-        方案模型（方案 = 一份 CO/FMax 快照 + 一组绑核规则 + 一组优先级）
-        牵连三个 store，profiles.json 的字段还没定；场景自动切换要挂在
-        ProcessWatcher 上，而那个类现在只处理「绑核」，要扩成「监听 + 触发动作」。
+        【v1.0.2 只交付版式，v1.1.x 接上数据源】
+        版式一行没动，只做了三件事：
+          · 场景卡的总闸开关接 ScenarioService.Enabled；
+          · 方案卡接 ProfileService.Items，保存 / 应用 / 删除三个动作全部可用；
+          · 两张卡各有一条空状态行，列表有内容时自动隐藏。
 
-        所以这里只交付**结构与空状态**，不填任何假数据：
-          · 列表位置放一条 L6 的空状态行（「暂无方案」），不写「示例方案 A」；
-          · 所有按钮与开关一律 IsEnabled=False。
+        【仍然禁用的一块：规则库双列】
+        左右两列（调校规则 / 调度规则）需要各自的编辑器 —— 具体是「一条规则 =
+        一组 CO + FMax 的调校值」还是「一个可独立开关的调校片段」还没定。
+        现在摆两个能点但没反应的「新建」，等于骗用户功能已就绪，所以继续灰着。
 
-        为什么按钮不做成「点了弹一句还没实现」：
-        一个点了没反应的控件，和一个明确灰着的控件，后者才是对的 ——
-        前者让人以为软件坏了，后者让人知道这项还没到。
-        v1.1.x 接入时只需要把 IsEnabled 与列表数据源接上，版式一行不用动。
-
-        【规则库为什么双列等高】
-        两列的内容性质相同（都是规则列表），并排时高度必须一致，
-        否则左右两张卡的底边错开，看起来像其中一张是后来贴上去的。
-        Grid 的 * / * 两列 + 两张 Border 直接撑满，高度天然相等。
+        【列表为什么也要开虚拟化】
+        方案与场景规则的条目数确实只有个位数，但列表控件的规矩是统一的：
+        开了虚拟化，将来条数涨到几百也不会突然变成内存问题。
+        内外两层 ScrollViewer 的写法与进程页一致（缺一即失效）。
     -->
 
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -44,14 +41,56 @@
                                    Style="{StaticResource CardTitleStyle}"
                                    Margin="0"
                                    VerticalAlignment="Center"/>
-                        <ToggleButton HorizontalAlignment="Right"
+                        <ToggleButton x:Name="ScenarioToggle"
+                                      HorizontalAlignment="Right"
                                       Style="{StaticResource ToggleSwitchStyle}"
                                       VerticalAlignment="Center"
-                                      IsEnabled="False"/>
+                                      Checked="ScenarioToggle_Checked"
+                                      Unchecked="ScenarioToggle_Unchecked"/>
                     </Grid>
 
+                    <ItemsControl x:Name="ScenarioList" Focusable="False">
+                        <ItemsControl.Template>
+                            <ControlTemplate TargetType="ItemsControl">
+                                <ScrollViewer CanContentScroll="True"
+                                              MaxHeight="200"
+                                              VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled"
+                                              Focusable="False">
+                                    <ItemsPresenter/>
+                                </ScrollViewer>
+                            </ControlTemplate>
+                        </ItemsControl.Template>
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <VirtualizingStackPanel/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Style="{StaticResource ProcessRowStyle}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock Grid.Column="0"
+                                                   Style="{StaticResource TableCellMainStyle}"
+                                                   Text="{Binding TriggerText}"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Style="{StaticResource Text.Meta}"
+                                                   HorizontalAlignment="Right"
+                                                   Text="{Binding ProfileName}"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
                     <!-- 空状态：一行 L6 元数据，不画表头也不画行 -->
-                    <TextBlock Text="暂无场景规则"
+                    <TextBlock x:Name="ScenarioEmpty"
+                               Text="暂无场景规则"
                                Style="{StaticResource Text.Meta}"/>
                 </StackPanel>
             </Border>
@@ -67,17 +106,97 @@
                         <Button HorizontalAlignment="Right"
                                 Content="保存当前方案"
                                 Style="{StaticResource HeaderActionButtonStyle}"
-                                IsEnabled="False"/>
+                                Click="SaveCurrent_Click"/>
                     </Grid>
 
-                    <TextBlock Text="暂无方案"
+                    <ItemsControl x:Name="ProfileList" Focusable="False">
+                        <ItemsControl.Template>
+                            <ControlTemplate TargetType="ItemsControl">
+                                <ScrollViewer CanContentScroll="True"
+                                              MaxHeight="260"
+                                              VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled"
+                                              Focusable="False">
+                                    <ItemsPresenter/>
+                                </ScrollViewer>
+                            </ControlTemplate>
+                        </ItemsControl.Template>
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <VirtualizingStackPanel/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <!-- 行底色与悬停走现成的 ProcessRowStyle（与进程页同档）。
+                                     「生效中」用左侧圆点表示，圆点的显隐由 DataTrigger
+                                     绑 IsActive 驱动 —— 不用代码改背景：容器会被虚拟化复用，
+                                     硬改过的底色会跟着滚动条跑到别的行上。 -->
+                                <Border Style="{StaticResource ProcessRowStyle}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Ellipse Grid.Column="0"
+                                                 Width="6"
+                                                 Height="6"
+                                                 Margin="0,0,8,0"
+                                                 VerticalAlignment="Center"
+                                                 Fill="{DynamicResource AccentBrush}"
+                                                 Visibility="Collapsed">
+                                            <Ellipse.Style>
+                                                <Style TargetType="Ellipse">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Ellipse.Style>
+                                        </Ellipse>
+
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock Style="{StaticResource TableCellMainStyle}"
+                                                       Text="{Binding Name}"/>
+                                            <TextBlock Style="{StaticResource Text.Meta}"
+                                                       Margin="0,2,0,0"
+                                                       Text="{Binding Note}"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="2"
+                                                    Orientation="Horizontal"
+                                                    VerticalAlignment="Center"
+                                                    Margin="12,0,0,0">
+                                            <Button Content="应用"
+                                                    Style="{StaticResource HeaderActionButtonStyle}"
+                                                    Tag="{Binding Id}"
+                                                    Click="ApplyProfile_Click"/>
+                                            <Button Content="删除"
+                                                    Style="{StaticResource HeaderActionButtonStyle}"
+                                                    Margin="8,0,0,0"
+                                                    Tag="{Binding Id}"
+                                                    Click="DeleteProfile_Click"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBlock x:Name="ProfileEmpty"
+                               Text="暂无方案"
                                Style="{StaticResource Text.Meta}"/>
                 </StackPanel>
             </Border>
 
             <!-- ===== 规则库双列 =====
                  两列等宽、等高：外层的 Grid 用 * / *，两张卡各自
-                 填满自己那一格，底边自然对齐。 -->
+                 填满自己那一格，底边自然对齐。
+                 v1.1.x 待办：两列各自的规则编辑器（见页首注释）。 -->
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
