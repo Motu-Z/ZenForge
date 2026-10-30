@@ -1166,8 +1166,17 @@
          调校页与设置页并排看就是不一样。现在全工程只有 20 这一个数。
          20 的依据：行内容是「13px 标签 + 4 + 12px 说明」合计约 34px，
          行距 20 时上下留白约为内容的一半，两行之间能分清却不散。 -->
+    <!-- 卡内最后一行：把行距的 20px 收掉。
+         不收的话卡片底部会在 Padding 之上再叠一段空白，
+         卡片看起来「下沿比上沿厚一圈」。
+         全工程统一用这个键，别在页面里手写 Margin="0"：
+         手写的那一行在以后调行距时会被漏掉。 -->
     <Style x:Key="CardRowStyle" TargetType="Grid">
         <Setter Property="Margin" Value="0,0,0,20"/>
+    </Style>
+
+    <Style x:Key="CardRowLastStyle" TargetType="Grid">
+        <Setter Property="Margin" Value="0"/>
     </Style>
 
     <!-- 行主标签 → L4（13 / Medium / 纯白） -->
