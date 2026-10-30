@@ -479,41 +479,212 @@ namespace ZenForge
         ///
         /// 以前只在正常分支挂，升级分支漏了 —— 结果是升级后任何异常都表现为
         /// 「界面一闪就没了」，日志里只有一句 Dispatcher 栈，用户无从判断。
+        ///
+        /// ============================================================
+        /// 【1.0.0-can9 的「整机卡死 + 2772 条 FATAL + OOM」就是这里造成的】
+        /// ============================================================
+        /// 旧逻辑是：记日志 → 在闸门内**同步 ShowDialog** → finally 把闸门放回 0。
+        ///
+        /// 一旦某个异常是「持续性」的（当时是控件模板里找不到资源，每次 ApplyTemplate
+        /// 都会再抛一次），就变成：
+        ///
+        ///     Layout 抛异常 → 弹模态框（占住 UI 线程）→ 用户只能看着
+        ///     → 关框 / 框自身失败 → finally 放开闸门 → 下一帧 Layout 又抛
+        ///     → 再弹 …… 每轮都新建一个 Window 对象
+        ///
+        /// 日志里 20:28:37 那一秒内出现上千条记录、最后 OOM，是这条环路在疯狂重入：
+        /// 每次重入都新建窗口、都写一遍完整堆栈、都尝试拉起一个模态消息泵。
+        /// 用户看到的就是「进程页白了 + 整个软件卡死」。
+        ///
+        /// 三条修正，缺一不可：
+        ///   1. **连续异常不再弹框**：同一个异常在短时间内反复出现，说明界面已经
+        ///      处于坏状态，弹框既帮不上忙又可能自己也是坏的。只记一次日志。
+        ///   2. **闸门只在「弹框成功」后放开**：弹框自身失败说明 UI 已经不可用，
+        ///      此后再也不弹 —— 这正是旧代码 finally 无条件放开留下的口子。
+        ///   3. **每秒最多一个弹框**：即便异常各不相同，也不允许高频弹窗。
         /// </summary>
         private static void OnDispatcherUnhandledException(
             object? sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs args)
         {
-            // 先把栈落到磁盘再弹框：UI 线程已经出事了，弹框本身也可能失败
-            LogService.Critical($"未处理异常：{args.Exception}");
-
-            // 弹窗自身也可能抛（例如样式字典已损坏、Disposing 阶段窗口站被拆）。
-            // 用静态标志防止「弹窗抛 → 再次进 Dispatcher 异常 → 再弹窗」的递归，
-            // 递归下去会 StackOverflow，那是不可捕获的进程级崩溃。
-            if (Interlocked.Exchange(ref _dialogFailureGuard, 1) == 0)
-            {
-                try
-                {
-                    DarkDialog.ShowError(
-                        "发生了未预期的错误，详细信息已写入日志。\n\n" + args.Exception.Message,
-                        "未处理异常");
-                }
-                catch (Exception dialogError)
-                {
-                    // 弹框失败不能让异常继续往上冒
-                    LogService.Critical($"异常提示框自身失败：{dialogError}");
-                }
-                finally
-                {
-                    Interlocked.Exchange(ref _dialogFailureGuard, 0);
-                }
-            }
-
+            HandleUiException(args.Exception);
             args.Handled = true;
         }
 
+        /// <summary>同类异常连续出现这么多次后，不再为它弹框。</summary>
+        private const int RepeatedExceptionLimit = 3;
+
+        /// <summary>两次弹框之间的最小间隔（毫秒）。</summary>
+        private const int DialogCooldownMs = 1000;
+
+        /// <summary>同一签名异常的弹框次数上限。超了改走 Toast。</summary>
+        private const int SameSignatureDialogLimit = 1;
+
+        private static string _lastExceptionSignature = string.Empty;
+        private static int _repeatedCount;
+        private static long _lastDialogTick;
+        private static int _dialogBroken;
+
+        // 同一签名的异常已经弹过几次框（超限后只 Toast / 只记日志）
+        private static readonly Dictionary<string, int> _signatureDialogCount = new(StringComparer.Ordinal);
+
+        // Toast 通道被判定坏掉后永久停用（0 = 可用，1 = 已坏）
+        private static int _toastBroken;
+
         /// <summary>
-        /// 弹窗失败递归闸门：0 = 空闲，1 = 正在弹。
+        /// UI 线程未处理异常的统一出口。策略是**绝不悄悄退出**，按成本从低到高逐级降级：
+        ///
+        ///     1. 先落盘（Critical + 完整堆栈）—— 这一步几乎不可能失败；
+        ///     2. 尝试 Toast（非阻断，3 秒自散，不占 UI 线程）；
+        ///     3. Toast 用不了再尝试模态框（用户必须看到，但会占住 UI 线程）；
+        ///     4. 两者都用不了时，彻底静音，但继续记日志 —— 界面还能动就让它动。
+        ///
+        /// 全程不调 Shutdown：一个渲染异常不该等于「程序自己关了」。用户察觉不到
+        /// 界面问题时至少还能从托盘退出，而不是对着一个凭空消失的进程发火。
+        ///
+        /// 三条防风暴措施缺一不可（1.0.0-can9 整机卡死就是缺了它们）：
+        ///   · 同一签名（类型 + 最内层消息）连续出现超过 3 次 → 只记日志；
+        ///   · 同一签名最多弹 1 次模态框，之后改 Toast；
+        ///   · 两次模态框最小间隔 1000 ms，且弹框自身失败后永久停用模态框。
+        /// </summary>
+        private static void HandleUiException(Exception exception)
+        {
+            // ---------- 1. 先落盘 ----------
+            // UI 线程已经出事了，后面任何动作都可能失败；日志是唯一必须成功的动作。
+            try
+            {
+                LogService.Critical($"未处理异常：{exception}");
+            }
+            catch
+            {
+                // 连日志都写不了，只能放弃记录，但仍要继续尝试提示
+            }
+
+            // ---------- 2. 识别「同一个异常在刷屏」 ----------
+            // 只看类型 + 最内层消息：持续性 bug（模板找不到资源、布局死循环）
+            // 的特征就是这两者恒定不变，而栈每帧都不同。
+            string signature = exception.GetType().FullName + "|" + InnermostMessage(exception);
+            int seen;
+            if (signature == _lastExceptionSignature)
+            {
+                seen = ++_repeatedCount;
+            }
+            else
+            {
+                _lastExceptionSignature = signature;
+                seen = _repeatedCount = 1;
+            }
+
+            if (seen > RepeatedExceptionLimit)
+            {
+                // 已经提示（或本该提示）不少于 3 次还在继续：界面已处于坏状态，
+                // 再提示只是把用户锁死在对话框里，对定位没有任何增量信息。
+                if (seen == RepeatedExceptionLimit + 1)
+                {
+                    LogService.Critical(
+                        $"同一异常已连续出现 {RepeatedExceptionLimit} 次以上，" +
+                        "后续同类异常只记日志、不再提示（界面可能已处于不可用状态）。");
+                }
+                return;
+            }
+
+            // ---------- 3. 低频异常：先 Toast ----------
+            // Toast 不占 UI 线程、不建新窗口、失败只是静默返回，是这里最安全的
+            // 提示通道，所以放在模态框**前面**。模态框只留给「Toast 不可用」的场合。
+            if (Volatile.Read(ref _toastBroken) == 0 && TryToastException(exception))
+                return;
+
+            // ---------- 4. 模态框：同一签名只弹一次，且有频率上限 ----------
+            _signatureDialogCount.TryGetValue(signature, out int shown);
+            if (shown >= SameSignatureDialogLimit)
+                return;
+
+            if (Volatile.Read(ref _dialogBroken) != 0)
+                return;
+
+            long now = Environment.TickCount64;
+            if (now - Interlocked.Read(ref _lastDialogTick) < DialogCooldownMs)
+                return;
+
+            // 闸门：防止「弹框过程中又进异常」的重入（递归会 StackOverflow）。
+            if (Interlocked.Exchange(ref _dialogFailureGuard, 1) != 0)
+                return;
+
+            Interlocked.Exchange(ref _lastDialogTick, now);
+            _signatureDialogCount[signature] = shown + 1;
+            bool ok = false;
+            try
+            {
+                DarkDialog.ShowError(
+                    "发生了未预期的错误，详细信息已写入日志。\n\n" + exception.Message,
+                    "未处理异常");
+                ok = true;
+            }
+            catch (Exception dialogError)
+            {
+                // 弹框都失败了，说明可视树 / 主题字典已经不可用。
+                // 永久关闭弹框通道 —— 旧代码在 finally 里无条件放开闸门，
+                // 于是「弹框失败 → 下一帧再弹 → 再失败」可以无限循环。
+                Volatile.Write(ref _dialogBroken, 1);
+                LogService.Critical($"异常提示框自身失败，已停止弹框（后续只记日志）：{dialogError}");
+            }
+            finally
+            {
+                if (ok)
+                    Interlocked.Exchange(ref _dialogFailureGuard, 0);
+            }
+        }
+
+        /// <summary>
+        /// 用 Toast 报一次未处理异常。返回 false 表示 Toast 通道不可用，
+        /// 调用方应继续尝试更重的提示手段。
+        ///
+        /// 单独抽出来是因为这里必须**先判断可用性再调用**：ToastService.Show 自己
+        /// 会吞掉异常（那是它该做的），但调用方需要知道「到底显没显出来」。
+        /// </summary>
+        private static bool TryToastException(Exception exception)
+        {
+            try
+            {
+                if (ToastService.Host == null)
+                    return false;         // 宿主没挂（无窗口 / 启动早期），换模态框
+
+                // 一行能读完的摘要：异常类型 + 最内层消息。完整堆栈在日志里。
+                string summary = exception.GetType().Name + "：" + InnermostMessage(exception);
+                if (summary.Length > 120)
+                    summary = summary[..120] + "…";
+
+                ToastService.Error("发生未预期的错误，已写入日志 —— " + summary);
+                return true;
+            }
+            catch (Exception toastError)
+            {
+                Volatile.Write(ref _toastBroken, 1);
+                try
+                {
+                    LogService.Critical($"异常 Toast 自身失败，已停用 Toast 提示：{toastError}");
+                }
+                catch
+                {
+                    // 忽略
+                }
+
+                return false;
+            }
+        }
+
+        /// <summary>取最内层异常的消息：外层是包装异常时，外层消息往往是同一句废话。</summary>
+        private static string InnermostMessage(Exception exception)
+        {
+            Exception current = exception;
+            while (current.InnerException != null)
+                current = current.InnerException;
+            return current.Message;
+        }
+
+        /// <summary>
+        /// 弹窗重入闸门：0 = 空闲，1 = 正在弹。
         /// 用 Interlocked 而不是 bool，因为多个 Dispatcher 帧可能交错进入。
+        /// 注意：只有弹框**成功**才放回 0，见 HandleUiException。
         /// </summary>
         private static int _dialogFailureGuard;
 

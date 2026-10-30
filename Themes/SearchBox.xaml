@@ -22,9 +22,29 @@
         直接压到放大镜上面。日志页则是反过来多加一次 32，文字右移。
         同一个数字被用在了两个不同的坐标系里 —— 这是错位的全部原因。
 
-        【尺寸】
-        高 32、圆角 6、底色 Control.Background，与 AppTextBoxStyle 完全一致：
-        搜索框就是一个 TextBox，不该长得像另一种控件。
+        ============================================================
+        【关键：这个模板里绝对不能出现 StaticResource 引用】
+        ============================================================
+        1.0.0-can9 就是在这里炸的：输入框写了
+            Style="{StaticResource AppTextBoxStyle}"
+        模板内容是在**控件模板被解析的那一刻**求值的，而 StaticResource 的查找链是
+        「按元素树往上找」—— 模板里的元素在解析时还没有父级，链只走到模板本身，
+        永远到不了 Application.Resources。结果就是：
+
+            XamlParseException: 无法找到名为"AppTextBoxStyle"的资源
+
+        而且它只在**控件第一次真正套模板时**才炸（ApplyTemplate → Measure），
+        也就是「点开进程页」的瞬间 —— 启动、加载页面、编译期全都一声不响。
+
+        替代方案只有两条，这里用的是第二条：
+          1. DynamicResource —— 运行期查找，能走到 Application.Resources，
+             但每次模板实例化都要查一次字典，且解析失败静默（样式静默丢失）。
+          2. **在模板里把输入框的外形直接写出来**（也就是本文件的做法）。
+
+        模板里的颜色全部用 DynamicResource，那些键在 Themes/Palette.*.xaml 里，
+        同样通过 Application.Resources 暴露，DynamicResource 在运行期查得到。
+        注意：DynamicResource 只用于**画刷**这类会随主题替换的对象，
+        绝不用于 Style（Style 用 Dynamic 会在主题切换时重建模板，产生抖动）。
     -->
     <Style TargetType="{x:Type ctl:SearchBox}">
         <Setter Property="Height" Value="32"/>
@@ -44,7 +64,7 @@
                         </Grid.ColumnDefinitions>
 
                         <!-- 放大镜：Stretch=Uniform + 14×14，笔画粗细不随帧缩放失真。
-                             Data 用绝对坐标写死，不再依赖 sys:Double 资源
+                             Data 用绝对坐标写死，不依赖 sys:Double 资源
                              （试过，ColumnDefinition.Width 要 GridLength，
                               Double 资源运行期会抛「不是有效值」）。 -->
                         <Path Grid.Column="1"
@@ -60,19 +80,63 @@
                               Data="M 5.5,1 A 4.5,4.5 0 1 1 5.49,1 M 9,9 L 12,12"/>
 
                         <!-- 输入框与占位符共用第 2 列。
-                             占位符 Margin 只给左 32（= TextBox 的内部左内缩），
-                             垂直方向靠 VerticalAlignment=Center 与文字行盒对齐，
-                             不再各自补 1~2px 的「微调」—— 那些微调正是上一版
-                             占位符与光标基线差 1px 的来源。 -->
+                             输入框的样式在这里内联写出，不引用 AppTextBoxStyle ——
+                             原因见文件顶部「绝对不能出现 StaticResource」。
+                             外观与 AppTextBoxStyle 保持一致：高 32 / 圆角 6 /
+                             Control.Background / 1px 边框 / 聚焦转强调色。 -->
                         <Grid Grid.Column="2">
                             <TextBox x:Name="PART_Input"
-                                     Style="{StaticResource AppTextBoxStyle}"
                                      Height="32"
                                      Padding="32,0,10,0"
                                      VerticalContentAlignment="Center"
                                      HorizontalContentAlignment="Left"
                                      TextAlignment="Left"
-                                     BorderThickness="1"/>
+                                     FontFamily="{DynamicResource AppFontFamily}"
+                                     FontSize="13"
+                                     Background="{DynamicResource Control.Background}"
+                                     Foreground="{DynamicResource Input.Foreground}"
+                                     BorderBrush="{DynamicResource Input.Border}"
+                                     BorderThickness="1"
+                                     CaretBrush="{DynamicResource AccentBrush}"
+                                     SelectionBrush="{DynamicResource AccentBrush}"
+                                     SelectionOpacity="0.28"
+                                     FocusVisualStyle="{x:Null}"
+                                     SnapsToDevicePixels="True"
+                                     TextOptions.TextFormattingMode="Display"
+                                     TextOptions.TextRenderingMode="ClearType">
+                                <TextBox.Template>
+                                    <ControlTemplate TargetType="TextBox">
+                                        <Border x:Name="Bd"
+                                                Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                CornerRadius="6"
+                                                SnapsToDevicePixels="True">
+                                            <!-- Margin 取 Padding：光标起点 = 左内缩 32。
+                                                 这是整个搜索框里唯一决定「文字从哪开始」的地方。 -->
+                                            <ScrollViewer x:Name="PART_ContentHost"
+                                                          Margin="{TemplateBinding Padding}"
+                                                          VerticalAlignment="Center"
+                                                          Focusable="False"
+                                                          HorizontalScrollBarVisibility="Hidden"
+                                                          VerticalScrollBarVisibility="Hidden"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="BorderBrush"
+                                                        Value="{DynamicResource Input.BorderHover}"/>
+                                            </Trigger>
+                                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                                <Setter TargetName="Bd" Property="BorderBrush"
+                                                        Value="{DynamicResource AccentBrush}"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </TextBox.Template>
+                            </TextBox>
+
+                            <!-- 占位符：左内缩与输入框的 Padding.Left 同为 32，
+                                 相对同一个左缘，所以占位文字的第一个字与光标起点重合。 -->
                             <TextBlock x:Name="PART_Placeholder"
                                        Margin="32,0,10,0"
                                        VerticalAlignment="Center"

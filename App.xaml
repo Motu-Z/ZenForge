@@ -15,9 +15,10 @@
                 <!-- 控件样式 -->
                 <ResourceDictionary Source="Themes/Controls.xaml"/>
                 <!-- 搜索框（zenforge:SearchBox 的默认模板）。
-                     排在 Controls.xaml 之后：模板里引用 AppTextBoxStyle，
-                     那是 App.xaml 本地资源，元素树查找不受兄弟顺序影响，
-                     但 Controls 里的通用资源要先用上，保持与其它字典一致的先后。 -->
+                     模板内**故意不引用任何 StaticResource**：模板内容在解析时
+                     没有元素树父级，StaticResource 的查找链到不了 Application.Resources，
+                     写了必炸 XamlParseException，且只在控件首次 ApplyTemplate 时炸。
+                     颜色键全部走 DynamicResource（运行期查字典，能到 App.Resources）。 -->
                 <ResourceDictionary Source="Themes/SearchBox.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
@@ -471,18 +472,60 @@
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="ScrollBar">
+                            <!-- 这里的 Thumb / RepeatButton 外观全部内联写出，不引用
+                                 AppScrollBarThumbStyle / AppScrollBarPageButtonStyle。
+                                 这两个样式就定义在本字典顶层，看着「就在旁边」，但模板
+                                 内容是在模板自身被解析时求值的：此刻它还没有元素树父级，
+                                 StaticResource 的查找链只走到模板本身，永远到不了
+                                 Application.Resources。写上去编译期 0 警告，
+                                 运行期第一次套模板（任何列表第一次滚动条可见）时抛
+                                 XamlParseException —— 和 1.0.0-can9 搜索框那次
+                                 是同一个坑。两个样式本身保留（页面可能单独引用）。 -->
                             <Grid x:Name="Root" Background="Transparent">
                                 <Track x:Name="PART_Track" IsDirectionReversed="True">
                                     <Track.DecreaseRepeatButton>
-                                        <RepeatButton Style="{StaticResource AppScrollBarPageButtonStyle}"
-                                                      Command="ScrollBar.PageUpCommand"/>
+                                        <RepeatButton OverridesDefaultStyle="True"
+                                                      Focusable="False" IsTabStop="False"
+                                                      Command="ScrollBar.PageUpCommand">
+                                            <RepeatButton.Template>
+                                                <ControlTemplate TargetType="RepeatButton">
+                                                    <Border Background="Transparent"/>
+                                                </ControlTemplate>
+                                            </RepeatButton.Template>
+                                        </RepeatButton>
                                     </Track.DecreaseRepeatButton>
                                     <Track.Thumb>
-                                        <Thumb Style="{StaticResource AppScrollBarThumbStyle}"/>
+                                        <Thumb OverridesDefaultStyle="True" IsTabStop="False">
+                                            <Thumb.Template>
+                                                <ControlTemplate TargetType="Thumb">
+                                                    <Border x:Name="ThumbBd"
+                                                            Background="{DynamicResource Scrollbar.Thumb}"
+                                                            CornerRadius="3"
+                                                            Margin="2,0"/>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="ThumbBd" Property="Background"
+                                                                    Value="{DynamicResource Scrollbar.ThumbHover}"/>
+                                                        </Trigger>
+                                                        <Trigger Property="IsDragging" Value="True">
+                                                            <Setter TargetName="ThumbBd" Property="Background"
+                                                                    Value="{DynamicResource AccentBrush}"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Thumb.Template>
+                                        </Thumb>
                                     </Track.Thumb>
                                     <Track.IncreaseRepeatButton>
-                                        <RepeatButton Style="{StaticResource AppScrollBarPageButtonStyle}"
-                                                      Command="ScrollBar.PageDownCommand"/>
+                                        <RepeatButton OverridesDefaultStyle="True"
+                                                      Focusable="False" IsTabStop="False"
+                                                      Command="ScrollBar.PageDownCommand">
+                                            <RepeatButton.Template>
+                                                <ControlTemplate TargetType="RepeatButton">
+                                                    <Border Background="Transparent"/>
+                                                </ControlTemplate>
+                                            </RepeatButton.Template>
+                                        </RepeatButton>
                                     </Track.IncreaseRepeatButton>
                                 </Track>
                             </Grid>

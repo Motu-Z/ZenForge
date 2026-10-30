@@ -155,11 +155,121 @@ def walk2(el, parent_tag, fname, struct_out):
             walk2(c, tag(el), fname, struct_out)
 
 
+# ============================================================
+# [5] 模板内引用 StaticResource —— 1.0.0-can9 的整机卡死就是这条
+# ============================================================
+# ControlTemplate / DataTemplate 的内容是在**模板被解析的那一刻**求值的，
+# 而 StaticResource 按元素树向上查找。模板里的元素此刻还没有父级，
+# 查找链只走到模板本身，永远到不了 Application.Resources。于是：
+#
+#     XamlParseException: 无法找到名为"AppTextBoxStyle"的资源
+#
+# 更糟的是它**只在控件第一次真正套模板时**才炸（ApplyTemplate → Measure），
+# 编译期 0 警告、启动时一声不响 —— 用户点开进程页的瞬间才整页白掉。
+#
+# 判据：模板内出现的 StaticResource 键，只允许是本文件自己定义的
+#      （模板内的 <Template.Resources> / 同字典顶层 x:Key），
+#      以及框架内置键（求值后带 "+" 或命名空间前缀的，本工程定义不了）。
+#
+# 例外（**合法写法，不算问题**）：挂在外部容器上的模板。xx.ItemTemplate /
+# xx.ContentTemplate / xx.CellTemplate 的内容由容器在**已有元素树**里实例化
+# （ItemsControl 的视觉子树、ContentPresenter），StaticResource 能沿树一路
+# 走到 App.Resources。项目里 LogPage / ProcessBindingPage / MaskManagerWindow
+# 的那些 DataTemplate 都是这种，一次都没崩过 —— 把它们算进来会造成 20 条误报，
+# 把真问题淹掉。
+#
+# ControlTemplate 没有这个例外：WPF 在首次 ApplyTemplate 时解析它，
+# 此刻元素树根本没搭好，找不到就是找不到。
+#
+# 注意只查 StaticResource：DynamicResource 是运行期查字典，能走到
+# Application.Resources，不受这个限制。也不要为了「保险」把静态引用全改成
+# DynamicResource —— 样式类对象每帧重新查字典会重建模板，产生抖动。
+
+TEMPLATE_TAGS = {'ControlTemplate', 'DataTemplate', 'ItemsPanelTemplate'}
+
+# 模板的 DataTemplate 外层命中这些元素时，模板内容其实挂在**元素树的外部容器**上
+# （ItemsPanel 是 ItemsControl 的视觉子树、ContentTemplate 是 ContentPresenter 的），
+# StaticResource 能沿元素树走到 App.Resources —— 这正是 TuningPage.xaml /
+# MaskManagerWindow.xaml 里那份写法合法的原因。ControlTemplate 没有这种例外：
+# WPF 在首次 ApplyTemplate 时解析它，此时元素树根本没搭好。
+EXTERNAL_CONTAINER = {'ItemsPanel', 'ItemsControl.ItemsPanel'}
+
+
+def parent_tag_map(root):
+    """元素 -> 父元素标签（ElementTree 没有 parent 指针）。"""
+    parents = {}
+    for parent in root.iter():
+        if not isinstance(parent.tag, str):
+            continue
+        for child in parent:
+            if isinstance(child.tag, str):
+                parents[child] = tag(parent)
+    return parents
+
+
+def sibling_keys(el):
+    """模板内可见的键：自己这一层（<Style>/<ControlTemplate>）及其子孙里定义的。"""
+    keys = set()
+    for node in el.iter():
+        if not isinstance(node.tag, str):
+            continue
+        k = node.attrib.get(NS_X + 'Key')
+        if k:
+            keys.add(k)
+    return keys
+
+
+def check_template_staticresource(root, fname, out, parents=None):
+    """root 是一个模板节点（ControlTemplate / DataTemplate / ItemsPanelTemplate）。"""
+    for el in root.iter():
+        if not isinstance(el.tag, str) or tag(el) not in TEMPLATE_TAGS:
+            continue
+
+        # 挂在外部容器上时跳过（见文件上方「例外」的说明）
+        if parents is not None and tag(el) in ('DataTemplate', 'ItemsPanelTemplate'):
+            outer = parents.get(el) or ''
+            # xx.ItemTemplate / xx.CellTemplate / xx.ContentTemplate 都是「外部容器」
+            if outer.split('.')[-1] in ('ItemTemplate', 'CellTemplate', 'ContentTemplate',
+                                        'ItemContainerStyle', 'ContentTemplateSelector'):
+                continue
+
+        local = sibling_keys(el)          # 模板自身子树里定义的键
+        # 模板外围（同字典顶层）定义的键
+        enclosing = {n.attrib.get(NS_X + 'Key') for n in root.iter()
+                     if isinstance(n.tag, str) and n.attrib.get(NS_X + 'Key')}
+
+        for node in el.iter():
+            if not isinstance(node.tag, str):
+                continue
+            for attr, val in node.attrib.items():
+                m = re.fullmatch(r'\{StaticResource\s+([^}]+)\}', val.strip())
+                if not m:
+                    continue
+                key = m.group(1).strip()
+                # 框架内置键（{x:Static SystemColors.WindowBrushKey} 求值后是
+                # "SystemColors+WindowBrushKey"，带命名空间或加号），本工程定义不了。
+                # 只认这一种，不能把「带点号的键」一刀切跳过 —— 本项目大量
+                # 资源键就叫 Text.MetaBrush / Icon.Width，一刀切会把真问题放过去。
+                if '+' in key or ':' in key:
+                    continue
+                if key in local:
+                    continue
+                scope = '同字典顶层' if key in enclosing else '本工程其它字典'
+                out.append((fname, tag(node), key, scope))
+
+
+def walk3(root, fname, sr_out):
+    parents = parent_tag_map(root)
+    for node in root.iter():
+        if isinstance(node.tag, str) and tag(node) in TEMPLATE_TAGS:
+            check_template_staticresource(node, fname, sr_out, parents)
+
+
 def main():
     files = [x for x in glob.glob('**/*.xaml', recursive=True) if not x.startswith('obj/')]
     kt = collect_keytypes(files)
 
-    type_out, struct_out, parse_fail, ctl_out = [], [], [], []
+    type_out, struct_out, parse_fail, ctl_out, sr_out = [], [], [], [], []
     trees = {}
     for f in files:
         try:
@@ -171,6 +281,7 @@ def main():
         walk(root, None, f, type_out, kt)
         walk2(root, None, f, struct_out)
         check_events(root, f, ctl_out)
+        walk3(root, f, sr_out)
 
     print(f'[1] XML 解析失败：{len(parse_fail)}')
     for f, e in parse_fail:
@@ -189,7 +300,13 @@ def main():
     for o in ctl_out:
         print(f'    {o[0]}  <{o[1]}>  {o[2]}')
 
-    return 1 if (parse_fail or type_out or struct_out or ctl_out) else 0
+    print(f'[5] 模板内引用了模板外看不见的 StaticResource：{len(sr_out)}')
+    for f, t, key, scope in sr_out:
+        print(f'    {f}  <{t}>  StaticResource "{key}"（该键定义在{scope}，')
+        print(f'        模板解析时查找链到不了，运行期首次套模板即抛 XamlParseException）')
+        print(f'        改法：内联写出，或改用 DynamicResource')
+
+    return 1 if (parse_fail or type_out or struct_out or ctl_out or sr_out) else 0
 
 
 if __name__ == '__main__':

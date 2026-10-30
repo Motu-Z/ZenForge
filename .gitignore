@@ -21,3 +21,7 @@ Thumbs.db
 # 临时发布目录
 publish_tmp/
 publish_out/
+
+# Python 缓存（xamlcheck.py 运行时生成）
+__pycache__/
+*.pyc
