@@ -458,7 +458,8 @@ namespace ZenForge.Services
             if (pid <= 0 || string.IsNullOrEmpty(name))
                 return;
 
-            // 已有记录直接跳过（只读判断，不写入）
+            // 已有记录直接跳过。这一步不是 TryAdd 的冗余：规则查询（FindRuleFor）要遍历
+            // 整份规则表，先挡掉已处理的 PID 能省掉绝大多数无谓查询。
             if (_handledPids.Contains(pid))
                 return;
 
@@ -663,7 +664,8 @@ namespace ZenForge.Services
                 }
             }
 
-            // 清理已退出进程的 PID（防止 PID 复用导致新进程被误判为已绑定）
+            // 清理已退出进程的 PID（防止 PID 复用导致新进程被误判为已绑定）。
+            // 用「本轮存活数」做上界判断：记录数不可能少于存活数，多出来的必然已退出。
             if (_handledPids.Count > alive.Count)
                 _handledPids.PruneTo(alive);
         }

@@ -29,6 +29,18 @@ ZenForge 各版本改动记录。安装包与 Release 正文均以本文件为�
 
 程序内部（日志、关于信息）显示的版本取自 `AssemblyInformationalVersion`，带后缀；资源管理器「属性 → 详细信息」里的文件版本是四段数字。两者一对照就能确定这个包是第几次发版。
 
+### 0.9.5-can1
+
+底层接口对齐。这一轮碰的是与内核打交道的代码，原则是**只动调度与组织，不动任何对外契约**。
+
+`CpuSetBinder.BindToMask` 的逐位探测改为走掩码里实际置位的位（`TrailingZeroCount` 依次消去最低位），并新增 `MaskWidth` 把超出本机核数的位一次性截掉。语义与旧实现完全相同 —— 12 组典型掩码（含全 1、仅最高位、32 位边界）× 10 种核数（1 / 4 / 8 / 16 / 24 / 32 / 63 / 64 / 96 / 128）加 3000 组随机对照，3120 个用例的 CpuSetId 序列逐条一致。
+
+`NativeTrayIcon`：`NOTIFYICONDATA` 的构造在两处（添加 / 删除图标）重复了一遍，收敛成 `NewIconData()`。字段赋值顺序与取值不变，`cbSize` 仍按 `Marshal.SizeOf` 现算。
+
+`ProcessWatcher`：补上两处并发意图说明 —— `HandleProcess` 里的 `Contains` 前置判断不是 `TryAdd` 的冗余（它省掉的是规则表的整表遍历），`ScanOnce` 的清理门槛用「记录数 > 存活数」而不是固定阈值。
+
+红线部分逐字未动，已用 diff 核对：`WakeWindow` / `NativeTrayIcon` / `CpuSetBinder` / `ProcessRefresher` 里的全部 `[DllImport]` 声明、`SYSTEM_CPU_SET_INFORMATION` / `WNDCLASSEX` / `NOTIFYICONDATA` / `PROCESSENTRY32` / `MSG` 等结构体的字段与 `[StructLayout]` 参数，一行没改。
+
 ### 0.9.2-can1
 
 模型与接口扫尾，不改动任何业务逻辑。

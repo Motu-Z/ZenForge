@@ -210,6 +210,19 @@ namespace ZenForge.Services
 
         // ==================== 托盘图标 ====================
 
+        /// <summary>
+        /// 托盘通知结构的基础字段。只填定位信息（尺寸 / 窗口 / 图标 ID），
+        /// 具体要操作哪几项由调用方按 NIM_ADD / NIM_DELETE 各自设置。
+        /// </summary>
+        private NOTIFYICONDATA NewIconData() => new()
+        {
+            cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
+            hWnd = _hwnd,
+            uID = TrayIconId,
+            szInfo = string.Empty,
+            szInfoTitle = string.Empty
+        };
+
         private void AddIcon()
         {
             if (_hwnd == IntPtr.Zero)
@@ -222,18 +235,11 @@ namespace ZenForge.Services
                 return;
             }
 
-            NOTIFYICONDATA data = new()
-            {
-                cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
-                hWnd = _hwnd,
-                uID = TrayIconId,
-                uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP,
-                uCallbackMessage = WM_TRAYICON,
-                hIcon = _icon,
-                szTip = "ZenForge — 后台绑核运行中",
-                szInfo = string.Empty,
-                szInfoTitle = string.Empty
-            };
+            NOTIFYICONDATA data = NewIconData();
+            data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+            data.uCallbackMessage = WM_TRAYICON;
+            data.hIcon = _icon;
+            data.szTip = "ZenForge — 后台绑核运行中";
 
             _added = NativeMethods.Shell_NotifyIconW(NIM_ADD, ref data);
 
@@ -338,13 +344,7 @@ namespace ZenForge.Services
 
             if (_added && _hwnd != IntPtr.Zero)
             {
-                NOTIFYICONDATA data = new()
-                {
-                    cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
-                    hWnd = _hwnd,
-                    uID = TrayIconId
-                };
-
+                NOTIFYICONDATA data = NewIconData();
                 try { NativeMethods.Shell_NotifyIconW(NIM_DELETE, ref data); }
                 catch { /* 进程正在退出，删不掉也无所谓 */ }
 

@@ -222,6 +222,10 @@ namespace ZenForge.Services
             Error = error
         };
 
+        /// <summary>本机可用逻辑核数对应的掩码范围，超出的位一律忽略。</summary>
+        private static ulong MaskWidth(int logicalCount) =>
+            logicalCount >= 64 ? ulong.MaxValue : (1UL << logicalCount) - 1;
+
         private static CpuSetBindResult Ok(uint[] ids, int ccdIndex) => new()
         {
             Success = true,
@@ -248,17 +252,20 @@ namespace ZenForge.Services
             if (mask == 0)
                 return Fail("掩码为 0，没有可绑定的逻辑核", -1);
 
+            uint[] table = _lpToCpuSetId;
             List<uint> ids = new();
-            int available = _lpToCpuSetId.Length;
 
-            for (int i = 0; i < 64 && i < available; i++)
+            // 只走掩码里实际置位的那些位：上限仍是 64（ulong 宽度）与可用核数取小。
+            ulong pending = mask & MaskWidth(table.Length);
+            while (pending != 0)
             {
-                if ((mask & (1UL << i)) != 0)
-                    ids.Add(_lpToCpuSetId[i]);
+                int i = System.Numerics.BitOperations.TrailingZeroCount(pending);
+                ids.Add(table[i]);
+                pending &= pending - 1;
             }
 
             if (ids.Count == 0)
-                return Fail($"掩码 0x{mask:X} 未命中任何逻辑核（本机仅 {available} 个）", -1);
+                return Fail($"掩码 0x{mask:X} 未命中任何逻辑核（本机仅 {_lpToCpuSetId.Length} 个）", -1);
 
             return ApplyCpuSets(processId, ids.ToArray(), -1);
         }
