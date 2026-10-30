@@ -1299,7 +1299,11 @@
                                      VerticalAlignment="Center"
                                      Fill="{TemplateBinding Foreground}"
                                      SnapsToDevicePixels="True"/>
-                            <ContentPresenter VerticalAlignment="Center"
+                            <!-- 文字颜色单独挂一层 TextBlock.Foreground，不直接用 Foreground：
+                                 选中态要把「底」翻成级别色、「字」翻成窗口底色，
+                                 两者必须分开控制（见下方 IsChecked 的注释）。 -->
+                            <ContentPresenter x:Name="Txt"
+                                              VerticalAlignment="Center"
                                               TextBlock.Foreground="{TemplateBinding Foreground}"/>
                         </StackPanel>
                     </Border>
@@ -1316,15 +1320,18 @@
                                 </Setter.Value>
                             </Setter>
                         </Trigger>
-                        <!-- 注意顺序：IsChecked 里把 Foreground 改成了窗口底色，
-                             而 Bd.Background 是从 Foreground 取的 —— 会一起翻成式。
-                             所以圆点与文字必须显式指向窗口底色，不能再用 TemplateBinding。 -->
+                        <!-- 选中：底翻成实心级别色，字与圆点翻成窗口底色。
+                             【不能改 Foreground 本身】
+                             Bd.Background 是从 Foreground 取的，一旦在这里把 Foreground
+                             改成窗口底色，底色会跟着变成窗口色 —— 深底深字，整枚胶囊消失。
+                             所以只改「文字层」与「圆点」，Foreground 始终是级别色。 -->
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="Bd" Property="Background"
                                     Value="{Binding Foreground, RelativeSource={RelativeSource TemplatedParent}}"/>
                             <Setter TargetName="Dot" Property="Fill"
                                     Value="{DynamicResource Window.Background}"/>
-                            <Setter Property="Foreground" Value="{DynamicResource Window.Background}"/>
+                            <Setter TargetName="Txt" Property="TextBlock.Foreground"
+                                    Value="{DynamicResource Window.Background}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
