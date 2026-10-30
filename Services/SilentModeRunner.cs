@@ -14,9 +14,6 @@ namespace ZenForge.Services
         /// <summary>是否成功应用了 FMax。</summary>
         public bool FMaxApplied { get; set; }
 
-        /// <summary>是否有任何一项被应用（全部跳过时也视为成功退出）。</summary>
-        public bool AnythingApplied => CurveOptimizerApplied || FMaxApplied;
-
         /// <summary>失败原因汇总（成功时为空）。</summary>
         public List<string> Errors { get; } = new();
 

@@ -82,10 +82,8 @@ namespace ZenForge.Helpers
 
     public static class UiSettingsStore
     {
-        private static readonly string ConfigDirectory =
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZenForge");
-
-        private static readonly string FilePath = Path.Combine(ConfigDirectory, "ui.json");
+        private static readonly string FilePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZenForge", "ui.json");
 
         public static UiSettings Settings { get; private set; } = new();
 
@@ -93,7 +91,7 @@ namespace ZenForge.Helpers
         {
             try
             {
-                Settings = File.Exists(FilePath) ? ReadFromDisk() : new UiSettings();
+                Settings = ReadFromDisk() ?? new UiSettings();
             }
             catch
             {
@@ -103,8 +101,11 @@ namespace ZenForge.Helpers
             Normalize();
         }
 
-        private static UiSettings ReadFromDisk()
+        private static UiSettings? ReadFromDisk()
         {
+            if (!File.Exists(FilePath))
+                return null;
+
             string json = File.ReadAllText(FilePath);
             UiSettings settings = JsonSerializer.Deserialize<UiSettings>(json) ?? new UiSettings();
 
@@ -137,10 +138,7 @@ namespace ZenForge.Helpers
         {
             try
             {
-                Directory.CreateDirectory(ConfigDirectory);
-                string temp = FilePath + ".tmp";
-                File.WriteAllText(temp, JsonSerializer.Serialize(Settings, new JsonSerializerOptions { WriteIndented = true }));
-                File.Move(temp, FilePath, true);
+                JsonFile.Write(FilePath, Settings);
             }
             catch
             {

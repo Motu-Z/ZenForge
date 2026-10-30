@@ -1,8 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
+using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 
 namespace ZenForge.Helpers
 {
@@ -64,6 +63,7 @@ namespace ZenForge.Helpers
         }
     }
 
+    /// <summary>bindings.json 的根对象。</summary>
     public sealed class BindingProfile
     {
         public List<BindingRule> Rules { get; set; } = new();
@@ -75,10 +75,8 @@ namespace ZenForge.Helpers
     /// </summary>
     public static class BindingStore
     {
-        private static readonly string Directory =
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZenForge");
-
-        private static readonly string FilePath = Path.Combine(Directory, "bindings.json");
+        private static readonly string FilePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZenForge", "bindings.json");
 
         /// <summary>
         /// 保护 Profile 引用与磁盘读写。
@@ -120,10 +118,7 @@ namespace ZenForge.Helpers
         /// </summary>
         private static BindingProfile? ReadFromDisk()
         {
-            if (!File.Exists(FilePath))
-                return null;
-
-            BindingProfile? loaded = JsonSerializer.Deserialize<BindingProfile>(File.ReadAllText(FilePath));
+            BindingProfile? loaded = JsonFile.Read<BindingProfile>(FilePath);
             if (loaded == null)
                 return null;
 
@@ -152,11 +147,7 @@ namespace ZenForge.Helpers
             {
                 try
                 {
-                    System.IO.Directory.CreateDirectory(Directory);
-                    string temp = FilePath + ".tmp";
-                    File.WriteAllText(temp, JsonSerializer.Serialize(
-                        profile, new JsonSerializerOptions { WriteIndented = true }));
-                    File.Move(temp, FilePath, true);
+                    JsonFile.Write(FilePath, profile);
                     _profile = profile;
                 }
                 catch (Exception ex)

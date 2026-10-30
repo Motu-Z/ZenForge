@@ -5,7 +5,6 @@ using System.ServiceProcess;
 using System.Threading;
 using ZenStates.Core;
 using ZenForge.Helpers;
-using ZenForge.Services;
 
 namespace ZenForge.Services
 {
@@ -140,16 +139,6 @@ namespace ZenForge.Services
             lock (_sharedLock)
             {
                 return _shared is { IsAvailable: true } r ? r._coresPerCcd : 0u;
-            }
-        }
-
-        /// <summary>共享实例当前是否可用（不触发创建）。</summary>
-        public static bool IsSharedAvailable
-        {
-            get
-            {
-                lock (_sharedLock)
-                    return _shared is { IsAvailable: true };
             }
         }
 
@@ -751,7 +740,6 @@ namespace ZenForge.Services
 
         /// <summary>当前 FMax 上限（MHz，0 = 未知）。</summary>
         public uint FMaxMHz { get; set; }
-
     }
 
     /// <summary>Curve Optimizer 写入结果（含逐核回读校验）。</summary>

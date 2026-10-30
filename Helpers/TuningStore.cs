@@ -1,6 +1,5 @@
 ﻿using System;
 using System.IO;
-using System.Text.Json;
 using ZenForge.Services;
 
 namespace ZenForge.Helpers
@@ -29,10 +28,8 @@ namespace ZenForge.Helpers
 
     public static class TuningStore
     {
-        private static readonly string DirectoryPath =
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZenForge");
-
-        private static readonly string FilePath = Path.Combine(DirectoryPath, "tuning.json");
+        private static readonly string FilePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZenForge", "tuning.json");
 
         public static TuningProfile Profile { get; private set; } = new();
 
@@ -40,11 +37,7 @@ namespace ZenForge.Helpers
         {
             try
             {
-                if (!File.Exists(FilePath))
-                    return;
-
-                TuningProfile? loaded = JsonSerializer.Deserialize<TuningProfile>(File.ReadAllText(FilePath));
-                if (loaded != null)
+                if (JsonFile.Read<TuningProfile>(FilePath) is { } loaded)
                     Profile = loaded;
             }
             catch
@@ -60,10 +53,7 @@ namespace ZenForge.Helpers
 
             try
             {
-                Directory.CreateDirectory(DirectoryPath);
-                string temp = FilePath + ".tmp";
-                File.WriteAllText(temp, JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true }));
-                File.Move(temp, FilePath, true);
+                JsonFile.Write(FilePath, profile);
                 Profile = profile;
             }
             catch (Exception ex)

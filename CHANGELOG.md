@@ -29,6 +29,16 @@ ZenForge 各版本改动记录。安装包与 Release 正文均以本文件为�
 
 程序内部（日志、关于信息）显示的版本取自 `AssemblyInformationalVersion`，带后缀；资源管理器「属性 → 详细信息」里的文件版本是四段数字。两者一对照就能确定这个包是第几次发版。
 
+### 0.9.2-can1
+
+模型与接口扫尾，不改动任何业务逻辑。
+
+四个配置 store（`ui.json` / `bindings.json` / `masks.json` / `tuning.json`）原本各有一份一模一样的「先写 .tmp 再原子替换」代码，统一收进新的 `Helpers/JsonFile.cs`；四个路径常量也从「先拼目录再拼文件名」合并成一次 `Path.Combine`，目录创建交给写入方统一负责。新旧实现的写入结果逐字节比对一致（缩进格式、换行、`.tmp` 是否残留、缺失文件与内容为 `null` 的返回值全部核对过）。
+
+删掉三个确认无调用方的公开成员：`SmuReader.IsSharedAvailable`（已有等价的 `PeekCoresPerCcdRaw`）、`MaskFormatter.ToHexText`、`SilentRunResult.AnythingApplied`（退出码只用 `Errors` 与 `HasActiveRules` 判定）。`SmuReader` 里一处指向自身命名空间的冗余 `using`、以及几处随重构失去用途的命名空间引用一并清掉。
+
+接口面保留未删的成员：`ThemeService.ApplyFromSettings`（`Initialize` 的唯一调用点）、`SmuReader.TryCreate`、`ProcessWatcher` 内部的 `TryAdd` / `PruneTo` —— 它们都有实际调用者，只是同名符号的检索会误报。
+
 ### 0.9.1-can2
 
 第二轮界面复核，仍是纯整理。

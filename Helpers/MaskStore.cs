@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Numerics;
-using System.Text.Json;
 using ZenForge.Services;
 
 namespace ZenForge.Helpers
@@ -30,10 +29,8 @@ namespace ZenForge.Helpers
     /// </summary>
     public static class MaskStore
     {
-        private static readonly string DirectoryPath =
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZenForge");
-
-        private static readonly string FilePath = Path.Combine(DirectoryPath, "masks.json");
+        private static readonly string FilePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZenForge", "masks.json");
 
         private static readonly List<CustomMask> _masks = new();
 
@@ -74,15 +71,12 @@ namespace ZenForge.Helpers
         {
             try
             {
-                if (!File.Exists(FilePath))
+                List<CustomMask>? loaded = JsonFile.Read<List<CustomMask>>(FilePath);
+                if (loaded == null)
                     return;
 
-                List<CustomMask>? loaded =
-                    JsonSerializer.Deserialize<List<CustomMask>>(File.ReadAllText(FilePath));
-
                 _masks.Clear();
-                if (loaded != null)
-                    _masks.AddRange(loaded.Where(m => !string.IsNullOrWhiteSpace(m.Name)));
+                _masks.AddRange(loaded.Where(m => !string.IsNullOrWhiteSpace(m.Name)));
             }
             catch (Exception ex)
             {
@@ -94,11 +88,7 @@ namespace ZenForge.Helpers
         {
             try
             {
-                Directory.CreateDirectory(DirectoryPath);
-                string temp = FilePath + ".tmp";
-                File.WriteAllText(temp, JsonSerializer.Serialize(
-                    _masks, new JsonSerializerOptions { WriteIndented = true }));
-                File.Move(temp, FilePath, true);
+                JsonFile.Write(FilePath, _masks);
                 Changed?.Invoke();
             }
             catch (Exception ex)

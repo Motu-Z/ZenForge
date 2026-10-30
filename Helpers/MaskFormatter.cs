@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Numerics;
 
 namespace ZenForge.Helpers
 {
@@ -47,18 +46,6 @@ namespace ZenForge.Helpers
             }
 
             return string.Join(",", parts);
-        }
-
-        /// <summary>位掩码转十六进制文本（按实际有效位数补零到 4 的倍数）。</summary>
-        public static string ToHexText(ulong mask)
-        {
-            if (mask == 0)
-                return "0x0";
-
-            // 有效位数 = 最高位下标 + 1，再向上取整到 4 的倍数（16 位 → 4 个十六进制字符）
-            int hexDigits = Math.Max(1, (BitOperations.Log2(mask) + 1 + 3) / 4);
-
-            return "0x" + mask.ToString("X" + hexDigits);
         }
 
         /// <summary>
