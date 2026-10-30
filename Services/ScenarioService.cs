@@ -273,14 +273,27 @@ namespace ZenForge.Services
             }
 
             string? target = Resolve(active);
-            if (target == null || target == LastAppliedProfileId)
+
+            // 没有规则命中时**刻意什么都不做**。
+            // 场景只负责「切到某套」，不负责「切回去」——
+            // 用户手动选的那套不该被一条没命中的规则覆盖掉。
+            if (target == null)
                 return;
 
-            // 先记后切：切换会触发 Changed，界面重入 Notify 时不会重复切同一套
+            // 【为什么比的是 ProfileService.ActiveId，而不是自己记的 LastAppliedProfileId】
+            // 「上次是场景切的」不等于「现在还是那套」：中间用户可能手动切过。
+            // 比自己那份会出现这样的现场 —— 插电时场景切到「性能」，用户手动切到
+            // 「静音」，再拔插一次电源，场景一看 target 和上次一样就跳过了，
+            // 于是用户的手动选择被无声地保留下来，而他期待的是场景重新接管。
+            // 比「当前实际生效的是哪套」，两种来源的切换都算数，才不会短路错。
+            bool alreadyActive = string.Equals(target, ProfileService.ActiveId, StringComparison.Ordinal);
             LastAppliedProfileId = target;
 
+            if (alreadyActive)
+                return;
+
             if (ProfileService.Apply(target))
-                LogService.Info($"场景切换：已应用方案 {ProfileService.FindById(target)?.Name ?? target}");
+                LogService.Info($"场景切换：{Describe(target)} ← {DescribeHit(active)}");
             else
                 LogService.Warn("场景切换：目标方案不存在，已跳过（方案可能已被删除）");
         }
@@ -303,6 +316,41 @@ namespace ZenForge.Services
                     .Select(rule => rule.ProfileId)
                     .FirstOrDefault(id => !string.IsNullOrEmpty(id));
             }
+        }
+
+        /// <summary>方案名；查不到就退回 Id —— 日志里写「（已删除）」会被读成别的问题。</summary>
+        private static string Describe(string profileId)
+            => ProfileService.FindById(profileId)?.Name ?? profileId;
+
+        /// <summary>
+        /// 把「此刻成立的触发」写成一句人话，只服务于日志。
+        ///
+        /// 「它为什么自己把方案切了」是这个功能最难自查的问题：日志里只有一句
+        /// 「已应用方案 X」，用户对着它没法判断是哪条规则命中的。补上触发源，
+        /// 排查时一眼就能对上。
+        /// </summary>
+        private static string DescribeHit(IEnumerable<(ScenarioTrigger Trigger, string Argument)> active)
+        {
+            List<string> parts = new();
+            foreach ((ScenarioTrigger trigger, string argument) in active)
+            {
+                parts.Add(trigger switch
+                {
+                    ScenarioTrigger.ProcessRunning =>
+                        string.IsNullOrEmpty(argument) ? "进程" : $"进程 {argument}",
+                    ScenarioTrigger.OnBattery => "电池供电",
+                    _ => "交流供电"
+                });
+
+                // 进程能有几百个，全列出来会把一行日志撑成几 KB —— 而它只是背景信息。
+                if (parts.Count >= 4)
+                {
+                    parts.Add("…");
+                    break;
+                }
+            }
+
+            return parts.Count == 0 ? "无任何触发" : string.Join("、", parts);
         }
 
         private static bool Matches(ScenarioRule rule,
