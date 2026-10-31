@@ -3,12 +3,14 @@
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:local="clr-namespace:ZenForge.Views"
       xmlns:ctl="clr-namespace:ZenForge.Controls"
+      xmlns:helpers="clr-namespace:ZenForge.Helpers"
       FontFamily="{StaticResource AppFontFamily}"
       FontSize="13"
       TextOptions.TextFormattingMode="Display"
       TextOptions.TextRenderingMode="ClearType"
       Focusable="False"
       FocusVisualStyle="{x:Null}">
+
     <!--
         ============================================================
         进程页版式规格（v14）
@@ -42,6 +44,9 @@
     -->
 
     <UserControl.Resources>
+        <!-- 优先级档位：数据是英文常量（落盘值），显示是中文。见 PriorityLabelConverter。 -->
+        <helpers:PriorityLabelConverter x:Key="PriorityLabel"/>
+
         <!-- 行间距：2px 让相邻两行的圆角 hover 底之间留一条缝，读起来不粘成一块 -->
         <Style x:Key="ProcRowGridStyle" TargetType="Grid">
             <Setter Property="Margin" Value="0,0,0,2"/>
@@ -385,7 +390,13 @@
                                                           Style="{StaticResource TableCellComboStyle}"
                                                           ToolTip="{Binding PriorityHint}"
                                                           DropDownOpened="PriorityCombo_DropDownOpened"
-                                                          DropDownClosed="PriorityCombo_DropDownClosed"/>
+                                                          DropDownClosed="PriorityCombo_DropDownClosed">
+                                                          <ComboBox.ItemTemplate>
+                                                              <DataTemplate>
+                                                                  <TextBlock Text="{Binding Converter={StaticResource PriorityLabel}}"/>
+                                                              </DataTemplate>
+                                                          </ComboBox.ItemTemplate>
+                                                </ComboBox>
                                             </Grid>
                                         </Border>
                                         <DataTemplate.Triggers>
@@ -525,7 +536,13 @@
                                                           ItemsSource="{Binding Source={x:Static local:ProcessBindingPage.PriorityOptions}}"
                                                           SelectedItem="{Binding PrioritySelection, Mode=TwoWay}"
                                                           Style="{StaticResource TableCellComboStyle}"
-                                                          ToolTip="切换后点右侧「应用」才会生效"/>
+                                                          ToolTip="切换后点右侧「应用」才会生效">
+                                                    <ComboBox.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <TextBlock Text="{Binding Converter={StaticResource PriorityLabel}}"/>
+                                                        </DataTemplate>
+                                                    </ComboBox.ItemTemplate>
+                                                </ComboBox>
 
                                                 <!-- 三个按钮等宽等高、间距 8。最后一个 Margin 归零，行右缘与表头右缘对齐。 -->
                                                 <StackPanel Grid.Column="3"

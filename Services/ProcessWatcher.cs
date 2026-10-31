@@ -623,7 +623,7 @@ namespace ZenForge.Services
 
             if (result.Ok > 0)
             {
-                LogService.Info($"已设置优先级 PID {pid} → {label}");
+                LogService.Info($"已设置优先级 PID {pid} → {ProcessPriority.DisplayOf(label)}");
                 return;
             }
 
@@ -640,7 +640,7 @@ namespace ZenForge.Services
             if (LogThrottle.TryAcquire(throttleKey, out int suppressed))
             {
                 LogService.Warn(
-                    $"设置优先级失败 {name}（PID {pid}）→ {label}：{result.Error}{LogThrottle.SuppressedSuffix(suppressed)}");
+                    $"设置优先级失败 {name}（PID {pid}）→ {ProcessPriority.DisplayOf(label)}：{result.Error}{LogThrottle.SuppressedSuffix(suppressed)}");
             }
         }
 

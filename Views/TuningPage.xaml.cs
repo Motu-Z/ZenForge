@@ -256,13 +256,20 @@ namespace ZenForge.Views
         }
 
         /// <summary>
-        /// 副行文案：规格 · SMU 版本。
+        /// 副行文案：规格 · SMU 状态。
         /// 规格拿不到时只显示 SMU；两者都没有时给一句「处理器已识别」，
         /// 避免副行整行空白，让卡片看起来像没填完。
+        ///
+        /// 【v1.2.0：不再把 SMU 版本号摆到界面上】
+        /// 原来副行写的是「SMU 0x4621A00」——那是 SMU 固件的消息版本号，
+        /// 对用户唯一的含义是「这台机器认不认得出 SMU」。写成十六进制以后，
+        /// 用户既不知道它是什么意思，也不知道它是好是坏，只能来问。
+        /// 现在只说结论「SMU 已联通」；版本号仍在日志与自检报告里保留 ——
+        /// 排查固件兼容性时那个数字是必需的，只是不该占着界面。
         /// </summary>
         private static string ComposeSubLine(string spec, string smuVersion)
         {
-            string smu = string.IsNullOrWhiteSpace(smuVersion) ? string.Empty : $"SMU {smuVersion}";
+            string smu = string.IsNullOrWhiteSpace(smuVersion) ? string.Empty : "SMU 已联通";
 
             if (!string.IsNullOrWhiteSpace(spec) && smu.Length > 0)
                 return $"{spec} · {smu}";

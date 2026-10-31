@@ -66,6 +66,26 @@ namespace ZenForge.Services
         /// </summary>
         public static readonly string[] Options = { High, AboveNormal, Normal, BelowNormal, Low };
 
+        /// <summary>
+        /// 档位常量 → 界面文案。
+        ///
+        /// 数据层保持英文常量（binding.json 里存的就是这些字符串，改掉等于废掉旧配置），
+        /// 只有「画给用户看」的地方走这里。翻译口径按技术圈习惯：
+        ///   Normal 是「标准」而不是「正常」—— 后者在中文里像在描述健康状况；
+        ///   Above/Below Normal 译「高于/低于标准」，保留「相对谁」的关系；
+        ///   RealTime 译「实时」，但我们不下发这一档（见 Options 的注释）。
+        /// </summary>
+        public static string DisplayOf(string label) => label switch
+        {
+            High => "高",
+            AboveNormal => "高于标准",
+            Normal => "标准",
+            BelowNormal => "低于标准",
+            Low => "低",
+            "RealTime" => "实时",
+            _ => string.IsNullOrEmpty(label) ? "—" : label,
+        };
+
         private const uint PRIORITY_CLASS_IDLE = 0x00000040;
         private const uint PRIORITY_CLASS_BELOW_NORMAL = 0x00004000;
         private const uint PRIORITY_CLASS_NORMAL = 0x00000020;

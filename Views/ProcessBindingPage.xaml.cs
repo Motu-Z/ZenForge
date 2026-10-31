@@ -152,14 +152,14 @@ namespace ZenForge.Views
         public string PriorityHint => _prioritySelection switch
         {
             ProcessBindingPage.PriorityHigh =>
-                "High：优先于普通进程获得 CPU 时间。适合游戏、实时音频等对延迟敏感的程序。",
+                "高：优先于标准进程获得 CPU 时间。适合游戏、实时音频等对延迟敏感的程序。",
             ProcessBindingPage.PriorityAboveNormal =>
-                "Above Normal：比普通略高，但仍会让位于 High。适合前台工作程序。",
+                "高于标准：比标准略高，但仍会让位于「高」。适合前台工作程序。",
             ProcessBindingPage.PriorityBelowNormal =>
-                "Below Normal：让位于普通进程，适合后台同步、下载。",
+                "低于标准：让位于标准进程，适合后台同步、下载。",
             ProcessBindingPage.PriorityLow =>
-                "Low：只在系统空闲时获得 CPU 时间。适合压缩、索引等纯后台任务。",
-            _ => "Normal：系统默认优先级。",
+                "低：只在系统空闲时获得 CPU 时间。适合压缩、索引等纯后台任务。",
+            _ => "标准：系统默认优先级。",
         };
 
         /// <summary>用户改了优先级（参数是新的档位标签）。</summary>
@@ -1247,8 +1247,12 @@ namespace ZenForge.Views
         /// 这是「基础优先级类」，取值只有几档固定值（4/6/8/10/13/24/32），
         /// 不随线程动态优先级浮动。未知值原样带出，不猜。
         /// </summary>
+        /// <summary>
+        /// 表格里那一列的优先级文案。数据层给的是 "High" / "Normal" 这类常量，
+        /// 直接画到界面上就是中英混排，所以统一过一道 <see cref="ProcessPriority.DisplayOf"/>。
+        /// </summary>
         private static string PriorityLabel(int pcPriClassBase) =>
-            ProcessPriority.FromBasePriority(pcPriClassBase);
+            ProcessPriority.DisplayOf(ProcessPriority.FromBasePriority(pcPriClassBase));
 
         // ---------- 规则解析 ----------
 
@@ -1813,7 +1817,9 @@ namespace ZenForge.Views
             int bound = HotApplyRule(row.Name);
 
             // 提示里带上优先级，否则用户看不出「应用」到底做了两件事还是一件
-            string prioNote = priorityOk > 0 ? $"，优先级 {rule.Priority}" : string.Empty;
+            string prioNote = priorityOk > 0
+                ? $"，优先级 {ProcessPriority.DisplayOf(rule.Priority)}"
+                : string.Empty;
 
             string msg = bound > 0
                 ? $"已重新应用规则：{row.Name} → {rule.Label}{prioNote}，对 {bound} 个正在运行的进程生效。"

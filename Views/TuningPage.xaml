@@ -165,15 +165,20 @@
                 </Grid>
             </Border>
 
-            <!-- ======= Curve Optimizer (逐核负压) =======
+            <!-- ======= 核心电压偏移（原 Curve Optimizer，逐核负压） =======
                  v12 是「8 列等宽网格、无 CCD 标签」。这里用 UniformGrid Columns=8，
                  每格一个输入框，由 BuildCoreGrid 在代码里按核数填充。
                  行间距靠每个格子的 Margin 制造，UniformGrid 没有 RowSpacing。
                  注意：输入框的填充顺序必须严格等于核心号（0..n-1），
-                 ApplySnapshot / CollectMargins 都按 CoreBoxes 的索引对位。 -->
+                 ApplySnapshot / CollectMargins 都按 CoreBoxes 的索引对位。
+
+                 【v1.2.0 改名】标题一律中文。CO 是圈内缩写，新手读「Curve Optimizer」
+                 不知道那是干什么的；「核心电压偏移」是它实际在做的事。
+                 三个卡片标题同时统一到 L2（15 / SemiBold），此前 FMax 那张用的是
+                 行标签样式，三张卡放在一起时标题字重与字号不一致，看着像没做完。 -->
             <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
                 <StackPanel>
-                    <TextBlock Text="Curve Optimizer (逐核负压)"
+                    <TextBlock Text="核心电压偏移"
                                Style="{StaticResource CardTitleStyle}"/>
 
                     <UniformGrid x:Name="CoreGrid" Columns="8"/>
@@ -190,6 +195,11 @@
                  不写「单位 MHz，留空沿用固件默认」：MHz 就在输入框右边，
                  而「留空沿用固件默认」是读说明书的人才需要知道的 —— 想知道机制看 README。 -->
             <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
+                <StackPanel>
+                    <!-- v1.2.0：标题从行标签升到 L2，与另外两张卡一致 -->
+                    <TextBlock Text="最高加速频率"
+                               Style="{StaticResource CardTitleStyle}"/>
+
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -197,7 +207,7 @@
                     </Grid.ColumnDefinitions>
 
                     <TextBlock Grid.Column="0"
-                               Text="最高加速频率 (FMax)"
+                               Text="加速频率上限"
                                Style="{StaticResource CardRowLabelStyle}"
                                VerticalAlignment="Center"/>
 
@@ -224,6 +234,7 @@
                                    VerticalAlignment="Center"/>
                     </Grid>
                 </Grid>
+                </StackPanel>
             </Border>
 
 
@@ -249,7 +260,7 @@
                  档位是整套策略，这项只管升频行为。 -->
             <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,16">
                 <StackPanel>
-                    <TextBlock Text="电源与策略" Style="{StaticResource CardTitleStyle}"/>
+                    <TextBlock Text="电源策略控制" Style="{StaticResource CardTitleStyle}"/>
 
                     <!-- 电源策略 -->
                     <Grid Style="{StaticResource CardRowStyle}">
