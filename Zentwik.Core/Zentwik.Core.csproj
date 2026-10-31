@@ -115,6 +115,11 @@
          以前是 LLT.ZenStates-Core 包传递带进来的，改成 DLL 引用后传递链断了，
          必须显式声明，否则 using System.ServiceProcess 直接编译失败。 -->
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.0" />
+
+    <!-- 只引 Abstractions，不引完整 DI 容器：Core 负责「按什么生命周期登记」，
+         容器本身由宿主创建。引完整包会把 ServiceProvider 实现拖进 Core，
+         等于让业务层拥有一个可以随手解析任意服务的入口。 -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
   </ItemGroup>
 
 </Project>

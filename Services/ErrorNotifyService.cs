@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Zentwik.Helpers;
 
 namespace Zentwik.Services
@@ -37,7 +37,7 @@ namespace Zentwik.Services
             // 日志永远写：这是审计轨迹，不受任何开关影响。
             try
             {
-                LogService.Error(string.IsNullOrEmpty(hint)
+                Svc.Log.Error(string.IsNullOrEmpty(hint)
                     ? $"{title}：{detail}"
                     : $"{title}：{detail}｜{hint}");
             }
@@ -47,7 +47,7 @@ namespace Zentwik.Services
             }
 
             // 用户关掉了「出错时通知我」：到此为止。
-            if (!UiSettingsStore.Settings.NotifyOnError)
+            if (!Svc.Ui.Settings.NotifyOnError)
                 return;
 
             try
@@ -64,7 +64,7 @@ namespace Zentwik.Services
             catch (Exception ex)
             {
                 // 通知失败绝不反过来影响业务 —— 静默记一笔。
-                try { LogService.Warn($"错误通知发送失败：{ex.Message}"); } catch { }
+                try { Svc.Log.Warn($"错误通知发送失败：{ex.Message}"); } catch { }
             }
         }
     }

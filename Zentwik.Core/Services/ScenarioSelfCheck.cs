@@ -24,12 +24,35 @@ namespace Zentwik.Core.Services
     /// 不是验证硬件；为跑一次自检把用户的负压值改掉，代价与收益完全不成比例。
     /// 硬件下发那一段只能靠真机验收。
     /// </summary>
-    public static class ScenarioSelfCheck
+    public class ScenarioSelfCheck
     {
-        /// <summary>跑一遍自检，把结果写进日志。任何一步抛异常都不会影响启动。</summary>
-        public static void Run()
+        private readonly ILogService _log;
+        private readonly ScenarioService _scenarios;
+        private readonly ProfileService _profiles;
+        private readonly ScenarioMonitor _monitor;
+        private readonly ITuningStore _tuning;
+        private readonly IBindingStore _bindings;
+
+        public ScenarioSelfCheck(ILogService log, ScenarioService scenarios, ProfileService profiles, ScenarioMonitor monitor, ITuningStore tuning, IBindingStore bindings)
         {
-            LogService.Info("========== 场景自动切换 · 底层自检开始 ==========");
+            ArgumentNullException.ThrowIfNull(log);
+            _log = log;
+            ArgumentNullException.ThrowIfNull(scenarios);
+            _scenarios = scenarios;
+            ArgumentNullException.ThrowIfNull(profiles);
+            _profiles = profiles;
+            ArgumentNullException.ThrowIfNull(monitor);
+            _monitor = monitor;
+            ArgumentNullException.ThrowIfNull(tuning);
+            _tuning = tuning;
+            ArgumentNullException.ThrowIfNull(bindings);
+            _bindings = bindings;
+        }
+
+        /// <summary>跑一遍自检，把结果写进日志。任何一步抛异常都不会影响启动。</summary>
+        public void Run()
+        {
+            _log.Info("========== 场景自动切换 · 底层自检开始 ==========");
 
             int passed = 0;
             int failed = 0;
@@ -96,17 +119,17 @@ namespace Zentwik.Core.Services
             // ---------- 6. 监听范围与规则内容一致 ----------
             Check("监听-按需：只挂规则真正需要的输入源", ref passed, ref failed, () =>
             {
-                bool active = ScenarioMonitor.IsActive;
-                bool wantProcess = ScenarioService.Enabled && ScenarioService.HasProcessRules;
-                bool wantPower = ScenarioService.Enabled && ScenarioService.HasPowerRules;
+                bool active = _monitor.IsActive;
+                bool wantProcess = _scenarios.Enabled && _scenarios.HasProcessRules;
+                bool wantPower = _scenarios.Enabled && _scenarios.HasPowerRules;
 
                 if (active != (wantProcess || wantPower))
                     return $"监听状态({active}) 与规则需求(进程={wantProcess}, 电源={wantPower}) 不一致";
 
-                if (ScenarioMonitor.IsProcessSourceAttached != wantProcess)
+                if (_monitor.IsProcessSourceAttached != wantProcess)
                     return "进程事件订阅与规则需求不一致";
 
-                if (ScenarioMonitor.IsPowerSourceAttached != wantPower)
+                if (_monitor.IsPowerSourceAttached != wantPower)
                     return "电源监听与规则需求不一致";
 
                 return null;
@@ -115,20 +138,20 @@ namespace Zentwik.Core.Services
             // ---------- 7. 快照抓取值正确 ----------
             Check("快照-抓取：抓到的是 store 当前值且规则已深拷贝", ref passed, ref failed, () =>
             {
-                ProfileSnapshot snapshot = ProfileService.CaptureCurrent("__selftest__");
+                ProfileSnapshot snapshot = _profiles.CaptureCurrent("__selftest__");
 
-                if (!snapshot.CurveOptimizer.SequenceEqual(TuningStore.Profile.CurveOptimizer))
+                if (!snapshot.CurveOptimizer.SequenceEqual(_tuning.Profile.CurveOptimizer))
                     return "CO 值与 store 不一致";
 
-                if (snapshot.FMaxMHz != TuningStore.Profile.FMaxMHz)
+                if (snapshot.FMaxMHz != _tuning.Profile.FMaxMHz)
                     return "FMax 值与 store 不一致";
 
                 // 规则必须是副本：方案保存之后继续改进程页，不能把已存的方案也改了。
                 // 引用相等意味着改动会互相串，那是最难查的一类 bug。
-                if (snapshot.BindingRules.Count != BindingStore.Profile.Rules.Count)
+                if (snapshot.BindingRules.Count != _bindings.Profile.Rules.Count)
                     return "规则条数与 store 不一致";
 
-                if (snapshot.BindingRules.Any(r => BindingStore.Profile.Rules.Any(c => ReferenceEquals(r, c))))
+                if (snapshot.BindingRules.Any(r => _bindings.Profile.Rules.Any(c => ReferenceEquals(r, c))))
                     return "规则未深拷贝：与当前规则集共享同一批对象";
 
                 return null;
@@ -137,25 +160,25 @@ namespace Zentwik.Core.Services
             // ---------- 8. 生效标记与 ActiveId 一致 ----------
             Check("标记-一致：IsActive 只在该生效的那一份上为真", ref passed, ref failed, () =>
             {
-                string? activeId = ProfileService.ActiveId;
-                int marked = ProfileService.Items.Count(p => p.IsActive);
+                string? activeId = _profiles.ActiveId;
+                int marked = _profiles.Items.Count(p => p.IsActive);
 
                 if (activeId == null)
                     return marked == 0 ? null : $"没有生效方案，却有 {marked} 份被标记";
 
-                return marked == 1 && ProfileService.Items.First(p => p.IsActive).Id == activeId
+                return marked == 1 && _profiles.Items.First(p => p.IsActive).Id == activeId
                     ? null
                     : $"被标记的有 {marked} 份，与 ActiveId 对不上";
             });
 
-            LogService.Info($"========== 自检结束：通过 {passed} 项，失败 {failed} 项 ==========");
+            _log.Info($"========== 自检结束：通过 {passed} 项，失败 {failed} 项 ==========");
 
             if (failed > 0)
-                LogService.Warn($"场景自检有 {failed} 项未通过，详见上方各项结果");
+                _log.Warn($"场景自检有 {failed} 项未通过，详见上方各项结果");
         }
 
         /// <summary>跑一个断言：返回 null 表示通过，返回字符串表示失败原因。</summary>
-        private static void Check(string name, ref int passed, ref int failed, Func<string?> body)
+        private void Check(string name, ref int passed, ref int failed, Func<string?> body)
         {
             string? error;
             try
@@ -170,12 +193,12 @@ namespace Zentwik.Core.Services
             if (error == null)
             {
                 passed++;
-                LogService.Info($"  [通过] {name}");
+                _log.Info($"  [通过] {name}");
             }
             else
             {
                 failed++;
-                LogService.Warn($"  [失败] {name} —— {error}");
+                _log.Warn($"  [失败] {name} —— {error}");
             }
         }
 
@@ -187,7 +210,7 @@ namespace Zentwik.Core.Services
         /// 跑一次自检把配置改掉，是最坏的一种副作用。
         /// 所以这里复制一份 Resolve 的判定条件出来验，而不是污染真实集合。
         /// </summary>
-        private static string? ResolveWith(IEnumerable<ScenarioRule> rules,
+        private string? ResolveWith(IEnumerable<ScenarioRule> rules,
                                            List<(ScenarioTrigger Trigger, string Argument)> active)
             => rules
                 .Where(rule => rule.Enabled && active.Any(a =>
@@ -197,7 +220,7 @@ namespace Zentwik.Core.Services
                 .Select(rule => rule.ProfileId)
                 .FirstOrDefault(id => !string.IsNullOrEmpty(id));
 
-        private static ScenarioRule New(ScenarioTrigger trigger, string argument, string profileId, int priority = 0)
+        private ScenarioRule New(ScenarioTrigger trigger, string argument, string profileId, int priority = 0)
             => new()
             {
                 Trigger = trigger,
@@ -207,7 +230,7 @@ namespace Zentwik.Core.Services
                 Enabled = true
             };
 
-        private static string? Expect(string? actual, string? expected)
+        private string? Expect(string? actual, string? expected)
         {
             // 「没命中」在两种表示之间要归一：Resolve 语义上返回 null 表示落空。
             string? normalized = string.IsNullOrEmpty(actual) ? null : actual;

@@ -159,7 +159,7 @@ namespace Zentwik.Views
         private void SetSmuState(SmuUiState state, string? detail = null)
         {
             // 就绪 / 写入 / 应用 / 失败状态不再有可视徽章；保留日志以便排查。
-            LogService.Info($"SMU 状态变更：{state}{(string.IsNullOrWhiteSpace(detail) ? "" : $" · {detail}")}");
+            Svc.Log.Info($"SMU 状态变更：{state}{(string.IsNullOrWhiteSpace(detail) ? "" : $" · {detail}")}");
         }
 
         /// <summary>在后台线程执行只读探测，完成后回 UI 线程刷新界面。</summary>
@@ -182,7 +182,7 @@ namespace Zentwik.Views
             {
                 SmuSnapshot snapshot = await System.Threading.Tasks.Task.Run(() =>
                 {
-                    SmuReader reader = SmuReader.Shared;
+                    SmuReader reader = Svc.Smu;
                     if (!reader.IsAvailable)
                         throw new InvalidOperationException(reader.LastError ?? "ZenStates-Core 初始化失败");
                     return reader.ReadSnapshot();
@@ -206,7 +206,7 @@ namespace Zentwik.Views
                 return true;
 
             string reason = snapshot?.Error ?? fallbackError ?? "未知原因";
-            LogService.Error($"{logPrefix}：{reason}");
+            Svc.Log.Error($"{logPrefix}：{reason}");
             SetSmuState(SmuUiState.Failed, reason);
 
             // 【为什么从弹窗改成 Toast】
@@ -336,21 +336,21 @@ namespace Zentwik.Views
                     filled++;
                 }
             }
-            LogService.Info($"界面已回填 {filled} 个核心的 CO 值");
+            Svc.Log.Info($"界面已回填 {filled} 个核心的 CO 值");
 
             if (snapshot.FMaxMHz > 0)
             {
                 FMaxBox.Text = snapshot.FMaxMHz.ToString();
-                LogService.Info($"FMax 输入框已回填：{snapshot.FMaxMHz} MHz");
+                Svc.Log.Info($"FMax 输入框已回填：{snapshot.FMaxMHz} MHz");
             }
 
             // 记录出厂基线：首次从 SMU 读到就存盘（回落 5400 由 TuningStore.ResetToFactory 处理）
-            if (TuningStore.Profile.FMaxBaselineMHz == 0 && snapshot.FMaxMHz > 0)
+            if (Svc.Tuning.Profile.FMaxBaselineMHz == 0 && snapshot.FMaxMHz > 0)
             {
-                TuningProfile profile = TuningStore.Profile;
+                TuningProfile profile = Svc.Tuning.Profile;
                 profile.FMaxBaselineMHz = snapshot.FMaxMHz;
-                TuningStore.Save(profile);
-                LogService.Info($"已记录 FMax 出厂基线：{snapshot.FMaxMHz} MHz");
+                Svc.Tuning.Save(profile);
+                Svc.Log.Info($"已记录 FMax 出厂基线：{snapshot.FMaxMHz} MHz");
             }
 
             EnableTuningControls();
@@ -492,7 +492,7 @@ namespace Zentwik.Views
 
             if (!result.Ok)
             {
-                LogService.Warn($"电源计划策略写入失败（{result.Setting}，目标 {label}）：{result.Error}");
+                Svc.Log.Warn($"电源计划策略写入失败（{result.Setting}，目标 {label}）：{result.Error}");
 
                 // 回滚 UI 到系统真实值
                 if (_planCurrent is PowerPlanProfile actual)
@@ -512,13 +512,13 @@ namespace Zentwik.Views
 
             _planCurrent = target;
             PlanHint.Text = ProcessorPowerPolicy.Description(target);
-            LogService.Info($"电源计划策略：已切换到「{label}」");
+            Svc.Log.Info($"电源计划策略：已切换到「{label}」");
 
             // 电池供电那一路若写失败，只提示一次，不影响用户已经看到的成功结果。
             // 这类情况多见于台式机（没有 DC 子组）或 OEM 锁死电池策略的方案。
             if (ProcessorPowerPolicy.LastDcWarning is string dcWarning)
             {
-                LogService.Warn($"电源计划策略：{dcWarning}");
+                Svc.Log.Warn($"电源计划策略：{dcWarning}");
                 ToastService.Info($"已切换到「{label}」（电池供电设置未能写入，插电状态已生效）");
                 return;
             }
@@ -542,7 +542,7 @@ namespace Zentwik.Views
 
             PlanCombo.IsEnabled = false;
             PlanHint.Text = $"当前系统无法读取电源策略：{reason}";
-            LogService.Warn($"电源计划策略不可用：{reason}");
+            Svc.Log.Warn($"电源计划策略不可用：{reason}");
         }
 
         // ---------- 升频模式 ----------
@@ -651,7 +651,7 @@ namespace Zentwik.Views
             SetBoostSelection(-1, string.Empty);
             BoostCombo.IsEnabled = false;
             BoostHint.Text = $"当前系统无法读取升频模式：{reason}";
-            LogService.Warn($"升频模式不可用：{reason}");
+            Svc.Log.Warn($"升频模式不可用：{reason}");
         }
 
         private async void BoostCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -693,7 +693,7 @@ namespace Zentwik.Views
 
             if (!result.Ok)
             {
-                LogService.Warn($"升频模式写入失败（{result.Setting}，目标 {label}）：{result.Error}");
+                Svc.Log.Warn($"升频模式写入失败（{result.Setting}，目标 {label}）：{result.Error}");
 
                 // 回滚 UI 到系统真实值，否则界面显示的值与硬件不一致
                 if (_boostCurrent is ProcessorPowerTuning.BoostMode actual)
@@ -708,7 +708,7 @@ namespace Zentwik.Views
 
             _boostCurrent = target.Value;
             BoostHint.Text = BoostHintFor(target.Value);
-            LogService.Info($"升频模式已切换为「{label}」");
+            Svc.Log.Info($"升频模式已切换为「{label}」");
             ToastService.Success($"升频模式：{label}");
         }
 
@@ -785,7 +785,7 @@ namespace Zentwik.Views
         {
             // 原始错误只进日志，不进界面。放这里是为了保证「读不到」与「写不进去」
             // 两条路径都能留下证据 —— 之前同一句话被拼进 UI，日志里反而只有半句。
-            LogService.Warn($"核心停放不可用的原始原因：{error}");
+            Svc.Log.Warn($"核心停放不可用的原始原因：{error}");
             return ParkingUnsupportedText;
         }
 
@@ -901,7 +901,7 @@ namespace Zentwik.Views
 
             if (!result.Ok)
             {
-                LogService.Warn($"核心停放写入失败（目标 {value}%）：{result.Error}");
+                Svc.Log.Warn($"核心停放写入失败（目标 {value}%）：{result.Error}");
 
                 // 回滚到写入前的值
                 _suppressParkingEvent = true;
@@ -922,7 +922,7 @@ namespace Zentwik.Views
 
             _parkingCurrent = value;
             ParkingHint.Text = ProcessorPowerTuning.ParkingHint(value);
-            LogService.Info($"核心停放上限已设为 {value}%");
+            Svc.Log.Info($"核心停放上限已设为 {value}%");
             ToastService.Success($"核心停放：{value}%");
         }
 
@@ -981,7 +981,7 @@ namespace Zentwik.Views
                 // 输入非法 = 用户刚打完字、焦点还在框里。用 Toast 提示而不是弹窗：
                 // 弹窗会抢走焦点，用户连"我刚才输的是什么"都看不到就得先关掉它。
                 ToastService.Warning($"FMax「{FMaxBox.Text}」不是有效的频率值");
-                LogService.Warn($"FMax 输入非法：\"{FMaxBox.Text}\"");
+                Svc.Log.Warn($"FMax 输入非法：\"{FMaxBox.Text}\"");
                 FMaxBox.Focus();
                 FMaxBox.SelectAll();
                 return null;
@@ -1019,7 +1019,7 @@ namespace Zentwik.Views
             // ToolTip 与提示文案里，需要看的人随时能看到。
             int activeCores = margins!.Count(v => v != int.MinValue);
 
-            LogService.Info($"开始下发：CO {activeCores} 个核心，FMax {fmax} MHz");
+            Svc.Log.Info($"开始下发：CO {activeCores} 个核心，FMax {fmax} MHz");
             ToastService.Info($"正在写入 CO（{activeCores} 核）与 FMax {fmax} MHz…");
 
             _ = ApplyAllAsync(margins!, fmax);
@@ -1057,7 +1057,7 @@ namespace Zentwik.Views
             {
                 result = await System.Threading.Tasks.Task.Run(() =>
                 {
-                    SmuReader reader = SmuReader.Shared;
+                    SmuReader reader = Svc.Smu;
                     SmuWriteResult co = reader.WriteCurveOptimizer(margins);
                     SmuFMaxResult fm = reader.WriteFMax(fmax);
                     return (co, fm);
@@ -1065,7 +1065,7 @@ namespace Zentwik.Views
             }
             catch (Exception ex)
             {
-                LogService.Error($"写入线程异常: {ex}");
+                Svc.Log.Error($"写入线程异常: {ex}");
                 SetSmuState(SmuUiState.Failed, ex.Message);
                 ToastService.Error($"写入过程中发生异常：{ex.Message}（详见日志）");
                 return;
@@ -1087,36 +1087,36 @@ namespace Zentwik.Views
             if (!coOk)
             {
                 if (!string.IsNullOrEmpty(co.Fatal))
-                    LogService.Error($"CO 写入致命错误：{co.Fatal}");
+                    Svc.Log.Error($"CO 写入致命错误：{co.Fatal}");
                 if (co.WriteFailed.Count > 0)
-                    LogService.Error($"CO 写入被拒核心：{string.Join(", ", co.WriteFailed)}");
+                    Svc.Log.Error($"CO 写入被拒核心：{string.Join(", ", co.WriteFailed)}");
                 if (co.VerifyFailed.Count > 0)
-                    LogService.Error($"CO 回读不一致核心：{string.Join(", ", co.VerifyFailed)}");
+                    Svc.Log.Error($"CO 回读不一致核心：{string.Join(", ", co.VerifyFailed)}");
             }
             else
             {
-                LogService.Info($"CO 全部 {co.Applied.Count} 个核心写入并回读一致");
+                Svc.Log.Info($"CO 全部 {co.Applied.Count} 个核心写入并回读一致");
             }
 
             if (!fmOk)
             {
-                LogService.Error(string.IsNullOrEmpty(fm.Fatal)
+                Svc.Log.Error(string.IsNullOrEmpty(fm.Fatal)
                     ? $"FMax 回读不一致：请求 {fm.Requested}，SMU 接受 {fm.SmuAccepted}，回读 {fm.ReadBack}"
                     : $"FMax 写入致命错误：{fm.Fatal}");
             }
             else
             {
-                LogService.Info($"FMax 写入并回读一致：{fm.ReadBack} MHz");
+                Svc.Log.Info($"FMax 写入并回读一致：{fm.ReadBack} MHz");
             }
 
             if (coOk && fmOk)
             {
                 // 就地修改，不新建：新建 TuningProfile 会把已保存的功耗墙一起抹掉
-                TuningProfile profile = TuningStore.Profile;
+                TuningProfile profile = Svc.Tuning.Profile;
                 profile.CurveOptimizer = margins.Where(v => v != int.MinValue).ToArray();
                 profile.FMaxMHz = fmax;
-                TuningStore.Save(profile);
-                LogService.Info("调校已应用并保存到本地配置（tuning.json）");
+                Svc.Tuning.Save(profile);
+                Svc.Log.Info("调校已应用并保存到本地配置（tuning.json）");
 
                 SetSmuState(SmuUiState.Applied, "CO + FMax 已生效 · 已保存");
                 // 普通反馈，改 Toast：用户刚点完「应用全部」，眼睛还在按钮上，
@@ -1150,7 +1150,7 @@ namespace Zentwik.Views
                         : $"· FMax：回读不一致（请求 {fm.Requested}，回读 {fm.ReadBack}）");
                 }
 
-                LogService.Error("部分写入失败，未保存配置：\n" + detail);
+                Svc.Log.Error("部分写入失败，未保存配置：\n" + detail);
 
                 string summary = !coOk && !fmOk ? "CO 与 FMax 均未完全生效"
                     : !coOk ? "部分核心的 CO 未生效"
@@ -1185,13 +1185,13 @@ namespace Zentwik.Views
             if (!TryCollectInputs(out int[]? margins, out uint fmax))
                 return;
 
-            TuningProfile profile = TuningStore.Profile;
+            TuningProfile profile = Svc.Tuning.Profile;
             profile.CurveOptimizer = margins!.Where(v => v != int.MinValue).ToArray();
             profile.FMaxMHz = fmax;
 
-            TuningStore.Save(profile);
+            Svc.Tuning.Save(profile);
 
-            LogService.Info("保存当前配置到本地（仅落盘，未写 SMU）");
+            Svc.Log.Info("保存当前配置到本地（仅落盘，未写 SMU）");
             // 普通反馈 → Toast。注意文案里的「未写入 SMU」必须保留：
             // 这是「保存」和「应用」唯一的行为区别，用户最容易混淆的一点。
             ToastService.Success("已保存到本地配置（未写入 SMU）");
@@ -1205,7 +1205,7 @@ namespace Zentwik.Views
         /// </summary>
         private void LoadConfigButton_Click(object sender, RoutedEventArgs e)
         {
-            TuningProfile profile = TuningStore.Profile;
+            TuningProfile profile = Svc.Tuning.Profile;
 
             if (profile.FMaxMHz > 0)
                 FMaxBox.Text = profile.FMaxMHz.ToString();
@@ -1217,7 +1217,7 @@ namespace Zentwik.Views
             // 回填后启用控件
             EnableTuningControls();
 
-            LogService.Info("已加载本地配置并回填到界面（未写入 SMU）");
+            Svc.Log.Info("已加载本地配置并回填到界面（未写入 SMU）");
             ToastService.Info("已加载本地配置并回填（未写入 SMU）");
         }
 
@@ -1258,7 +1258,7 @@ namespace Zentwik.Views
                 return;
 
             ApplySnapshot(snapshot!);
-            LogService.Info("已按 SMU 现值刷新界面（未写入 SMU、未改本地配置）");
+            Svc.Log.Info("已按 SMU 现值刷新界面（未写入 SMU、未改本地配置）");
         }
     }
 }

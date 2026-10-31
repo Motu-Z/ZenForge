@@ -1,7 +1,9 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
+using Zentwik.Core.Services;
+using Zentwik.Core.Serialization;
 
 namespace Zentwik.Core.Helpers
 {
@@ -41,6 +43,13 @@ namespace Zentwik.Core.Helpers
         public string Path { get; set; } = string.Empty;
 
         /// <summary>
+        /// 掩码名称快照。掩码被删除或改名后，旧规则仍能显示当初绑的区域，
+        /// 且模型不必反查 <see cref="IMaskStore"/> —— 反查会让 POCO 依赖服务，
+        /// 序列化与 AOT 裁剪都会跟着变复杂。
+        /// </summary>
+        public string MaskName { get; set; } = string.Empty;
+
+        /// <summary>
         /// 随规则一起保存的优先级档位（High / Above Normal / Normal / Below Normal / Low）。
         ///
         /// 空字符串表示「这条规则不碰优先级」，只有掩码调度 —— 旧配置文件没有这个字段，
@@ -67,8 +76,7 @@ namespace Zentwik.Core.Helpers
                 if (Target == BindingTarget.CCD1) return "CCD1";
                 if (Target == BindingTarget.Custom)
                 {
-                    CustomMask? mask = MaskStore.FindById(MaskId);
-                    return mask != null ? mask.Name : MaskFormatter.ToRangeText(Mask);
+                    return string.IsNullOrEmpty(MaskName) ? MaskFormatter.ToRangeText(Mask) : MaskName;
                 }
                 return "不绑定";
             }
@@ -85,9 +93,23 @@ namespace Zentwik.Core.Helpers
     /// 绑核规则持久化：保存到 %APPDATA%\Zentwik\bindings.json。
     /// 键为进程名（不再用路径），值为目标 CCD 或自定义掩码引用。
     /// </summary>
-    public static class BindingStore
+    public class BindingStore : IBindingStore
     {
-        private static readonly string FilePath = AppPaths.File("bindings.json");
+        private readonly ILogService _log;
+        private readonly IAppPaths _paths;
+        private readonly IMaskStore _masks;
+
+        public BindingStore(ILogService log, IAppPaths paths, IMaskStore masks)
+        {
+            ArgumentNullException.ThrowIfNull(log);
+            _log = log;
+            ArgumentNullException.ThrowIfNull(paths);
+            _paths = paths;
+            ArgumentNullException.ThrowIfNull(masks);
+            _masks = masks;
+        }
+
+        private string FilePath => _paths.File("bindings.json");
 
         /// <summary>
         /// 保护 Profile 引用与磁盘读写。
@@ -95,20 +117,20 @@ namespace Zentwik.Core.Helpers
         /// 两者并发时，后完成的一方会把对方的改动整个覆盖掉（Save 用界面旧快照
         /// 覆盖磁盘新内容，或 Reload 把刚保存的 Profile 换成磁盘旧内容）。
         /// </summary>
-        private static readonly object _sync = new();
+        private readonly object _sync = new();
 
-        private static BindingProfile _profile = new();
+        private BindingProfile _profile = new();
 
         /// <summary>
         /// 当前规则集。这里返回的是**快照引用**而非拷贝：
         /// 读取方通常只做 Where/ToList 遍历，拷贝整份列表在每秒一次的轮询里没有必要。
         /// </summary>
-        public static BindingProfile Profile
+        public BindingProfile Profile
         {
             get { lock (_sync) return _profile; }
         }
 
-        public static void Load()
+        public void Load()
         {
             lock (_sync)
             {
@@ -127,9 +149,9 @@ namespace Zentwik.Core.Helpers
         /// 读盘并做旧版迁移。文件不存在或反序列化出 null 时返回 null，
         /// 让调用方自己决定「落成空档」还是「保持现状」。
         /// </summary>
-        private static BindingProfile? ReadFromDisk()
+        private BindingProfile? ReadFromDisk()
         {
-            BindingProfile? loaded = JsonFile.Read<BindingProfile>(FilePath);
+            BindingProfile? loaded = JsonFile.Read(FilePath, AppJsonContext.Default.BindingProfile);
             if (loaded == null)
                 return null;
 
@@ -138,7 +160,7 @@ namespace Zentwik.Core.Helpers
         }
 
         /// <summary>旧版按路径存储：Name 为空但有 Path 时取文件名作为进程名。</summary>
-        private static void MigrateLegacyNames(BindingProfile profile)
+        private void MigrateLegacyNames(BindingProfile profile)
         {
             foreach (BindingRule rule in profile.Rules)
             {
@@ -147,23 +169,26 @@ namespace Zentwik.Core.Helpers
                 {
                     rule.Name = System.IO.Path.GetFileName(rule.Path);
                 }
+
+                if (rule.Target == BindingTarget.Custom && !string.IsNullOrEmpty(rule.MaskId))
+                    rule.MaskName = _masks.FindById(rule.MaskId)?.Name ?? rule.MaskName;
             }
         }
 
         /// <summary>用给定规则集合覆盖并落盘（原子替换）。</summary>
-        public static void Save(IEnumerable<BindingRule> rules)
+        public void Save(IEnumerable<BindingRule> rules)
         {
             BindingProfile profile = new() { Rules = new List<BindingRule>(rules) };
             lock (_sync)
             {
                 try
                 {
-                    JsonFile.Write(FilePath, profile);
+                    JsonFile.Write(FilePath, profile, AppJsonContext.Default.BindingProfile);
                     _profile = profile;
                 }
                 catch (Exception ex)
                 {
-                    Services.LogService.Error($"保存绑核规则失败: {ex.Message}");
+                    _log.Error($"保存绑核规则失败: {ex.Message}");
                 }
             }
         }
@@ -175,20 +200,20 @@ namespace Zentwik.Core.Helpers
         /// 一个管「哪个进程绑到哪」，一个管「绑的区域长什么样」。
         /// 掩码由 <see cref="MaskStore.ResetToFactory"/> 单独清。
         /// </summary>
-        public static void ResetToFactory()
+        public void ResetToFactory()
         {
             if (Profile.Rules.Count == 0)
                 return;
 
             Save(Array.Empty<BindingRule>());
-            Services.LogService.Info("全局重置：绑核规则已清空");
+            _log.Info("全局重置：绑核规则已清空");
         }
 
         /// <summary>
         /// 从磁盘重新读取规则（供后台监听在每轮扫描前调用，让界面改动立即生效）。
         /// 读取失败或文件不存在时保留现有内存规则。
         /// </summary>
-        public static void Reload()
+        public void Reload()
         {
             lock (_sync)
             {
@@ -212,10 +237,10 @@ namespace Zentwik.Core.Helpers
         /// 监听起来也只是空转，白占一份常驻内存。后台常驻的唯一价值是持续绑核，
         /// 没有可绑的规则，就没有常驻的理由。
         /// </summary>
-        public static bool HasEnabledRules => Profile.Rules.Any(IsEffective);
+        public bool HasEnabledRules => Profile.Rules.Any(IsEffective);
 
         /// <summary>根据进程名查询绑定目标（无规则返回 null）。</summary>
-        public static BindingRule? LookupByName(string name)
+        public BindingRule? LookupByName(string name)
         {
             if (string.IsNullOrEmpty(name))
                 return null;

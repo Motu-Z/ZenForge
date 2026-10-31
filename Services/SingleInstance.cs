@@ -117,7 +117,7 @@ namespace Zentwik.Services
             }
             catch (Exception ex)
             {
-                LogService.Warn($"单实例互斥体创建失败，按单实例不可用处理：{ex.Message}");
+                Svc.Log.Warn($"单实例互斥体创建失败，按单实例不可用处理：{ex.Message}");
                 Dispose();
 
                 // 拿不到锁也要让程序能用，绝不因为互斥体失败拒绝启动。
@@ -151,7 +151,7 @@ namespace Zentwik.Services
                     Action? handler = WakeRequested;
                     if (handler == null)
                     {
-                        LogService.Warn("收到唤醒请求，但宿主尚未注入处理器，已忽略");
+                        Svc.Log.Warn("收到唤醒请求，但宿主尚未注入处理器，已忽略");
                         continue;
                     }
 
@@ -160,7 +160,7 @@ namespace Zentwik.Services
                 catch (Exception ex)
                 {
                     // 唤醒失败不该拖垮常驻实例
-                    LogService.Warn($"唤醒处理失败：{ex.Message}");
+                    Svc.Log.Warn($"唤醒处理失败：{ex.Message}");
                 }
             }
         }

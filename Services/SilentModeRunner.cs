@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Zentwik.Helpers;
@@ -49,25 +49,25 @@ namespace Zentwik.Services
         {
             SilentRunResult result = new();
 
-            LogService.Info("=== 静默模式启动（-silent）===");
+            Svc.Log.Info("=== 静默模式启动（-silent）===");
 
             // ---------- 1. 读取配置 ----------
-            TuningStore.Load();
-            BindingStore.Load();
-            UiSettingsStore.Load();
+            Svc.Tuning.Load();
+            Svc.Bindings.Load();
+            Svc.Ui.Load();
 
             // 静默实例是场景自动切换的主战场：它常驻后台、没有界面，
             // 方案列表与场景规则必须在任何事件到达之前就位。
-            ProfileService.Load();
-            ScenarioService.Load();
+            Svc.Profiles.Load();
+            Svc.Scenarios.Load();
 
             // 静默实例是场景自动切换的主战场：它常驻后台、没有界面，
             // 因此这里必须把监听挂起来 —— 界面实例那边反而是可选的。
             // 进程事件由 ProcessWatcher 承担，电源状态走 PowerStatusWatcher
             // 的轮询兜底（无消息泵时 SystemEvents 不保证送达）。
-            ScenarioMonitor.Sync();
+            Svc.Monitor.Sync();
 
-            TuningProfile profile = TuningStore.Profile;
+            TuningProfile profile = Svc.Tuning.Profile;
             int[] margins = profile.CurveOptimizer ?? Array.Empty<int>();
             uint fMax = profile.FMaxMHz;
 
@@ -75,19 +75,19 @@ namespace Zentwik.Services
             bool hasFMax = fMax > 0;
 
             // 受「启动时自动应用调校」开关约束：关闭时只启动监听，不碰 SMU
-            bool applyTuning = UiSettingsStore.Settings.ApplyTuningOnStartup;
+            bool applyTuning = Svc.Ui.Settings.ApplyTuningOnStartup;
 
             if (!applyTuning)
             {
-                LogService.Info("「启动时自动应用调校」已关闭，跳过 SMU 写入（仅启动后台监听）");
+                Svc.Log.Info("「启动时自动应用调校」已关闭，跳过 SMU 写入（仅启动后台监听）");
             }
             else if (!hasCo && !hasFMax)
             {
-                LogService.Info("tuning.json 中没有已保存的调校，跳过 SMU 写入");
+                Svc.Log.Info("tuning.json 中没有已保存的调校，跳过 SMU 写入");
             }
             else
             {
-                LogService.Info(
+                Svc.Log.Info(
                     $"读取到已保存调校：CO {margins.Length} 核" +
                     (hasFMax ? $"，FMax {fMax} MHz" : "，未设置 FMax"));
             }
@@ -97,7 +97,7 @@ namespace Zentwik.Services
             // 避免「静默能应用、双击启动不能应用」这种两条路径各自演进的偏差。
             if (applyTuning && (hasCo || hasFMax))
             {
-                TuningApplyOutcome outcome = TuningApplyService.ApplyFromStore();
+                TuningApplyOutcome outcome = Svc.TuningApply.ApplyFromStore();
                 result.CurveOptimizerApplied = outcome.CurveOptimizerApplied;
                 result.FMaxApplied = outcome.FMaxApplied;
                 result.Errors.AddRange(outcome.Errors);
@@ -108,47 +108,47 @@ namespace Zentwik.Services
             //   · 开关开着（用户确实要后台绑核）；
             //   · 有会实际生效的规则（否则监听起来也是空转，白占一份常驻内存）。
             // 只有 CO/FMax 而没有绑核规则时，SMU 写完就已经生效，进程没有常驻的必要。
-            result.HasActiveRules = BindingStore.HasEnabledRules;
+            result.HasActiveRules = Svc.Bindings.HasEnabledRules;
 
-            if (UiSettingsStore.Settings.WatchProcessBinding && result.HasActiveRules)
+            if (Svc.Ui.Settings.WatchProcessBinding && result.HasActiveRules)
             {
                 try
                 {
-                    ProcessWatcher.Start();
+                    Svc.Watcher.Start();
 
                     // Start() 可能因单实例互斥体被占用而跳过，必须以实际状态为准：
                     // 若另一个实例已在监听，本进程不必常驻，直接退出即可。
-                    result.WatcherStarted = ProcessWatcher.IsRunning;
+                    result.WatcherStarted = Svc.Watcher.IsRunning;
 
-                    LogService.Info(result.WatcherStarted
+                    Svc.Log.Info(result.WatcherStarted
                         ? "静默模式：已启动进程绑核监听"
                         : "静默模式：已有其它实例在监听，本进程无需常驻");
                 }
                 catch (Exception ex)
                 {
                     result.Errors.Add($"启动进程绑核监听失败：{ex.Message}");
-                    LogService.Error($"静默模式：启动进程绑核监听失败：{ex.Message}");
+                    Svc.Log.Error($"静默模式：启动进程绑核监听失败：{ex.Message}");
                 }
             }
-            else if (!UiSettingsStore.Settings.WatchProcessBinding)
+            else if (!Svc.Ui.Settings.WatchProcessBinding)
             {
-                LogService.Info("静默模式：进程绑定后台监听未开启，跳过");
+                Svc.Log.Info("静默模式：进程绑定后台监听未开启，跳过");
             }
             else
             {
-                LogService.Info("静默模式：没有启用中的绑核规则，跳过常驻");
+                Svc.Log.Info("静默模式：没有启用中的绑核规则，跳过常驻");
             }
 
             // ---------- 4. 汇总 ----------
             if (result.Errors.Count == 0)
             {
-                LogService.Info("=== 静默模式完成：全部步骤成功 ===");
+                Svc.Log.Info("=== 静默模式完成：全部步骤成功 ===");
             }
             else
             {
-                LogService.Warn($"=== 静默模式完成：{result.Errors.Count} 项失败 ===");
+                Svc.Log.Warn($"=== 静默模式完成：{result.Errors.Count} 项失败 ===");
                 foreach (string error in result.Errors)
-                    LogService.Warn($"  · {error}");
+                    Svc.Log.Warn($"  · {error}");
             }
 
             return result;

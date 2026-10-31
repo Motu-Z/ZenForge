@@ -83,7 +83,7 @@ namespace Zentwik.Views
 
             if (!_factories.TryGetValue(key, out Func<FrameworkElement>? factory))
             {
-                LogService.Warn($"导航失败：未登记的页面 key「{key}」");
+                Svc.Log.Warn($"导航失败：未登记的页面 key「{key}」");
                 return;
             }
 

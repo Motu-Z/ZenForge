@@ -24,8 +24,31 @@ namespace Zentwik.Core.Services
     ///      按 ScenarioService.Notify 的约定，防抖不放进服务内部 ——
     ///      延时取多长只有调用方知道，服务里拍一个数字没有依据。
     /// </summary>
-    public static class ScenarioMonitor
+    public class ScenarioMonitor
     {
+        private readonly ILogService _log;
+        private readonly ScenarioService _scenarios;
+        private readonly ProcessRefresher _refresher;
+        private readonly IProcessWatcher _watcher;
+        private readonly ProfileService _profiles;
+        private readonly PowerStatusWatcher _power;
+
+        public ScenarioMonitor(ILogService log, ScenarioService scenarios, ProcessRefresher refresher, IProcessWatcher watcher, ProfileService profiles, PowerStatusWatcher power)
+        {
+            ArgumentNullException.ThrowIfNull(log);
+            _log = log;
+            ArgumentNullException.ThrowIfNull(scenarios);
+            _scenarios = scenarios;
+            ArgumentNullException.ThrowIfNull(refresher);
+            _refresher = refresher;
+            ArgumentNullException.ThrowIfNull(watcher);
+            _watcher = watcher;
+            ArgumentNullException.ThrowIfNull(profiles);
+            _profiles = profiles;
+            ArgumentNullException.ThrowIfNull(power);
+            _power = power;
+        }
+
         /// <summary>
         /// 合并窗口。
         ///
@@ -36,35 +59,30 @@ namespace Zentwik.Core.Services
         private const int DebounceMs = 800;
 
         /// <summary>采一次进程名单最多等这么久（采样线程忙时不能无限等）。</summary>
-        private static readonly TimeSpan SnapshotTimeout = TimeSpan.FromSeconds(5);
+        private readonly TimeSpan SnapshotTimeout = TimeSpan.FromSeconds(5);
 
-        private static readonly object Gate = new();
-        private static Timer? _debounce;
-        private static bool _processHooked;
-        private static bool _powerHooked;
-        private static bool _active;
+        private readonly object Gate = new();
+        private Timer? _debounce;
+        private bool _processHooked;
+        private bool _powerHooked;
+        private bool _active;
 
-        static ScenarioMonitor()
-        {
-            // 规则或总闸一变，监听范围就要重算：从「只听电源」变成「也要听进程」，
-            // 或从「开着」变成「关掉」。挂一次就够，静态类的生命周期等于进程。
-            ScenarioService.Changed += Sync;
-        }
+
 
         /// <summary>当前是否在监听任何输入源。false 等于「零占用」（无订阅、无活动定时器）。</summary>
-        public static bool IsActive
+        public bool IsActive
         {
             get { lock (Gate) return _active; }
         }
 
         /// <summary>进程事件是否已挂上。</summary>
-        public static bool IsProcessSourceAttached
+        public bool IsProcessSourceAttached
         {
             get { lock (Gate) return _processHooked; }
         }
 
         /// <summary>电源监听是否已挂上。</summary>
-        public static bool IsPowerSourceAttached
+        public bool IsPowerSourceAttached
         {
             get { lock (Gate) return _powerHooked; }
         }
@@ -73,11 +91,11 @@ namespace Zentwik.Core.Services
         /// 按当前规则内容对齐监听范围。幂等，任何时刻调用都安全。
         /// 启动时、规则变更后都要调一次。
         /// </summary>
-        public static void Sync()
+        public void Sync()
         {
-            bool enabled = ScenarioService.Enabled;
-            bool wantProcess = enabled && ScenarioService.HasProcessRules;
-            bool wantPower = enabled && ScenarioService.HasPowerRules;
+            bool enabled = _scenarios.Enabled;
+            bool wantProcess = enabled && _scenarios.HasProcessRules;
+            bool wantPower = enabled && _scenarios.HasPowerRules;
 
             // 【为什么「判断」和「执行」要分开】
             // Sync 的调用方不止一个（启动时一次、规则变更后从 Changed 再来一次），
@@ -120,19 +138,19 @@ namespace Zentwik.Core.Services
             }
 
             if (startProcess)
-                ProcessWatcher.ProcessSetChanged += OnProcessSetChanged;
+                _watcher.ProcessSetChanged += OnProcessSetChanged;
             else if (stopProcess)
-                ProcessWatcher.ProcessSetChanged -= OnProcessSetChanged;
+                _watcher.ProcessSetChanged -= OnProcessSetChanged;
 
             if (startPower)
             {
-                PowerStatusWatcher.Changed += OnPowerChanged;
-                PowerStatusWatcher.Start();
+                _power.Changed += OnPowerChanged;
+                _power.Start();
             }
             else if (stopPower)
             {
-                PowerStatusWatcher.Changed -= OnPowerChanged;
-                PowerStatusWatcher.Stop();
+                _power.Changed -= OnPowerChanged;
+                _power.Stop();
             }
 
             if (!_active)
@@ -148,7 +166,7 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>合并窗口内到达的事件只保留最后一次。</summary>
-        private static void Schedule()
+        private void Schedule()
         {
             lock (Gate)
             {
@@ -162,11 +180,11 @@ namespace Zentwik.Core.Services
             }
         }
 
-        private static void OnProcessSetChanged() => Schedule();
+        private void OnProcessSetChanged() => Schedule();
 
-        private static void OnPowerChanged() => Schedule();
+        private void OnPowerChanged() => Schedule();
 
-        private static void DisposeDebounce()
+        private void DisposeDebounce()
         {
             Timer? timer;
             lock (Gate)
@@ -182,33 +200,33 @@ namespace Zentwik.Core.Services
         /// ScenarioService.Notify 的契约就是要「此刻全部成立的触发」：
         /// 只报「游戏退出了」会被读成「没有进程命中了」，而浏览器可能还在跑。
         /// </summary>
-        private static void Evaluate()
+        private void Evaluate()
         {
-            if (!ScenarioService.Enabled)
+            if (!_scenarios.Enabled)
                 return;
 
             List<(ScenarioTrigger Trigger, string Argument)> active = new();
 
-            if (ScenarioService.HasPowerRules)
+            if (_scenarios.HasPowerRules)
             {
                 // 供电是二选一，两者都上报反而会让「插着电」和「用电池」同时命中。
-                active.Add(PowerStatusWatcher.IsOnBattery
+                active.Add(_power.IsOnBattery
                     ? (ScenarioTrigger.OnBattery, string.Empty)
                     : (ScenarioTrigger.OnAcPower, string.Empty));
             }
 
-            if (ScenarioService.HasProcessRules)
+            if (_scenarios.HasProcessRules)
             {
                 IReadOnlyList<ProcessRefresher.Entry> snapshot;
                 try
                 {
-                    snapshot = ProcessRefresher.SampleOnSamplerThread(SnapshotTimeout);
+                    snapshot = _refresher.SampleOnSamplerThread(SnapshotTimeout);
                 }
                 catch (Exception ex)
                 {
                     // 采不到名单就不评估：带着一份残缺的名单去判定，
                 // 结果可能是「唯一命中的那条规则恰好没被采到」→ 误切成别的方案。
-                    LogService.Warn($"场景评估：进程名单采集失败，本次跳过：{ex.Message}");
+                    _log.Warn($"场景评估：进程名单采集失败，本次跳过：{ex.Message}");
                     return;
                 }
 
@@ -222,7 +240,7 @@ namespace Zentwik.Core.Services
                 }
             }
 
-            ScenarioService.Notify(active);
+            _scenarios.Notify(active);
         }
     }
 }

@@ -18,8 +18,16 @@ namespace Zentwik.Core.Helpers
     /// 只做 GC 不做最后一步，两条轻量路径在任务管理器里看起来会一模一样 —— 这正是
     /// 「仅清空页面」和「仅驻留服务」测得差不多数字的原因：两边都只丢了引用，没交还内存。
     /// </summary>
-    internal static class MemoryTrimmer
+    internal class MemoryTrimmer
     {
+        private readonly ILogService _log;
+
+        public MemoryTrimmer(ILogService log)
+        {
+            ArgumentNullException.ThrowIfNull(log);
+            _log = log;
+        }
+
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool SetProcessWorkingSetSize(IntPtr process, IntPtr min, IntPtr max);
@@ -28,7 +36,7 @@ namespace Zentwik.Core.Helpers
         private static extern IntPtr GetCurrentProcess();
 
         /// <summary>此刻的工作集与私有提交（字节）。取不到时返回 0。</summary>
-        private static (long WorkingSet, long Private) Snapshot()
+        private (long WorkingSet, long Private) Snapshot()
         {
             try
             {
@@ -48,7 +56,7 @@ namespace Zentwik.Core.Helpers
         /// 会阻塞几十到几百毫秒，**不要在 UI 线程上直接调** ——
         /// 现有的两个调用点都在 Task 里，或者排在 ApplicationIdle 之后。
         /// </summary>
-        internal static void Trim(string reason)
+        internal void Trim(string reason)
         {
             (long wsBefore, long privBefore) = Snapshot();
 
@@ -67,7 +75,7 @@ namespace Zentwik.Core.Helpers
             }
             catch (Exception ex)
             {
-                LogService.Warn($"内存回收（{reason}）GC 阶段失败：{ex.Message}");
+                _log.Warn($"内存回收（{reason}）GC 阶段失败：{ex.Message}");
             }
 
             try
@@ -79,16 +87,16 @@ namespace Zentwik.Core.Helpers
             }
             catch (Exception ex)
             {
-                LogService.Warn($"内存回收（{reason}）交还工作集失败：{ex.Message}");
+                _log.Warn($"内存回收（{reason}）交还工作集失败：{ex.Message}");
             }
 
             (long wsAfter, long privAfter) = Snapshot();
-            LogService.Info(
+            _log.Info(
                 $"内存回收（{reason}）：工作集 {Mb(wsBefore)} → {Mb(wsAfter)}，私有提交 {Mb(privBefore)} → {Mb(privAfter)}");
         }
 
         /// <summary>后台跑一次 Trim，调用方不等结果。</summary>
-        internal static void TrimInBackground(string reason)
+        internal void TrimInBackground(string reason)
         {
             _ = Task.Run(() =>
             {
@@ -98,7 +106,7 @@ namespace Zentwik.Core.Helpers
                 }
                 catch (Exception ex)
                 {
-                    LogService.Warn($"内存回收（{reason}）失败：{ex.Message}");
+                    _log.Warn($"内存回收（{reason}）失败：{ex.Message}");
                 }
             });
         }

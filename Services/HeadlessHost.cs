@@ -28,13 +28,13 @@ namespace Zentwik.Services
             // 已有实例：静默启动不该打断用户，也不该把界面弹出来
             if (SingleInstance.TrySignalExisting(signalMain: false))
             {
-                LogService.Info("已有 Zentwik 实例在运行，静默实例退出");
+                Svc.Log.Info("已有 Zentwik 实例在运行，静默实例退出");
                 return 0;
             }
 
             if (!SingleInstance.TryAcquire())
             {
-                LogService.Info("静默模式：已有 Zentwik 实例在运行，本实例退出");
+                Svc.Log.Info("静默模式：已有 Zentwik 实例在运行，本实例退出");
                 return 0;
             }
 
@@ -51,13 +51,13 @@ namespace Zentwik.Services
             }
             catch (Exception ex)
             {
-                LogService.Error($"静默模式未处理异常：{ex}");
+                Svc.Log.Error($"静默模式未处理异常：{ex}");
                 result = new SilentRunResult();
             }
 
             if (upgradeSignal.IsSet)
             {
-                LogService.Info("升级 1/6：静默任务期间收到界面请求，切换 WPF 宿主");
+                Svc.Log.Info("升级 1/6：静默任务期间收到界面请求，切换 WPF 宿主");
                 SingleInstance.WakeRequested = null;
                 return UpgradeSafely();
             }
@@ -65,14 +65,14 @@ namespace Zentwik.Services
             // 常驻的唯一理由是「持续调度」。
             // 三个条件缺一不可：总闸开着、调度开关开着、且监听确实归本进程所有
             // （HasOwnership 用来区分「全局互斥体被别人占用」和「WMI 降级轮询但仍属自己」）。
-            bool resident = UiSettingsStore.Settings.BackendService
-                         && UiSettingsStore.Settings.WatchProcessBinding
+            bool resident = Svc.Ui.Settings.BackendService
+                         && Svc.Ui.Settings.WatchProcessBinding
                          && result.HasActiveRules
-                         && ProcessWatcher.HasOwnership;
+                         && Svc.Watcher.HasOwnership;
 
             if (!resident)
             {
-                LogService.Info("静默模式：没有需要常驻的绑核任务，进程退出");
+                Svc.Log.Info("静默模式：没有需要常驻的绑核任务，进程退出");
                 Cleanup();
                 return 0;
             }
@@ -93,7 +93,7 @@ namespace Zentwik.Services
         {
             try
             {
-                if (LogService.Verbose)
+                if (Svc.Log.Verbose)
                     return;
 
                 bool byArg = args.Any(a =>
@@ -103,7 +103,7 @@ namespace Zentwik.Services
                 bool byEnv = string.Equals(
                     Environment.GetEnvironmentVariable("ZENFORGE_DEBUG"), "1", StringComparison.Ordinal);
 
-                LogService.Verbose = byArg || byEnv;
+                Svc.Log.Verbose = byArg || byEnv;
             }
             catch
             {
@@ -131,7 +131,7 @@ namespace Zentwik.Services
 
                 try
                 {
-                    tray = new NativeTrayIcon(showIcon: UiSettingsStore.Settings.ShowTrayIcon);
+                    tray = new NativeTrayIcon(showIcon: Svc.Ui.Settings.ShowTrayIcon);
 
                     // 收到唤醒消息 → 由托盘把自己的消息循环退出 → 升级 WPF
                     WakeWindow.Activated = tray.PostWake;
@@ -139,7 +139,7 @@ namespace Zentwik.Services
                     // 命名事件兜底：同权限级、或消息通道没建好时仍能叫醒
                     SingleInstance.WakeRequested = tray.PostWake;
 
-                    LogService.Info(UiSettingsStore.Settings.ShowTrayIcon
+                    Svc.Log.Info(Svc.Ui.Settings.ShowTrayIcon
                         ? "静默模式：已进入后台常驻（原生托盘，未加载 WPF）"
                         : "静默模式：已进入后台常驻（无托盘，双击 Zentwik.exe 打开界面）");
 
@@ -149,7 +149,7 @@ namespace Zentwik.Services
                 {
                     // 托盘窗口建不出来也必须继续常驻 —— 调度还在跑，不能因为
                     // 少了入口就把监听一起丢掉。退化成纯信号等待，双击 exe 仍能升级。
-                    LogService.Warn($"托盘创建失败，降级为无窗口后台等待：{ex.Message}");
+                    Svc.Log.Warn($"托盘创建失败，降级为无窗口后台等待：{ex.Message}");
 
                     // 先拆掉半成品再升级：外层 finally 要等 app.Run() 退出才执行，
                     // 那时 WPF 早已建好自己的托盘，任务栏会出现两个图标。
@@ -161,7 +161,7 @@ namespace Zentwik.Services
 
                 if (tray.UpgradeRequested)
                 {
-                    LogService.Info("升级 1/6：销毁原生托盘，准备加载 WPF 宿主");
+                    Svc.Log.Info("升级 1/6：销毁原生托盘，准备加载 WPF 宿主");
                     SingleInstance.WakeRequested = null;
                     WakeWindow.Activated = null;
 
@@ -174,11 +174,11 @@ namespace Zentwik.Services
                     return UpgradeSafely();
                 }
 
-                LogService.Info("静默模式：收到退出请求，进程结束");
+                Svc.Log.Info("静默模式：收到退出请求，进程结束");
             }
             catch (Exception ex)
             {
-                LogService.Error($"后台常驻失败：{ex}");
+                Svc.Log.Error($"后台常驻失败：{ex}");
             }
             finally
             {
@@ -227,20 +227,20 @@ namespace Zentwik.Services
             }
             catch (Exception ex)
             {
-                LogService.Error($"界面加载失败，回退为后台常驻（绑核未中断）：{ex}");
+                Svc.Log.Error($"界面加载失败，回退为后台常驻（绑核未中断）：{ex}");
                 return GuiFallback.Run();
             }
         }
 
         private static void Cleanup()
         {
-            try { ProcessWatcher.Stop(); }
+            try { Svc.Watcher.Stop(); }
             catch { /* 忽略 */ }
 
             try { WakeWindow.Destroy(); }
             catch { /* 忽略 */ }
 
-            try { LogService.Flush(); }
+            try { Svc.Log.Flush(); }
             catch { /* 忽略 */ }
 
             SingleInstance.Release();
@@ -262,7 +262,7 @@ namespace Zentwik.Services
                     .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
                     .ToArray();
 
-                LogService.Info($"后台宿主已加载 {names.Length} 个程序集：{string.Join(", ", names)}");
+                Svc.Log.Info($"后台宿主已加载 {names.Length} 个程序集：{string.Join(", ", names)}");
 
                 bool hasUiFramework = names.Any(n =>
                     n.StartsWith("PresentationFramework", StringComparison.OrdinalIgnoreCase) ||
@@ -272,14 +272,14 @@ namespace Zentwik.Services
 
                 if (hasUiFramework)
                 {
-                    LogService.Warn(
+                    Svc.Log.Warn(
                         "后台宿主加载了 UI 框架，纯后台前提被破坏。" +
                         "请检查 Program.Main 是否直接引用了 WPF 类型，或分派方法是否被内联。");
                 }
             }
             catch (Exception ex)
             {
-                LogService.Warn($"程序集自检失败：{ex.Message}");
+                Svc.Log.Warn($"程序集自检失败：{ex.Message}");
             }
         }
     }

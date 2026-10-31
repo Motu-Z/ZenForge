@@ -461,7 +461,7 @@ namespace Zentwik.Views
             ProcessListView.ItemsSource = _groups;
             SavedRulesList.ItemsSource = _savedRules;
 
-            MaskStore.Load();
+            Svc.Masks.Load();
             SyncTargetOptions();
             // MaskStore.Changed 是静态事件，订阅移到 Loaded / Unloaded 成对处理。
             // 原先只在构造函数订阅、Unloaded 里不解绑，页面每被导航打开一次就
@@ -505,12 +505,12 @@ namespace Zentwik.Views
                 // 订阅必须和 Unloaded 里的解绑成对出现。
                 // 以前只在构造函数里订阅一次，而 Unloaded 会解绑，
                 // 一旦同一实例再被 Loaded（页面被导航缓存复用）就再也收不到快照了。
-                ProcessRefresher.Refreshed -= OnProcessesRefreshed;
-                ProcessRefresher.Refreshed += OnProcessesRefreshed;
+                Svc.Refresher.Refreshed -= OnProcessesRefreshed;
+                Svc.Refresher.Refreshed += OnProcessesRefreshed;
 
                 // 同上：先减后加，避免同一实例被复用后重复订阅
-                MaskStore.Changed -= OnMasksChanged;
-                MaskStore.Changed += OnMasksChanged;
+                Svc.Masks.Changed -= OnMasksChanged;
+                Svc.Masks.Changed += OnMasksChanged;
 
                 AttachWindowWatchers();
                 UpdateWatchState();
@@ -521,7 +521,7 @@ namespace Zentwik.Views
                 // 立即用最新快照刷新一次。若快照为空（第一次打开、采样循环此前一直挂起），
                 // 不要喂空集合给 ApplySnapshot —— 那会把列表清成空白，
                 // 紧接着第一次采样回来又填满，看起来就是「闪一下」。
-                IReadOnlyList<ProcessRefresher.Entry> latest = ProcessRefresher.Latest;
+                IReadOnlyList<ProcessRefresher.Entry> latest = Svc.Refresher.Latest;
                 if (latest.Count > 0)
                 {
                     // 分组放在后台算：首次进页面往往有 200+ 进程，
@@ -539,8 +539,8 @@ namespace Zentwik.Views
             };
             Unloaded += (_, _) =>
             {
-                ProcessRefresher.Refreshed -= OnProcessesRefreshed;
-                MaskStore.Changed -= OnMasksChanged;
+                Svc.Refresher.Refreshed -= OnProcessesRefreshed;
+                Svc.Masks.Changed -= OnMasksChanged;
 
                 _pageLoaded = false;
                 DetachWindowWatchers();
@@ -609,9 +609,9 @@ namespace Zentwik.Views
             _watching = shouldWatch;
 
             if (shouldWatch)
-                ProcessRefresher.AcquireWatch();
+                Svc.Refresher.AcquireWatch();
             else
-                ProcessRefresher.ReleaseWatch();
+                Svc.Refresher.ReleaseWatch();
         }
 
         /// <summary>
@@ -635,7 +635,7 @@ namespace Zentwik.Views
         /// </summary>
         private void CheckTopology()
         {
-            _topologyAvailable = CpuSetBinder.IsTopologyAvailable;
+            _topologyAvailable = Svc.CpuSets.IsTopologyAvailable;
 
             // Z-4：拓扑不可用 → 逐行置灰绑定下拉框（配合 XAML 的 IsEnabled={Binding CanBind}）。
             // 新建行也会按当前拓扑状态取初值（见 ApplySnapshot）。
@@ -652,9 +652,9 @@ namespace Zentwik.Views
                 return;
             }
 
-            TopologyWarningDetail.Text = CpuSetBinder.LastTopologyError ?? "未能枚举到任何逻辑处理器。";
-            LogService.Error(
-                $"CPU Sets 拓扑不可用，绑定下拉框已置灰：{CpuSetBinder.LastTopologyError}");
+            TopologyWarningDetail.Text = Svc.CpuSets.LastTopologyError ?? "未能枚举到任何逻辑处理器。";
+            Svc.Log.Error(
+                $"CPU Sets 拓扑不可用，绑定下拉框已置灰：{Svc.CpuSets.LastTopologyError}");
         }
 
         // ---------- 下拉选项 ----------
@@ -670,7 +670,7 @@ namespace Zentwik.Views
             if (!TargetOptions.Contains("CCD0")) TargetOptions.Add("CCD0");
             if (!TargetOptions.Contains("CCD1")) TargetOptions.Add("CCD1");
 
-            foreach (CustomMask mask in MaskStore.Masks)
+            foreach (CustomMask mask in Svc.Masks.Masks)
                 if (!string.IsNullOrWhiteSpace(mask.Name) && !TargetOptions.Contains(mask.Name))
                     TargetOptions.Add(mask.Name);
 
@@ -678,7 +678,7 @@ namespace Zentwik.Views
             for (int i = TargetOptions.Count - 1; i >= 3; i--)
             {
                 string name = TargetOptions[i];
-                if (!MaskStore.Masks.Any(m => m.Name == name))
+                if (!Svc.Masks.Masks.Any(m => m.Name == name))
                     TargetOptions.RemoveAt(i);
             }
         }
@@ -783,7 +783,7 @@ namespace Zentwik.Views
                             }
                             catch (Exception ex)
                             {
-                                LogService.Warn($"进程列表刷新失败：{ex.Message}");
+                                Svc.Log.Warn($"进程列表刷新失败：{ex.Message}");
                             }
                         }));
 
@@ -791,14 +791,14 @@ namespace Zentwik.Views
                         break;
 
                     // 有新帧进来：用最新的那份重算，别把旧数据画上去。
-                    entries = ProcessRefresher.Latest;
+                    entries = Svc.Refresher.Latest;
                     if (entries.Count == 0)
                         break;
                 }
             }
             catch (Exception ex)
             {
-                LogService.Warn($"进程列表刷新失败：{ex.Message}");
+                Svc.Log.Warn($"进程列表刷新失败：{ex.Message}");
             }
             finally
             {
@@ -816,11 +816,11 @@ namespace Zentwik.Views
         {
             try
             {
-                ProcessRefresher.RequestSample();
+                Svc.Refresher.RequestSample();
             }
             catch (Exception ex)
             {
-                LogService.Warn($"请求进程快照失败：{ex.Message}");
+                Svc.Log.Warn($"请求进程快照失败：{ex.Message}");
             }
         }
 
@@ -901,7 +901,7 @@ namespace Zentwik.Views
                         PriorityText = grp.PriorityText
                     };
                     // 新建行才用已保存规则回填初始选择（不触发绑定）
-                    row.SetInitialSelection(RuleToSelection(BindingStore.LookupByName(grp.Name)));
+                    row.SetInitialSelection(RuleToSelection(Svc.Bindings.LookupByName(grp.Name)));
                     row.TargetChanged += OnGroupTargetChanged;
                     row.PriorityChanged += OnGroupPriorityChanged;
 
@@ -1261,7 +1261,7 @@ namespace Zentwik.Views
         {
             BindingTarget.CCD0 => "CCD0",
             BindingTarget.CCD1 => "CCD1",
-            _ => MaskStore.FindById(maskId)?.Name ?? MaskFormatter.ToRangeText(mask)
+            _ => Svc.Masks.FindById(maskId)?.Name ?? MaskFormatter.ToRangeText(mask)
         };
 
         private static string RuleToSelection(BindingRule? rule)
@@ -1272,7 +1272,7 @@ namespace Zentwik.Views
             if (rule.Target == BindingTarget.CCD1) return "CCD1";
 
             // Custom：用掩码名回填（若掩码已被删除则回落不绑定）
-            string? maskName = MaskStore.FindById(rule.MaskId)?.Name;
+            string? maskName = Svc.Masks.FindById(rule.MaskId)?.Name;
             return string.IsNullOrWhiteSpace(maskName) ? "不绑定" : maskName;
         }
 
@@ -1282,7 +1282,7 @@ namespace Zentwik.Views
             if (sel == "CCD1") return (BindingTarget.CCD1, string.Empty, 0);
             if (sel == "不绑定" || string.IsNullOrWhiteSpace(sel)) return (BindingTarget.None, string.Empty, 0);
 
-            CustomMask? mask = MaskStore.FindByName(sel);
+            CustomMask? mask = Svc.Masks.FindByName(sel);
             return mask != null
                 ? (BindingTarget.Custom, mask.Id, mask.Mask)
                 : (BindingTarget.None, string.Empty, 0);
@@ -1353,7 +1353,7 @@ namespace Zentwik.Views
                     ? $"规则已保存，并对 {bound} 个正在运行的进程立即生效（{group.Name} → {label}）。"
                     : $"规则已保存：{group.Name} → {label}。当前该进程没有正在运行的实例，下次启动后会自动生效。";
 
-                LogService.Info(msg);
+                Svc.Log.Info(msg);
                 // 普通反馈 → Toast（规则已保存，用户不需要做任何决定）
                 ToastService.Success(msg);
             }
@@ -1396,18 +1396,18 @@ namespace Zentwik.Views
                 // 也没法判断要不要以管理员身份重跑。现在给出真实的错误码。
                 if (ProcessPriority.IsTransient(result))
                 {
-                    LogService.Info($"设置优先级跳过：{group.Name}（进程已退出）");
+                    Svc.Log.Info($"设置优先级跳过：{group.Name}（进程已退出）");
                     ToastService.Info($"{group.Name} 已经退出，无需设置优先级");
                 }
                 else
                 {
-                    LogService.Warn($"设置优先级失败：{group.Name}（{result.Failed} 个实例）{result.Error}");
+                    Svc.Log.Warn($"设置优先级失败：{group.Name}（{result.Failed} 个实例）{result.Error}");
                     ToastService.Error($"无法修改 {group.Name} 的优先级：{result.Error}");
                 }
                 return;
             }
 
-            LogService.Info($"优先级已设置：{group.Name} → {group.PrioritySelection}（{result.Ok} 个实例）");
+            Svc.Log.Info($"优先级已设置：{group.Name} → {group.PrioritySelection}（{result.Ok} 个实例）");
 
             if (result.Failed > 0)
                 ToastService.Info($"{group.Name} → {group.PrioritySelection}：{result.Ok} 个成功，{result.Failed} 个失败");
@@ -1428,7 +1428,7 @@ namespace Zentwik.Views
         /// </summary>
         private bool EnsureTopologyOrWarn()
         {
-            if (CpuSetBinder.IsTopologyAvailable)
+            if (Svc.CpuSets.IsTopologyAvailable)
                 return true;
 
             CheckTopology();
@@ -1445,9 +1445,9 @@ namespace Zentwik.Views
         /// <summary>按目标类型挑一路下发。CCD 绑定用不到掩码，只在 Custom 时才有意义。</summary>
         private static CpuSetBindResult BindMember(int pid, BindingTarget target, ulong mask) => target switch
         {
-            BindingTarget.CCD0 => CpuSetBinder.BindToCcd(pid, 0),
-            BindingTarget.CCD1 => CpuSetBinder.BindToCcd(pid, 1),
-            _ => CpuSetBinder.BindToMask(pid, mask)
+            BindingTarget.CCD0 => Svc.CpuSets.BindToCcd(pid, 0),
+            BindingTarget.CCD1 => Svc.CpuSets.BindToCcd(pid, 1),
+            _ => Svc.CpuSets.BindToMask(pid, mask)
         };
 
         private static int BindGroupMembers(
@@ -1463,7 +1463,7 @@ namespace Zentwik.Views
                 if (result.Success)
                 {
                     bound++;
-                    LogService.Info($"已绑定 {group.Name}（PID {m.Pid}）→ {label}，{result.AppliedCount} 个 CPU Set");
+                    Svc.Log.Info($"已绑定 {group.Name}（PID {m.Pid}）→ {label}，{result.AppliedCount} 个 CPU Set");
                 }
                 else
                 {
@@ -1475,14 +1475,14 @@ namespace Zentwik.Views
                     // 报 ERROR 会让日志页红一片而用户完全无法行动。
                     // 只有「进程还活着但拿不到权限 / API 拒绝」才是真正的执行失败。
                     if (IsTransientBindFailure(result.Error))
-                        LogService.Warn($"绑定跳过 {group.Name}（PID {m.Pid}）：进程已退出");
+                        Svc.Log.Warn($"绑定跳过 {group.Name}（PID {m.Pid}）：进程已退出");
                     else
-                        LogService.Error($"绑定失败 {group.Name}（PID {m.Pid}）→ {label}：{result.Error}");
+                        Svc.Log.Error($"绑定失败 {group.Name}（PID {m.Pid}）→ {label}：{result.Error}");
                 }
             }
 
             if (failed > 0 && bound == 0 && group.Members.Count > 0)
-                LogService.Error($"{group.Name} 的全部 {failed} 个实例均未绑定成功");
+                Svc.Log.Error($"{group.Name} 的全部 {failed} 个实例均未绑定成功");
 
             return bound;
         }
@@ -1513,7 +1513,7 @@ namespace Zentwik.Views
         /// </summary>
         private int HotApplyRule(string name)
         {
-            BindingRule? rule = BindingStore.LookupByName(name);
+            BindingRule? rule = Svc.Bindings.LookupByName(name);
             if (rule == null || !rule.Enabled || rule.Target == BindingTarget.None)
                 return 0;
 
@@ -1523,7 +1523,7 @@ namespace Zentwik.Views
 
             // 自定义掩码优先取实时值（用户可能刚改过掩码内容），取不到再落回快照
             ulong mask = rule.Target == BindingTarget.Custom
-                ? MaskStore.FindById(rule.MaskId)?.Mask ?? rule.Mask
+                ? Svc.Masks.FindById(rule.MaskId)?.Mask ?? rule.Mask
                 : rule.Mask;
 
             return BindGroupMembers(group, rule.Target, rule.MaskId, mask,
@@ -1556,7 +1556,7 @@ namespace Zentwik.Views
             string msg = bound > 0
                 ? $"已对所有正在运行的目标进程应用绑定（共 {bound} 个）。"
                 : "规则已全部就绪，但当前没有正在运行的目标进程。进程启动后会自动应用绑定。";
-            LogService.Info(msg);
+            Svc.Log.Info(msg);
             // 普通反馈 → Toast
             ToastService.Success(msg);
         }
@@ -1567,7 +1567,7 @@ namespace Zentwik.Views
             int bound = 0;
             foreach (ProcessGroupRow group in _allGroups)
             {
-                if (BindingStore.LookupByName(group.Name) is { Enabled: false })
+                if (Svc.Bindings.LookupByName(group.Name) is { Enabled: false })
                     continue;
 
                 (BindingTarget target, string maskId, ulong mask) = SelectionToTarget(group.Selection);
@@ -1578,14 +1578,14 @@ namespace Zentwik.Views
                                           TargetLabel(target, maskId, mask));
             }
 
-            ProcessWatcher.ResetCache();
+            Svc.Watcher.ResetCache();
             return bound;
         }
 
         /// <summary>清空全部已保存规则，并把界面上的下拉框复位为「不绑定」。</summary>
         private void ClearRules_Click(object sender, RoutedEventArgs e)
         {
-            if (BindingStore.Profile.Rules.Count == 0)
+            if (Svc.Bindings.Profile.Rules.Count == 0)
             {
                 // 空状态提示：用户点了个什么都不会发生的按钮，
                 // 属于「知道了就行」，不需要模态拦一道。
@@ -1593,17 +1593,17 @@ namespace Zentwik.Views
                 return;
             }
 
-            if (!DarkDialog.Confirm($"确定要清空全部 {BindingStore.Profile.Rules.Count} 条调度规则吗？此操作不可撤销。",
+            if (!DarkDialog.Confirm($"确定要清空全部 {Svc.Bindings.Profile.Rules.Count} 条调度规则吗？此操作不可撤销。",
                                     "清空所有规则"))
                 return;
 
-            BindingStore.Save(new List<BindingRule>());
+            Svc.Bindings.Save(new List<BindingRule>());
 
             foreach (ProcessGroupRow group in _allGroups)
                 group.SetInitialSelection("不绑定");
 
             ReloadRulesAfterChange();
-            LogService.Info("已清空全部调度规则");
+            Svc.Log.Info("已清空全部调度规则");
         }
 
         // ---------- 规则持久化 ----------
@@ -1615,22 +1615,22 @@ namespace Zentwik.Views
         /// <summary>规则改动落盘后的收尾：清掉监听的「已处理」缓存，再重建规则列表。</summary>
         private void ReloadRulesAfterChange()
         {
-            ProcessWatcher.ResetCache();
+            Svc.Watcher.ResetCache();
             LoadSavedRules();
         }
 
         private static void UpsertRule(string name, BindingTarget target, string maskId, ulong mask,
                                        string path = "", string priority = "")
         {
-            List<BindingRule> rules = BindingStore.Profile.Rules;
-            BindingRule? existing = BindingStore.LookupByName(name);
+            List<BindingRule> rules = Svc.Bindings.Profile.Rules;
+            BindingRule? existing = Svc.Bindings.LookupByName(name);
 
             if (target == BindingTarget.None)
             {
                 if (existing != null)
                 {
                     rules.Remove(existing);
-                    BindingStore.Save(rules);
+                    Svc.Bindings.Save(rules);
                 }
                 return;
             }
@@ -1650,14 +1650,14 @@ namespace Zentwik.Views
             if (!string.IsNullOrEmpty(priority))
                 existing.Priority = priority;
 
-            BindingStore.Save(rules);
+            Svc.Bindings.Save(rules);
         }
 
         private void LoadSavedRules()
         {
             _loadingRules = true;
             _savedRules.Clear();
-            foreach (BindingRule rule in BindingStore.Profile.Rules)
+            foreach (BindingRule rule in Svc.Bindings.Profile.Rules)
             {
                 if (rule.Target == BindingTarget.None)
                     continue;
@@ -1758,7 +1758,7 @@ namespace Zentwik.Views
             {
                 // 只改优先级：掩码部分要保持原样，走空串让 UpsertRule 不动 Target。
                 // 这里必须把原有的 target 传进去，不能传 None（None 会被当成删除规则）。
-                BindingRule? keep = BindingStore.LookupByName(row.Name);
+                BindingRule? keep = Svc.Bindings.LookupByName(row.Name);
                 if (keep != null)
                 {
                     UpsertRule(row.Name, keep.Target, keep.MaskId, keep.Mask, row.Path, row.PrioritySelection);
@@ -1781,7 +1781,7 @@ namespace Zentwik.Views
                 ReloadRulesAfterChange();
             }
 
-            BindingRule? rule = BindingStore.LookupByName(row.Name);
+            BindingRule? rule = Svc.Bindings.LookupByName(row.Name);
             if (rule == null)
             {
                 ToastService.Warning("该规则已不存在");
@@ -1825,7 +1825,7 @@ namespace Zentwik.Views
                 ? $"已重新应用规则：{row.Name} → {rule.Label}{prioNote}，对 {bound} 个正在运行的进程生效。"
                 : $"规则已就绪：{row.Name} → {rule.Label}{prioNote}。当前该进程没有正在运行的实例，启动后会自动生效。";
 
-            LogService.Info(msg);
+            Svc.Log.Info(msg);
             ToastService.Success(msg);
 
             // 优先级没设上时必须单独说清楚，否则用户以为「应用」把两件事都做了
@@ -1842,7 +1842,7 @@ namespace Zentwik.Views
                 return;
 
             DeleteRule(row.Name);
-            LogService.Info($"已按界面选择解除绑定：{row.Name}");
+            Svc.Log.Info($"已按界面选择解除绑定：{row.Name}");
         }
 
         /// <summary>单条规则「删除」：只删这一条，其余规则保留。</summary>
@@ -1855,19 +1855,19 @@ namespace Zentwik.Views
                 return;
 
             DeleteRule(row.Name);
-            LogService.Info($"已删除单条规则：{row.Name}");
+            Svc.Log.Info($"已删除单条规则：{row.Name}");
         }
 
         /// <summary>删掉一条规则并复位界面上下方列表的同名下拉框。</summary>
         private void DeleteRule(string name)
         {
-            List<BindingRule> rules = BindingStore.Profile.Rules;
-            BindingRule? existing = BindingStore.LookupByName(name);
+            List<BindingRule> rules = Svc.Bindings.Profile.Rules;
+            BindingRule? existing = Svc.Bindings.LookupByName(name);
 
             if (existing != null)
             {
                 rules.Remove(existing);
-                BindingStore.Save(rules);
+                Svc.Bindings.Save(rules);
             }
 
             FindGroup(name)?.SetInitialSelection("不绑定");
@@ -1902,14 +1902,14 @@ namespace Zentwik.Views
             if (row == null || _loadingRules)
                 return;
 
-            BindingRule? rule = BindingStore.LookupByName(row.Name);
+            BindingRule? rule = Svc.Bindings.LookupByName(row.Name);
             if (rule == null)
                 return;
 
             rule.Enabled = row.Enabled;
-            BindingStore.Save(BindingStore.Profile.Rules);
+            Svc.Bindings.Save(Svc.Bindings.Profile.Rules);
             // 清掉「已处理」缓存：重新启用后可立即对已在运行的实例补绑
-            ProcessWatcher.ResetCache();
+            Svc.Watcher.ResetCache();
 
             if (row.Enabled)
             {
@@ -1929,13 +1929,13 @@ namespace Zentwik.Views
                 }
 
                 int bound = HotApplyRule(row.Name);
-                LogService.Info(bound > 0
+                Svc.Log.Info(bound > 0
                     ? $"规则已启用：{row.Name} → {row.Label}，并对 {bound} 个正在运行的进程立即生效"
                     : $"规则已启用：{row.Name} → {row.Label}（当前无运行实例，启动后自动生效）");
             }
             else
             {
-                LogService.Info($"规则已停用：{row.Name}（记录保留，后台不再自动绑定）");
+                Svc.Log.Info($"规则已停用：{row.Name}（记录保留，后台不再自动绑定）");
             }
         }
     }

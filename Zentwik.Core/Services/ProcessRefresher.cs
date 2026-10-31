@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Diagnostics;
@@ -27,8 +27,16 @@ namespace Zentwik.Core.Services
     ///
     /// 生命周期：应用启动即开始周期采样，调度页打开后直接消费最新快照。
     /// </summary>
-    public static class ProcessRefresher
+    public class ProcessRefresher
     {
+        private readonly ILogService _log;
+
+        public ProcessRefresher(ILogService log)
+        {
+            ArgumentNullException.ThrowIfNull(log);
+            _log = log;
+        }
+
         // ---------- Win32 互操作 ----------
 
         private const uint TH32CS_SNAPPROCESS = 0x00000002;
@@ -119,22 +127,22 @@ namespace Zentwik.Core.Services
             public int PriorityClass { get; init; }
         }
 
-        private static readonly Dictionary<int, ProcSample> _samples = new();
-        private static readonly List<Entry> _latest = new();
-        private static readonly object _gate = new();
+        private readonly Dictionary<int, ProcSample> _samples = new();
+        private readonly List<Entry> _latest = new();
+        private readonly object _gate = new();
 
         /// <summary>
         /// 保护 <see cref="_samples"/>：单例字典会被采样线程与任何外部 Sample 调用同时接触。
         /// </summary>
-        private static readonly object _sampleGate = new();
+        private readonly object _sampleGate = new();
 
-        private static CancellationTokenSource? _cts;
-        private static int _loopRunning;
+        private CancellationTokenSource? _cts;
+        private int _loopRunning;
 
         /// <summary>
         /// 锁住 <see cref="_watcherCount"/> 的增减与唤醒信号。
         /// </summary>
-        private static readonly object _wakeGate = new();
+        private readonly object _wakeGate = new();
 
         /// <summary>
         /// 「有人在看」的唤醒事件。计数从 0 变 1 时置位，采样线程随即醒来。
@@ -167,12 +175,12 @@ namespace Zentwik.Core.Services
         /// 唤醒后自动复位，等待方再次 Wait 就会真的睡下去。
         /// （.NET 没有 AutoResetEventSlim，只有 ManualResetEventSlim。）
         /// </summary>
-        private static readonly AutoResetEvent _watchSignal = new(false);
+        private readonly AutoResetEvent _watchSignal = new(false);
 
         /// <summary>「立即采一帧」请求。与观察者信号分开，避免互相吃掉。</summary>
-        private static readonly SemaphoreSlim _sampleNowSignal = new(0);
+        private readonly SemaphoreSlim _sampleNowSignal = new(0);
 
-        private static Thread? _samplerThread;
+        private Thread? _samplerThread;
 
         /// <summary>
         /// 「正在看进程列表」的引用计数。
@@ -183,16 +191,16 @@ namespace Zentwik.Core.Services
         /// 用计数而不是布尔值，是为了容纳「窗口可见 + 页面已加载」这类多个条件
         /// 各自持有、各自释放的场景，避免其中一方先释放就把采集误停。
         /// </summary>
-        private static int _watcherCount;
+        private int _watcherCount;
 
         /// <summary>
         /// 宿主窗口是否可见（volatile：UI 线程写、采样线程读）。
         /// false 时采样循环彻底挂起，不看有没有人「在看列表」。
         /// </summary>
-        private static volatile bool _hostVisible = true;
+        private volatile bool _hostVisible = true;
 
         /// <summary>当前是否有人在看（有任何一个观察者持有）。</summary>
-        public static bool IsWatched
+        public bool IsWatched
         {
             get { lock (_wakeGate) return _watcherCount > 0; }
         }
@@ -202,7 +210,7 @@ namespace Zentwik.Core.Services
         /// 与 <see cref="ReleaseWatch"/> 必须成对调用（页面 Loaded/Unloaded、
         /// 窗口可见性变化时各配一次）。
         /// </summary>
-        public static void AcquireWatch()
+        public void AcquireWatch()
         {
             lock (_wakeGate)
             {
@@ -212,13 +220,13 @@ namespace Zentwik.Core.Services
                     // 从「停」切到「跑」：立即唤醒采样线程，
                     // 让用户切回来的第一眼就是新数据，而不是空白或陈数据。
                     _watchSignal.Set();
-                    LogService.Info("进程快照采样：已恢复（列表可见）");
+                    _log.Info("进程快照采样：已恢复（列表可见）");
                 }
             }
         }
 
         /// <summary>释放观察者。计数归零后采样线程挂起，不再消耗 CPU。</summary>
-        public static void ReleaseWatch()
+        public void ReleaseWatch()
         {
             lock (_wakeGate)
             {
@@ -231,7 +239,7 @@ namespace Zentwik.Core.Services
                     // 这里不需要额外清信号：AutoResetEvent 是一次性的，
                     // 采样线程下一轮 Wait 时自然就睡下去了（最多多醒一次，
                     // 醒来后 IsWatched 为 false，随即继续等待）。
-                    LogService.Info("进程快照采样：已挂起（列表不可见）");
+                    _log.Info("进程快照采样：已挂起（列表不可见）");
                 }
             }
         }
@@ -246,7 +254,7 @@ namespace Zentwik.Core.Services
         ///
         /// 恢复时立刻唤醒采样线程：用户把窗口叫回来时，第一眼就该是新数据。
         /// </summary>
-        public static void SetHostVisible(bool visible)
+        public void SetHostVisible(bool visible)
         {
             if (_hostVisible == visible)
                 return;
@@ -258,7 +266,7 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>宿主窗口当前是否可见（自检 / 日志用）。</summary>
-        public static bool HostVisible => _hostVisible;
+        public bool HostVisible => _hostVisible;
 
         /// <summary>CPU 占用滑动窗口的长度（秒）。</summary>
         private const double CpuWindowSeconds = 30.0;
@@ -270,7 +278,7 @@ namespace Zentwik.Core.Services
         private const double PathRetrySeconds = 30.0;
 
         /// <summary>最新快照（只读副本）。</summary>
-        public static IReadOnlyList<Entry> Latest
+        public IReadOnlyList<Entry> Latest
         {
             get { lock (_gate) return _latest.ToArray(); }
         }
@@ -282,7 +290,7 @@ namespace Zentwik.Core.Services
         /// 订阅方必须自行 Dispatcher.BeginInvoke 回 UI 线程再动任何控件或集合。
         /// 这里不做封送，是因为本类要能在没有 Dispatcher 的纯后台模式（-silent）下工作。
         /// </summary>
-        public static event Action<IReadOnlyList<Entry>>? Refreshed;
+        public event Action<IReadOnlyList<Entry>>? Refreshed;
 
         /// <summary>采样周期（秒）。
         ///
@@ -303,8 +311,8 @@ namespace Zentwik.Core.Services
         /// 全工程没有第二个地方写死采样周期。
         ///
         /// volatile：UI 线程写、后台采样线程读，不加会让循环可能长期读到缓存里的旧值。</summary>
-        private static volatile int _intervalSeconds = 5;
-        public static int IntervalSeconds
+        private volatile int _intervalSeconds = 5;
+        public int IntervalSeconds
         {
             get => _intervalSeconds;
             set => _intervalSeconds = Math.Max(1, value);
@@ -315,7 +323,7 @@ namespace Zentwik.Core.Services
         /// 线程启动后并不等于立刻开始采集：没人观察时它会挂在信号量上等待，
         /// 真正的采集频率由「有没有人在看」决定（见 AcquireWatch / ReleaseWatch）。
         /// </summary>
-        public static void Start()
+        public void Start()
         {
             if (Interlocked.Exchange(ref _loopRunning, 1) == 1)
                 return;
@@ -346,7 +354,7 @@ namespace Zentwik.Core.Services
         /// 排队而不是直接同步执行：采样必须在采样线程上跑（STA + 串行），
         /// 在 UI 线程上同步 Collect 会把几百次 OpenProcess 压到界面上。
         /// </summary>
-        public static void RequestSample()
+        public void RequestSample()
         {
             try
             {
@@ -358,7 +366,7 @@ namespace Zentwik.Core.Services
             }
         }
 
-        private static void RunLoop(CancellationToken token)
+        private void RunLoop(CancellationToken token)
         {
             while (!token.IsCancellationRequested)
             {
@@ -420,7 +428,7 @@ namespace Zentwik.Core.Services
         /// 用定时器而不是 Task.Delay：这条线程上没有同步上下文，用 async/await
         /// 只会把执行流甩回线程池（又变回 MTA），那正是要避免的事。
         /// </summary>
-        private static bool WaitInterval(CancellationToken token)
+        private bool WaitInterval(CancellationToken token)
         {
             // 进睡眠前清掉残留请求：不清的话上一轮的「立即采样」会让这一轮立刻返回，
             // 从 3 秒一次退化成紧密循环。
@@ -447,7 +455,7 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>采一帧并广播；异常只记 WARN，绝不让循环停摆。</summary>
-        private static void SampleOnce(string reason)
+        private void SampleOnce(string reason)
         {
             try
             {
@@ -458,7 +466,7 @@ namespace Zentwik.Core.Services
                 // WARN 而不是 ERROR：单轮采样失败（某个进程刚退出、句柄失效）
                 // 下一秒就会自愈，它不构成「操作失败」，只是「这一轮没采全」。
                 // 记 ERROR 会让日志页红一片，把真正的失败埋掉。
-                LogService.Warn($"进程快照失败（{reason}，本轮已跳过）: {ex.Message}");
+                _log.Warn($"进程快照失败（{reason}，本轮已跳过）: {ex.Message}");
             }
             finally
             {
@@ -467,7 +475,7 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>停止后台采样。</summary>
-        public static void Stop()
+        public void Stop()
         {
             Interlocked.Exchange(ref _loopRunning, 0);
 
@@ -493,7 +501,7 @@ namespace Zentwik.Core.Services
             cts.Dispose();
         }
 
-        private static void TryRelease(SemaphoreSlim semaphore)
+        private void TryRelease(SemaphoreSlim semaphore)
         {
             try
             {
@@ -506,7 +514,7 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>调整采样周期（搜索框聚焦时加速）。下一轮循环生效。</summary>
-        public static void SetInterval(int seconds) => IntervalSeconds = Math.Max(1, seconds);
+        public void SetInterval(int seconds) => IntervalSeconds = Math.Max(1, seconds);
 
         /// <summary>
         /// 执行一次采样并广播结果。
@@ -516,7 +524,7 @@ namespace Zentwik.Core.Services
         /// 「同步拿到结果」。那条路径在 WMI 回调线程上，同样是 MTA —— 所以它
         /// 现在也改成走 <see cref="SampleOnSamplerThread"/>。
         /// </summary>
-        public static void Sample()
+        public void Sample()
         {
             List<Entry> collected;
             try
@@ -525,7 +533,7 @@ namespace Zentwik.Core.Services
             }
             catch (Exception ex)
             {
-                LogService.Warn($"进程快照失败（本次请求已跳过）: {ex.Message}");
+                _log.Warn($"进程快照失败（本次请求已跳过）: {ex.Message}");
                 return;
             }
 
@@ -545,7 +553,7 @@ namespace Zentwik.Core.Services
         /// 给「启动补扫」这类需要结果立刻可用的调用方用：它不能等 3 秒周期，
         /// 也不该自己在调用线程上跑（那条线程可能是 MTA 的 WMI 回调）。
         /// </summary>
-        public static IReadOnlyList<Entry> SampleOnSamplerThread(TimeSpan timeout)
+        public IReadOnlyList<Entry> SampleOnSamplerThread(TimeSpan timeout)
         {
             using ManualResetEventSlim done = new(false);
 
@@ -561,9 +569,9 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>等待中的同步调用方。采样线程每完成一帧就把它们全部唤醒。</summary>
-        private static readonly Queue<ManualResetEventSlim> _pendingWaiters = new();
+        private readonly Queue<ManualResetEventSlim> _pendingWaiters = new();
 
-        private static void CompleteWaiters()
+        private void CompleteWaiters()
         {
             lock (_pendingWaiters)
             {
@@ -582,7 +590,7 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>执行一次快照采集（单次 Toolhelp 遍历 + 按需查路径）。</summary>
-        private static List<Entry> Collect()
+        private List<Entry> Collect()
         {
             List<Entry> result = new();
             long now = Stopwatch.GetTimestamp();
@@ -650,7 +658,7 @@ namespace Zentwik.Core.Services
         /// 改成维护一个 30 秒窗口，每次用窗口里<b>最老的那一点</b>与当前比，
         /// 得到的是这整段时间的平均值，短时抖动被摊平，排序才站得住。
         /// </summary>
-        private static double ComputeCpu(ProcSample sample, long now)
+        private double ComputeCpu(ProcSample sample, long now)
         {
             long total = sample.KernelTicks + sample.UserTicks;
             sample.CpuWindow.Enqueue((now, total));
@@ -697,7 +705,7 @@ namespace Zentwik.Core.Services
         /// 所以失败后延迟重试通常第二次就成功；受保护进程（反作弊、PPL）属于真失败，
         /// 会按同样节奏重试但不纠缠到耗尽 CPU。
         /// </summary>
-        private static void ResolvePath(int pid, ProcSample sample, long now)
+        private void ResolvePath(int pid, ProcSample sample, long now)
         {
             if (sample.PathResolved)
                 return;
@@ -725,7 +733,7 @@ namespace Zentwik.Core.Services
         /// 顺带解决 PID 复用：每个新 PID 都会拿到全新的 ProcSample，
         /// 不会继承上一个同 PID 进程的路径、失败状态或 CPU 窗口。
         /// </summary>
-        private static void PruneDeadSamples(List<Entry> result)
+        private void PruneDeadSamples(List<Entry> result)
         {
             lock (_sampleGate)
             {
@@ -746,7 +754,7 @@ namespace Zentwik.Core.Services
             }
         }
 
-        private static ProcSample GetOrCreateSample(int pid)
+        private ProcSample GetOrCreateSample(int pid)
         {
             if (!_samples.TryGetValue(pid, out ProcSample? s))
             {
@@ -757,7 +765,7 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>读取进程时间片（内核 + 用户）。</summary>
-        private static bool ReadProcessTimes(int pid, ProcSample sample)
+        private bool ReadProcessTimes(int pid, ProcSample sample)
         {
             IntPtr handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)pid);
             if (handle == IntPtr.Zero)
@@ -780,7 +788,7 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>取进程可执行文件完整路径（权限不足时返回空串）。</summary>
-        private static string QueryImagePath(int pid)
+        private string QueryImagePath(int pid)
         {
             IntPtr handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)pid);
             if (handle == IntPtr.Zero)

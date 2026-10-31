@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -93,6 +93,9 @@
       已验证两侧无同名类型，不会产生歧义。 -->
     <Using Include="Zentwik.Core.Helpers" />
     <Using Include="Zentwik.Core.Services" />
+    <!-- 过渡桥：Core 已全面 DI 化，WPF 遗留视图仍按静态方式取服务。
+         随 WinUI 3 页面接管视图一并删除（见 Services/AppServices.cs）。 -->
+    <Using Include="Zentwik.Compat" />
   </ItemGroup>
 
   <ItemGroup>
@@ -102,6 +105,9 @@
          Color、Point、Size —— 一注入就是满屏歧义错误。
          只加 FrameworkReference 不注入任何 using，代码里写全名即可。 -->
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
+
+    <!-- 组合根需要 ServiceCollection 实现；Core 只引 Abstractions。 -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
 
     <Resource Include="Assets/Zentwik.ico" />
   </ItemGroup>

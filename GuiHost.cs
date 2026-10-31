@@ -34,11 +34,11 @@ namespace Zentwik
         {
             App.IsHeadlessUpgrade = true;
 
-            Zentwik.Core.Services.LogService.Info("升级 2/6：创建 Application 实例");
+            Svc.Log.Info("升级 2/6：创建 Application 实例");
 
             App app = new();
 
-            Zentwik.Core.Services.LogService.Info("升级 3/6：加载 App.xaml 资源字典");
+            Svc.Log.Info("升级 3/6：加载 App.xaml 资源字典");
             app.InitializeComponent();
 
             return app.Run();

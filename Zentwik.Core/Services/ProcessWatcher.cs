@@ -21,22 +21,45 @@ namespace Zentwik.Core.Services
     /// 关键设计：用 PidSet 记录已处理 PID 避免重复绑定；两种模式都清理已退出 PID
     /// 防止 PID 复用漏绑；WMI 回调不在 UI 线程；异常一律吞掉记日志；不碰电源与 SMU。
     /// </summary>
-    public static class ProcessWatcher
+    public class ProcessWatcher : IProcessWatcher
     {
-        private static readonly object _lock = new();
+        private readonly ILogService _log;
+        private readonly ProcessRefresher _refresher;
+        private readonly LogThrottle _throttle;
+        private readonly ICpuSetBinder _cpuSets;
+        private readonly IBindingStore _bindings;
+        private readonly IMaskStore _masks;
 
-        private static CancellationTokenSource? _cts;
-        private static System.Threading.Tasks.Task? _loop;
+        public ProcessWatcher(ILogService log, ProcessRefresher refresher, LogThrottle throttle, ICpuSetBinder cpuSets, IBindingStore bindings, IMaskStore masks)
+        {
+            ArgumentNullException.ThrowIfNull(log);
+            _log = log;
+            ArgumentNullException.ThrowIfNull(refresher);
+            _refresher = refresher;
+            ArgumentNullException.ThrowIfNull(throttle);
+            _throttle = throttle;
+            ArgumentNullException.ThrowIfNull(cpuSets);
+            _cpuSets = cpuSets;
+            ArgumentNullException.ThrowIfNull(bindings);
+            _bindings = bindings;
+            ArgumentNullException.ThrowIfNull(masks);
+            _masks = masks;
+        }
+
+        private readonly object _lock = new();
+
+        private CancellationTokenSource? _cts;
+        private System.Threading.Tasks.Task? _loop;
 
         /// <summary>WMI 事件订阅器（事件模式下非 null）。</summary>
-        private static ManagementEventWatcher? _creationWatcher;
-        private static ManagementEventWatcher? _deletionWatcher;
+        private ManagementEventWatcher? _creationWatcher;
+        private ManagementEventWatcher? _deletionWatcher;
 
         /// <summary>
         /// 当前运行模式。true = WMI 事件驱动（首选）；false = 定时轮询（降级）。
         /// 供设置页/日志展示，也让 Start() 的幂等判断能区分模式。
         /// </summary>
-        public static bool UsingEvents { get; private set; }
+        public bool UsingEvents { get; private set; }
 
         /// <summary>
         /// 已尝试绑定的 PID（成功或失败都记，避免重复尝试刷日志）。
@@ -45,13 +68,13 @@ namespace Zentwik.Core.Services
         /// UI 线程还会在保存规则后调 ResetCache() 清空。不加锁时 Clear 与
         /// Add 并发会让 HashSet 内部桶状态错乱甚至抛 InvalidOperationException。
         /// </summary>
-        private static readonly PidSet _handledPids = new();
+        private readonly PidSet _handledPids = new();
 
         /// <summary>
         /// 上一轮降级轮询看到的存活 PID 集合，只用于判断「进程集合是否真的变了」。
         /// 仅降级轮询模式使用（事件模式下由 WMI 事件直接驱动，不需要这一层）。
         /// </summary>
-        private static HashSet<int>? _lastAlive;
+        private HashSet<int>? _lastAlive;
 
         /// <summary>
         /// 降级轮询间隔（毫秒）。只在 WMI 不可用时使用，因此取宽松值：
@@ -62,14 +85,14 @@ namespace Zentwik.Core.Services
         /// <summary>
         /// 全局互斥体名：保证同一台机器上只有一个 Zentwik 进程在跑绑核监听。
         /// </summary>
-        private const string MutexName = @"Global\Zentwik.ProcessWatcher.Singleton";
+        private const string MutexName = @"Global\Zentwik.Singleton";
 
-        private static Mutex? _mutex;
+        private Mutex? _mutex;
 
         /// <summary>监听是否处于运行状态（两种模式共用）。</summary>
-        private static bool _running;
+        private bool _running;
 
-        public static bool HasOwnership => _mutex != null;
+        public bool HasOwnership => _mutex != null;
 
         /// <summary>
         /// WMI 不可用时的降级提示动作。由 UI 层注入；纯后台不注入，降级时只记日志。
@@ -78,13 +101,13 @@ namespace Zentwik.Core.Services
         /// 它是纯后台进程里唯一真正干活的组件，不能因为一句提示把整个
         /// PresentationFramework 拖进来。
         /// </summary>
-        public static Action? WmiUnavailableNotifier { get; set; }
+        public Action? WmiUnavailableNotifier { get; set; }
 
         /// <summary>
         /// 是否正在监听。不能只看 _loop：事件模式下的 _loop 是「启动补扫任务」，
         /// 跑完就 completed，而监听本身仍在进行（由 WMI 订阅维持）。
         /// </summary>
-        public static bool IsRunning
+        public bool IsRunning
         {
             get
             {
@@ -93,7 +116,7 @@ namespace Zentwik.Core.Services
             }
         }
 
-        public static void Start()
+        public void Start()
         {
             lock (_lock)
             {
@@ -102,7 +125,7 @@ namespace Zentwik.Core.Services
 
                 if (!TryAcquireMutex())
                 {
-                    LogService.Warn(
+                    _log.Warn(
                         "已有另一个 Zentwik 实例在运行进程绑核监听，本实例跳过（避免重复绑定）");
                     return;
                 }
@@ -121,7 +144,7 @@ namespace Zentwik.Core.Services
                     _loop = System.Threading.Tasks.Task.Run(InitialScan);
                     _running = true;
 
-                    LogService.Info("进程绑核监听已启动（WMI 事件驱动，空闲零轮询）");
+                    _log.Info("进程绑核监听已启动（WMI 事件驱动，空闲零轮询）");
                 }
                 else
                 {
@@ -130,7 +153,7 @@ namespace Zentwik.Core.Services
                     _loop = System.Threading.Tasks.Task.Run(() => LoopAsync(token), token);
                     _running = true;
 
-                    LogService.Warn(
+                    _log.Warn(
                         $"WMI 不可用，进程绑核监听已降级为定时轮询（每 {FallbackIntervalMs / 1000} 秒一次）");
 
                     // 注意：不能在这里直接 ShowWarning —— 当前持有 _lock，模态框会
@@ -145,7 +168,7 @@ namespace Zentwik.Core.Services
         /// 提示 WMI 不可用。只在应用有主窗口时弹（静默自启没有窗口，
         /// 弹模态框会漂在桌面上无人可关，还挡住后台常驻）。
         /// </summary>
-        private static void NotifyWmiUnavailableAsync()
+        private void NotifyWmiUnavailableAsync()
         {
             try
             {
@@ -159,11 +182,11 @@ namespace Zentwik.Core.Services
                     return;
                 }
 
-                LogService.Warn("WMI 不可用，进程绑核已降级为定时轮询（无界面，未弹提示）");
+                _log.Warn("WMI 不可用，进程绑核已降级为定时轮询（无界面，未弹提示）");
             }
             catch (Exception ex)
             {
-                LogService.Warn($"显示监听降级提示失败：{ex.Message}");
+                _log.Warn($"显示监听降级提示失败：{ex.Message}");
             }
         }
 
@@ -174,7 +197,7 @@ namespace Zentwik.Core.Services
         /// 全部序列化过来，而这些字段我们一个都不用（路径自己用 QueryFullProcessImageName
         /// 取更快也更准）。限定列名能显著降低 WMI 侧的编码与解析开销。
         /// </summary>
-        private static bool TryStartEventMode()
+        private bool TryStartEventMode()
         {
             // 事件查询的 SELECT 列表里不能出现 "TargetInstance.Xxx" 这种带点号的
             // 属性路径 —— 那是普通实例查询的语法，用在 __Instance*Event 上
@@ -239,12 +262,12 @@ namespace Zentwik.Core.Services
             }
             catch (Exception ex)
             {
-                LogService.Warn($"WMI 事件订阅失败：{ex.Message}");
+                _log.Warn($"WMI 事件订阅失败：{ex.Message}");
                 return false;
             }
         }
 
-        private static void StopEventMode()
+        private void StopEventMode()
         {
             ManagementEventWatcher? creation = _creationWatcher;
             ManagementEventWatcher? deletion = _deletionWatcher;
@@ -266,7 +289,7 @@ namespace Zentwik.Core.Services
             }
         }
 
-        private static bool TryAcquireMutex()
+        private bool TryAcquireMutex()
         {
             if (_mutex != null)
                 return true;
@@ -295,12 +318,12 @@ namespace Zentwik.Core.Services
             }
             catch (Exception ex)
             {
-                LogService.Warn($"创建监听互斥体失败（降级为无保护运行）：{ex.Message}");
+                _log.Warn($"创建监听互斥体失败（降级为无保护运行）：{ex.Message}");
                 return true;
             }
         }
 
-        private static void ReleaseMutex()
+        private void ReleaseMutex()
         {
             if (_mutex == null)
                 return;
@@ -326,7 +349,7 @@ namespace Zentwik.Core.Services
             _mutex = null;
         }
 
-        public static void Stop()
+        public void Stop()
         {
             lock (_lock)
             {
@@ -360,7 +383,7 @@ namespace Zentwik.Core.Services
                 ReleaseMutex();
             }
 
-            LogService.Info("进程绑核监听已停止");
+            _log.Info("进程绑核监听已停止");
         }
 
         /// <summary>
@@ -376,7 +399,7 @@ namespace Zentwik.Core.Services
         /// 但合并窗口该取多长只有调用方知道（它才知道自己要付多少次评估的代价），
         /// 在这里拍一个延时没有依据。防抖统一放在订阅侧（见 ScenarioMonitor）。
         /// </summary>
-        public static event Action? ProcessSetChanged;
+        public event Action? ProcessSetChanged;
 
         /// <summary>
         /// 触发 <see cref="ProcessSetChanged"/>。
@@ -385,14 +408,14 @@ namespace Zentwik.Core.Services
         /// WMI 的回调里，进而打断订阅本身的后续处理。这里兜住，订阅方的 bug
         /// 不应该让绑核监听一起失效。
         /// </summary>
-        private static void RaiseProcessSetChanged()
+        private void RaiseProcessSetChanged()
         {
             Action? handler = ProcessSetChanged;
             if (handler == null)
                 return;
 
             try { handler(); }
-            catch (Exception ex) { LogService.Warn($"进程变化订阅者处理失败：{ex.Message}"); }
+            catch (Exception ex) { _log.Warn($"进程变化订阅者处理失败：{ex.Message}"); }
         }
 
         /// <summary>
@@ -412,7 +435,7 @@ namespace Zentwik.Core.Services
         /// 全量快照 + 逐个 OpenProcess 是百毫秒级的操作，调用方是 UI 线程的
         /// 方案切换路径，不能陪着一起等。
         /// </summary>
-        public static void ReapplyNow()
+        public void ReapplyNow()
         {
             bool running;
             lock (_lock)
@@ -428,12 +451,12 @@ namespace Zentwik.Core.Services
             _ = System.Threading.Tasks.Task.Run(() =>
             {
                 try { InitialScan(); }
-                catch (Exception ex) { LogService.Warn($"按新规则重扫进程失败：{ex.Message}"); }
+                catch (Exception ex) { _log.Warn($"按新规则重扫进程失败：{ex.Message}"); }
             });
         }
 
         /// <summary>清空「已处理」缓存，让规则立即重新应用（保存规则后调用）。</summary>
-        public static void ResetCache()
+        public void ResetCache()
         {
             lock (_lock)
             {
@@ -453,7 +476,7 @@ namespace Zentwik.Core.Services
         /// DBNull（进程刚好在查询与投递之间退出）还会抛 InvalidCastException。
         /// 事件是高频路径，不该靠外层 catch 处理这种可预期的缺失。
         /// </summary>
-        private static int ReadPid(ManagementBaseObject target)
+        private int ReadPid(ManagementBaseObject target)
         {
             object? raw = null;
             try
@@ -481,7 +504,7 @@ namespace Zentwik.Core.Services
         /// <summary>
         /// 新进程创建。回调在 WMI 自己的工作线程上，不能碰 UI。
         /// </summary>
-        private static void OnProcessCreated(object sender, EventArrivedEventArgs e)
+        private void OnProcessCreated(object sender, EventArrivedEventArgs e)
         {
             try
             {
@@ -499,14 +522,14 @@ namespace Zentwik.Core.Services
             catch (Exception ex)
             {
                 // 单个进程处理失败不能影响订阅本身
-                LogService.Warn($"处理新建进程事件失败：{ex.Message}");
+                _log.Warn($"处理新建进程事件失败：{ex.Message}");
             }
         }
 
         /// <summary>
         /// 进程退出。只做 PID 回收，避免 PID 复用后被误判为「已绑定」而跳过。
         /// </summary>
-        private static void OnProcessExited(object sender, EventArrivedEventArgs e)
+        private void OnProcessExited(object sender, EventArrivedEventArgs e)
         {
             try
             {
@@ -535,7 +558,7 @@ namespace Zentwik.Core.Services
         /// 处理一个进程：查规则 → 命中且未处理则下发 CPU Set。
         /// 事件模式与轮询模式共用这一条路径。
         /// </summary>
-        private static void HandleProcess(int pid, string name)
+        private void HandleProcess(int pid, string name)
         {
             if (pid <= 0 || string.IsNullOrEmpty(name))
                 return;
@@ -556,7 +579,7 @@ namespace Zentwik.Core.Services
 
             // 自定义掩码：优先取实时掩码，缺失时回退快照
             ulong mask = rule.Target == BindingTarget.Custom
-                ? (MaskStore.FindById(rule.MaskId)?.Mask ?? rule.Mask)
+                ? (_masks.FindById(rule.MaskId)?.Mask ?? rule.Mask)
                 : 0;
 
             CpuSetBindResult result;
@@ -565,15 +588,15 @@ namespace Zentwik.Core.Services
             switch (rule.Target)
             {
                 case BindingTarget.CCD0:
-                    result = CpuSetBinder.BindToCcd(pid, 0);
+                    result = _cpuSets.BindToCcd(pid, 0);
                     label = "CCD0";
                     break;
                 case BindingTarget.CCD1:
-                    result = CpuSetBinder.BindToCcd(pid, 1);
+                    result = _cpuSets.BindToCcd(pid, 1);
                     label = "CCD1";
                     break;
                 default:
-                    result = CpuSetBinder.BindToMask(pid, mask);
+                    result = _cpuSets.BindToMask(pid, mask);
                     label = rule.Label;
                     break;
             }
@@ -587,13 +610,13 @@ namespace Zentwik.Core.Services
             {
                 // 成功过就说明这个进程现在可达，把窗口清掉：
                 // 之后若再失败应当立刻看到，而不是等 60 秒过期。
-                LogThrottle.Reset(throttleKey);
-                LogService.Info(
+                _throttle.Reset(throttleKey);
+                _log.Info(
                     $"已绑定 {name}（PID {pid}）→ {label}，{result.AppliedCount} 个 CPU Set");
             }
-            else if (LogThrottle.TryAcquire(throttleKey, out int suppressed))
+            else if (_throttle.TryAcquire(throttleKey, out int suppressed))
             {
-                LogService.Warn(
+                _log.Warn(
                     $"绑定失败 {name}（PID {pid}）→ {label}：{result.Error}{LogThrottle.SuppressedSuffix(suppressed)}");
             }
 
@@ -617,13 +640,13 @@ namespace Zentwik.Core.Services
         /// 访问权与错误处理，否则会出现「页面里改不了、后台能改」这种自相矛盾的行为。
         /// 这里只做日志，不弹 Toast —— 监听器是后台路径，开机时一次要处理几十个进程。
         /// </summary>
-        private static void ApplyPriority(int pid, string name, string label)
+        private void ApplyPriority(int pid, string name, string label)
         {
             PriorityApplyResult result = ProcessPriority.Apply(pid, label);
 
             if (result.Ok > 0)
             {
-                LogService.Info($"已设置优先级 PID {pid} → {ProcessPriority.DisplayOf(label)}");
+                _log.Info($"已设置优先级 PID {pid} → {ProcessPriority.DisplayOf(label)}");
                 return;
             }
 
@@ -631,15 +654,15 @@ namespace Zentwik.Core.Services
             // 记 Warn 会让日志页在每次开机时糊一层黄色，把真正的问题埋掉。
             if (ProcessPriority.IsTransient(result))
             {
-                LogService.Debug($"跳过优先级 PID {pid}：进程已退出");
+                _log.Debug($"跳过优先级 PID {pid}：进程已退出");
                 return;
             }
 
             string throttleKey = $"priority|{name}|{result.ErrorCode}";
 
-            if (LogThrottle.TryAcquire(throttleKey, out int suppressed))
+            if (_throttle.TryAcquire(throttleKey, out int suppressed))
             {
-                LogService.Warn(
+                _log.Warn(
                     $"设置优先级失败 {name}（PID {pid}）→ {ProcessPriority.DisplayOf(label)}：{result.Error}{LogThrottle.SuppressedSuffix(suppressed)}");
             }
         }
@@ -652,11 +675,11 @@ namespace Zentwik.Core.Services
         /// 「零开销」优势吃掉一半。1 秒内复用同一份规则足够 —— 用户保存规则后
         /// 秒级生效，与实时无差别。
         /// </summary>
-        private static BindingRule? FindRuleFor(string name)
+        private BindingRule? FindRuleFor(string name)
         {
             RefreshRulesIfStale();
 
-            return BindingStore.Profile.Rules.FirstOrDefault(rule => Matches(rule, name));
+            return _bindings.Profile.Rules.FirstOrDefault(rule => Matches(rule, name));
         }
 
         private static bool Matches(BindingRule rule, string name) =>
@@ -668,9 +691,9 @@ namespace Zentwik.Core.Services
         /// <summary>规则去抖窗口。超过这个时长才重新读盘。</summary>
         private const int RuleReloadWindowMs = 1000;
 
-        private static long _lastRuleReloadTick = long.MinValue / 2;
+        private long _lastRuleReloadTick = long.MinValue / 2;
 
-        private static void RefreshRulesIfStale()
+        private void RefreshRulesIfStale()
         {
             long now = Environment.TickCount64;
             long last = Interlocked.Read(ref _lastRuleReloadTick);
@@ -682,11 +705,11 @@ namespace Zentwik.Core.Services
             if (Interlocked.CompareExchange(ref _lastRuleReloadTick, now, last) != last)
                 return;
 
-            BindingStore.Reload();
+            _bindings.Reload();
         }
 
         /// <summary>强制下一次查找重新读盘（保存规则后由 ResetCache 触发）。</summary>
-        private static void InvalidateRuleCache()
+        private void InvalidateRuleCache()
         {
             Interlocked.Exchange(ref _lastRuleReloadTick, long.MinValue / 2);
         }
@@ -699,7 +722,7 @@ namespace Zentwik.Core.Services
         /// （浏览器、游戏启动器、常驻服务）不会产生事件，必须主动过一遍。
         /// 这是事件模式下唯一的一次全量枚举，跑完即止。
         /// </summary>
-        private static void InitialScan()
+        private void InitialScan()
         {
             try
             {
@@ -713,15 +736,15 @@ namespace Zentwik.Core.Services
                     }
                     catch (Exception ex)
                     {
-                        LogService.Warn($"启动补扫单个进程失败：{ex.Message}");
+                        _log.Warn($"启动补扫单个进程失败：{ex.Message}");
                     }
                 }
 
-                LogService.Info($"进程绑核启动补扫完成，共检查 {snapshot.Count} 个进程");
+                _log.Info($"进程绑核启动补扫完成，共检查 {snapshot.Count} 个进程");
             }
             catch (Exception ex)
             {
-                LogService.Warn($"进程绑核启动补扫失败：{ex.Message}");
+                _log.Warn($"进程绑核启动补扫失败：{ex.Message}");
             }
         }
 
@@ -732,7 +755,7 @@ namespace Zentwik.Core.Services
         /// 只在有人看列表时才跑，启动时没人看，它会一直挂起，Latest 恒为空。
         /// 所以这里自己触发一次，用完即走，不改变它的挂起状态。
         /// </summary>
-        private static IReadOnlyList<ProcessRefresher.Entry> TakeSnapshotForScan()
+        private IReadOnlyList<ProcessRefresher.Entry> TakeSnapshotForScan()
         {
             try
             {
@@ -741,14 +764,14 @@ namespace Zentwik.Core.Services
                 // 快照采集本身是纯 Win32，MTA 也能跑；但 Sample() 会同步触发
                 // Refreshed 事件，订阅方（进程页）一旦在里面碰 UI 就会抛
                 // 「调用线程必须为 STA」。转交采样线程后，链路只有一条，单元状态固定为 STA。
-                return ProcessRefresher.SampleOnSamplerThread(TimeSpan.FromSeconds(5));
+                return _refresher.SampleOnSamplerThread(TimeSpan.FromSeconds(5));
             }
             catch (Exception ex)
             {
-                LogService.Warn($"启动补扫：进程快照失败：{ex.Message}");
+                _log.Warn($"启动补扫：进程快照失败：{ex.Message}");
             }
 
-            return ProcessRefresher.Latest;
+            return _refresher.Latest;
         }
 
         // ==================== 降级轮询主循环 ====================
@@ -762,10 +785,10 @@ namespace Zentwik.Core.Services
         /// 降级轮询不一样：每 3 秒全量枚举一遍进程、逐个 OpenProcess，
         /// 是全工程最贵的一条后台路径，隐藏时必须停。
         /// </summary>
-        private static volatile bool _hostVisible = true;
+        private volatile bool _hostVisible = true;
 
         /// <summary>宿主窗口可见性。窗口隐藏时降级轮询挂起。</summary>
-        public static void SetHostVisible(bool visible)
+        public void SetHostVisible(bool visible)
         {
             if (_hostVisible == visible)
                 return;
@@ -774,13 +797,13 @@ namespace Zentwik.Core.Services
 
             if (!UsingEvents)
             {
-                LogService.Info(visible
+                _log.Info(visible
                     ? "窗口恢复可见：降级轮询已恢复（WMI 不可用时按固定周期扫描）"
                     : "窗口不可见：降级轮询已挂起（WMI 不可用时的全量扫描是后台最贵的一条路径）");
             }
         }
 
-        private static async System.Threading.Tasks.Task LoopAsync(CancellationToken token)
+        private async System.Threading.Tasks.Task LoopAsync(CancellationToken token)
         {
             while (!token.IsCancellationRequested)
             {
@@ -794,7 +817,7 @@ namespace Zentwik.Core.Services
                     }
                     catch (Exception ex)
                     {
-                        LogService.Warn($"进程绑核扫描异常（已跳过本轮）：{ex.Message}");
+                        _log.Warn($"进程绑核扫描异常（已跳过本轮）：{ex.Message}");
                     }
                 }
 
@@ -813,11 +836,11 @@ namespace Zentwik.Core.Services
         /// 降级轮询：遍历最近一次进程快照，逐个交给 HandleProcess。
         /// 仅在 WMI 不可用时启用，因此不再单独重读规则 —— 规则读取已由 FindRuleFor 承担。
         /// </summary>
-        private static void ScanOnce()
+        private void ScanOnce()
         {
             // 必须自己采一次：Refresher 只在用户看列表时才跑，
             // 否则 Latest 恒为上一份（或空），降级轮询会完全失效。
-            IReadOnlyList<ProcessRefresher.Entry> processes = ProcessRefresher.Latest;
+            IReadOnlyList<ProcessRefresher.Entry> processes = _refresher.Latest;
             if (processes.Count == 0)
                 processes = TakeSnapshotForScan();
 
@@ -834,7 +857,7 @@ namespace Zentwik.Core.Services
                 }
                 catch (Exception ex)
                 {
-                    LogService.Warn($"绑定 {entry.Name}（PID {entry.Pid}）时异常：{ex.Message}");
+                    _log.Warn($"绑定 {entry.Name}（PID {entry.Pid}）时异常：{ex.Message}");
                 }
             }
 

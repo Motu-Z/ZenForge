@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
@@ -9,6 +9,9 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Threading;
+using Microsoft.Extensions.DependencyInjection;
+using Zentwik.Core.DependencyInjection;
+using Zentwik.Core.Threading;
 using Zentwik.Helpers;
 using Zentwik.Services;
 using Zentwik.Views;
@@ -111,6 +114,15 @@ namespace Zentwik
 
         protected override void OnStartup(StartupEventArgs e)
         {
+            // 容器已在 Program.Main 建好（后台模式也要用）。这里只把界面线程的
+            // 同步上下文挂上去：此后的日志才会封送到 UI 线程，
+            // 而 WMI 回调线程往 ObservableCollection 里写就不会再抛跨线程异常。
+            SynchronizationContext context =
+                SynchronizationContext.Current
+                ?? new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher);
+
+            Composition.Dispatcher.Attach(new SynchronizationContextDispatcher(context));
+
             // ==================== 后台宿主升级路径 ====================
             // 从 -silent 升级而来：锁、监听、权限都已就绪，只把 WPF 壳搭起来。
             // 必须放在最前面 —— 下面的渲染兜底、单实例探测、提权都不能再跑一遍。
@@ -130,11 +142,6 @@ namespace Zentwik
                 // MainWindow.xaml，而主窗口由下面 ShowOrCreateMainWindow 显式 new。
                 ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
-                // 同步上下文必须最先挂：后面每一步都有可能产生日志，
-                // 而 WMI 回调线程也会往日志集合里写，没有 UiContext 就是跨线程改
-                // ObservableCollection —— 直接抛 InvalidOperationException。
-                LogService.UiContext = SynchronizationContext.Current;
-
                 // 全局异常兜底。正常分支有一份，升级分支以前漏了：
                 // 这条链上任何一步抛异常都不会再表现为「静默闪退」，
                 // 而是弹一个能看见的框 + 日志里留全栈。
@@ -152,30 +159,30 @@ namespace Zentwik
                 //   根本不会走到这条 Exit 事件。）
                 Exit += (_, _) => HardStop();
 
-                LogService.Info("升级 3/6：加载设置 / 主题 / 存储");
+                Svc.Log.Info("升级 3/6：加载设置 / 主题 / 存储");
 
                 AttachWakeChannel();
                 DisableFocusVisuals();
                 LoadStores();
 
-                LogService.Info("升级 4/6：启动进程采样与绑核回调");
+                Svc.Log.Info("升级 4/6：启动进程采样与绑核回调");
 
                 // 调度页的进程列表靠它采样。升级路径同样要立起循环 ——
                 // 循环本身挂在唤醒信号上，没人看调度页就不采，不会增加后台开销。
-                ProcessRefresher.Start();
+                Svc.Refresher.Start();
 
                 AttachProcessWatcherUi();
 
-                LogService.Info("升级 5/6：创建 WPF 托盘");
+                Svc.Log.Info("升级 5/6：创建 WPF 托盘");
 
-                if (UiSettingsStore.Settings.ShowTrayIcon)
+                if (Svc.Ui.Settings.ShowTrayIcon)
                     TrayIconService.EnsureCreated();
 
-                LogService.Info("升级 6/6：创建主窗口");
+                Svc.Log.Info("升级 6/6：创建主窗口");
 
                 TrayIconService.ShowOrCreateMainWindow();
 
-                LogService.Info("升级完成 · Zentwik 界面已从后台宿主加载（未重新抢锁、未重复写 SMU）");
+                Svc.Log.Info("升级完成 · Zentwik 界面已从后台宿主加载（未重新抢锁、未重复写 SMU）");
                 return;
             }
 
@@ -213,7 +220,7 @@ namespace Zentwik
 
             if (SingleInstance.TrySignalExisting(signalMain: !silent))
             {
-                LogService.Info(silent
+                Svc.Log.Info(silent
                     ? "已有 Zentwik 实例在运行，静默实例退出（不打扰已有实例）"
                     : "已有 Zentwik 实例在运行，本实例已请求其唤出主窗口并退出");
 
@@ -234,9 +241,9 @@ namespace Zentwik
             // 注销 / 关机只记一行，不在这里收摊：
             // 别的程序可以取消 SessionEnding，那时系统不关机、程序还得接着干活，
             // 提前把监听和托盘拆了就是自己把自己弄瘫。真要退出时 Exit 会照常触发。
-            SessionEnding += (_, _) => LogService.Info("系统正在注销 / 关机");
+            SessionEnding += (_, _) => Svc.Log.Info("系统正在注销 / 关机");
 
-            LogService.Info($"Zentwik 启动 · 详细日志：{(LogService.Verbose ? "已开启" : "关闭")}"
+            Svc.Log.Info($"Zentwik 启动 · 详细日志：{(Svc.Log.Verbose ? "已开启" : "关闭")}"
                 + $" · 版本 {VersionText}");
 
             // ==================== .NET 10 桌面运行时检测 ====================
@@ -253,7 +260,7 @@ namespace Zentwik
             // 这里只是把采样循环立起来，不等于立刻开始采集：循环会挂在唤醒信号上
             // 等待，直到「调度」页真的被用户看到（页面 Loaded + 窗口可见 + 未最小化）
             // 才开始按 IntervalSeconds 采样。没人看就完全不跑，省掉全部开销。
-            Zentwik.Core.Services.ProcessRefresher.Start();
+            Svc.Refresher.Start();
 
             // ==================== 静默模式（-silent）拦截 ====================
             // 注意：-silent 已经在 Program.Main 里被拦截，走 HeadlessHost（不加载 WPF），
@@ -267,19 +274,17 @@ namespace Zentwik
             {
                 ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
-                LogService.UiContext = SynchronizationContext.Current;
-
                 // 方案 A 下清单为 asInvoker，静默启动不再由清单强制提权。
                 // 计划任务以 HighestAvailable 拉起时进程已是管理员，SMU 可直接使用；
                 // 若是用户手动 Zentwik.exe -silent 且未提权，则只记日志、**绝不弹 UAC**
                 // ——静默场景不允许打断用户，也不允许留下等待中的对话框。
                 if (IsElevated())
                 {
-                    LogService.Info("静默模式：已具备管理员权限，SMU 可用");
+                    Svc.Log.Info("静默模式：已具备管理员权限，SMU 可用");
                 }
                 else
                 {
-                    LogService.Warn(
+                    Svc.Log.Warn(
                         "静默模式：当前未提权，SMU 写入将失败。" +
                         "若由计划任务启动，请检查任务的「以最高权限运行」是否生效。");
                 }
@@ -289,7 +294,7 @@ namespace Zentwik
                 // 全局互斥体，监听静默失效 —— 这正是「开了开关却没在绑核」的来源。
                 if (!SingleInstance.TryAcquire())
                 {
-                    LogService.Info("静默模式：已有 Zentwik 实例在运行，本实例退出");
+                    Svc.Log.Info("静默模式：已有 Zentwik 实例在运行，本实例退出");
                     Shutdown();
                     return;
                 }
@@ -301,14 +306,14 @@ namespace Zentwik
                 }
                 catch (Exception ex)
                 {
-                    LogService.Error($"静默模式未处理异常：{ex}");
+                    Svc.Log.Error($"静默模式未处理异常：{ex}");
                 }
 
                 // 关键：如果启动了进程绑核监听，进程必须常驻，否则 Shutdown 会立刻
                 // 杀掉后台轮询线程，监听形同虚设（这是静默自启最容易踩的坑）。
-                if (runResult.WatcherStarted && ProcessWatcher.IsRunning)
+                if (runResult.WatcherStarted && Svc.Watcher.IsRunning)
                 {
-                    LogService.Info("静默模式：进程绑核监听已常驻后台（无窗口，托盘可见）");
+                    Svc.Log.Info("静默模式：进程绑核监听已常驻后台（无窗口，托盘可见）");
 
                     // 托盘是常驻实例唯一的门面：没有它，用户既叫不出界面也退不掉进程，
                     // 只能在任务管理器里杀 —— 这正是以前「任务管理器里找不到进程」的对照面。
@@ -322,13 +327,13 @@ namespace Zentwik
                     // 图标是内嵌资源，这条分支基本不会走到。
                     if (!TrayIconService.EnsureCreated())
                     {
-                        LogService.Error("静默常驻实例没有托盘入口，用户只能在任务管理器里结束它");
+                        Svc.Log.Error("静默常驻实例没有托盘入口，用户只能在任务管理器里结束它");
                     }
 
                     return; // 不 Shutdown
                 }
 
-                LogService.Info("静默模式：无需常驻（未开启后台监听或监听启动失败），进程退出");
+                Svc.Log.Info("静默模式：无需常驻（未开启后台监听或监听启动失败），进程退出");
                 ExitApplication();
                 return;
             }
@@ -347,7 +352,7 @@ namespace Zentwik
             // 当成第二实例、唤醒父进程后退出，而父进程随后也 Shutdown —— 一个窗口都不剩。
             if (!SingleInstance.TryAcquire())
             {
-                LogService.Info("已有 Zentwik 实例在运行，本实例退出（已请求其唤出主窗口）");
+                Svc.Log.Info("已有 Zentwik 实例在运行，本实例退出（已请求其唤出主窗口）");
                 Shutdown();
                 return;
             }
@@ -369,11 +374,10 @@ namespace Zentwik
             AttachGlobalExceptionHandlers();
 
             // 日志服务在 UI 线程上下文中注册，后台线程写日志时自动封送回 UI 线程
-            LogService.UiContext = SynchronizationContext.Current;
 
             // 场景自动切换的调用方是后台的进程 / 电源事件线程，同样需要回到 UI 线程
             // 才能动方案集合（v1.1.x 接入事件源后生效）。
-            ScenarioService.UiContext = SynchronizationContext.Current;
+            Svc.Scenarios.UiContext = SynchronizationContext.Current;
 
             // 全局禁用焦点虚线框（必须在任何控件被创建之前执行）
             DisableFocusVisuals();
@@ -384,16 +388,16 @@ namespace Zentwik
             // 总闸「开启后台服务」关着就不启动 —— 用户没要后台，不该悄悄占着全局互斥体。
             AttachProcessWatcherUi();
 
-            if (UiSettingsStore.Settings.BackendService
-                && UiSettingsStore.Settings.WatchProcessBinding)
+            if (Svc.Ui.Settings.BackendService
+                && Svc.Ui.Settings.WatchProcessBinding)
             {
-                ProcessWatcher.Start();
+                Svc.Watcher.Start();
 
                 // 启动失败不能被静默吞掉。典型场景是另一个实例占着全局互斥体：
                 // 此时开关在界面上显示「开」，实际一次都没绑过。
-                if (!ProcessWatcher.IsRunning)
+                if (!Svc.Watcher.IsRunning)
                 {
-                    LogService.Warn(
+                    Svc.Log.Warn(
                         "后台常驻调度已开启但未能启动（多半是已有其它实例在监听），" +
                         "详见日志页。");
                 }
@@ -402,8 +406,8 @@ namespace Zentwik
             // 托盘图标常驻：关窗只是收起来，进程继续干活。
             // 总闸没开或用户关掉「显示托盘图标」时不建 —— 此时根本没有后台可言，
             // 建一个没有对应进程状态的图标只会误导。
-            if (UiSettingsStore.Settings.BackendService
-                && UiSettingsStore.Settings.ShowTrayIcon)
+            if (Svc.Ui.Settings.BackendService
+                && Svc.Ui.Settings.ShowTrayIcon)
             {
                 TrayIconService.EnsureCreated();
             }
@@ -418,7 +422,7 @@ namespace Zentwik
             // 放在后台线程：SMU 写入最坏要等 PawnIO 就绪 60 秒，不能拖住窗口出现。
             _ = System.Threading.Tasks.Task.Run(() => ApplySavedTuningOnStartup());
 
-            LogService.Info("Zentwik 启动 · SMU 探测 + 后台调度");
+            Svc.Log.Info("Zentwik 启动 · SMU 探测 + 后台调度");
         }
 
         /// <summary>
@@ -463,17 +467,17 @@ namespace Zentwik
         /// </summary>
         private static void AttachProcessWatcherUi()
         {
-            ProcessWatcher.WmiUnavailableNotifier = () =>
+            Svc.Watcher.WmiUnavailableNotifier = () =>
                 Current?.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (!UiPresence.MainWindowVisible)
                     {
-                        LogService.Warn(
+                        Svc.Log.Warn(
                             "WMI 不可用，进程绑核已降级为定时轮询（主窗口不可见，未弹提示）");
                         return;
                     }
 
-                    LogService.Warn(
+                    Svc.Log.Warn(
                         "系统 WMI 服务不可用，进程绑核已降级为定时轮询（会持续占用少量 CPU，新进程绑定延迟数秒）");
                     ToastService.Warning(
                         "WMI 服务不可用，进程绑核已降级为定时轮询（新进程绑定会延迟数秒，详见日志页）");
@@ -618,9 +622,9 @@ namespace Zentwik
             try
             {
                 if (total <= RepeatedExceptionLimit)
-                    LogService.Critical($"未处理异常（第 {total} 次）：{exception}");
+                    Svc.Log.Critical($"未处理异常（第 {total} 次）：{exception}");
                 else if (total % LogEveryNSameSignature == 0)
-                    LogService.Critical($"未处理异常持续发生（同签名累计 {total} 次，已省略堆栈）");
+                    Svc.Log.Critical($"未处理异常持续发生（同签名累计 {total} 次，已省略堆栈）");
             }
             catch
             {
@@ -633,7 +637,7 @@ namespace Zentwik
                 // 再提示只是把用户锁死在对话框里，对定位没有任何增量信息。
                 if (seen == RepeatedExceptionLimit + 1)
                 {
-                    LogService.Critical(
+                    Svc.Log.Critical(
                         $"同一异常已连续出现 {RepeatedExceptionLimit} 次以上，" +
                         "后续同类异常只记日志、不再提示（界面可能已处于不可用状态）。");
                 }
@@ -686,7 +690,7 @@ namespace Zentwik
                 // 永久关闭弹框通道 —— 旧代码在 finally 里无条件放开闸门，
                 // 于是「弹框失败 → 下一帧再弹 → 再失败」可以无限循环。
                 Volatile.Write(ref _dialogBroken, 1);
-                LogService.Critical($"异常提示框自身失败，已停止弹框（后续只记日志）：{dialogError}");
+                Svc.Log.Critical($"异常提示框自身失败，已停止弹框（后续只记日志）：{dialogError}");
             }
             finally
             {
@@ -722,7 +726,7 @@ namespace Zentwik
                 Volatile.Write(ref _toastBroken, 1);
                 try
                 {
-                    LogService.Critical($"异常 Toast 自身失败，已停用 Toast 提示：{toastError}");
+                    Svc.Log.Critical($"异常 Toast 自身失败，已停用 Toast 提示：{toastError}");
                 }
                 catch
                 {
@@ -771,13 +775,13 @@ namespace Zentwik
                 int total = BumpSignatureTotal(signature);
 
                 if (total <= RepeatedExceptionLimit)
-                    LogService.Critical($"Domain 未处理异常（{stage}）：{e.ExceptionObject}");
+                    Svc.Log.Critical($"Domain 未处理异常（{stage}）：{e.ExceptionObject}");
                 else if (total % LogEveryNSameSignature == 0)
-                    LogService.Critical($"Domain 未处理异常持续发生（{stage}，同签名累计 {total} 次，已省略堆栈）");
+                    Svc.Log.Critical($"Domain 未处理异常持续发生（{stage}，同签名累计 {total} 次，已省略堆栈）");
 
                 // 后台线程的异常往往发生在采样 / 监听循环里，
                 // 最后几条日志可能还在缓冲区，走之前强推一次。
-                LogService.Flush();
+                Svc.Log.Flush();
             }
             catch
             {
@@ -803,9 +807,9 @@ namespace Zentwik
                 int total = BumpSignatureTotal(signature);
 
                 if (total <= RepeatedExceptionLimit)
-                    LogService.Critical($"未观察的 Task 异常：{e.Exception}");
+                    Svc.Log.Critical($"未观察的 Task 异常：{e.Exception}");
                 else if (total % LogEveryNSameSignature == 0)
-                    LogService.Critical($"未观察的 Task 异常持续发生（同签名累计 {total} 次，已省略堆栈）");
+                    Svc.Log.Critical($"未观察的 Task 异常持续发生（同签名累计 {total} 次，已省略堆栈）");
             }
             catch
             {
@@ -842,8 +846,8 @@ namespace Zentwik
         /// </summary>
         private static void HardStop()
         {
-            Quietly(ProcessWatcher.Stop);
-            Quietly(ProcessRefresher.Stop);
+            Quietly(Svc.Watcher.Stop);
+            Quietly(Svc.Refresher.Stop);
             Quietly(TrayIconService.Shutdown);
 
             // 唤醒宿主窗口跟着一起收：留着它等于留一个「进程已死但还能被 FindWindow 命中」
@@ -851,7 +855,7 @@ namespace Zentwik
             Quietly(WakeWindow.Destroy);
 
             // 日志是后台批量落盘的，退出前把最后几条冲掉
-            Quietly(LogService.Flush);
+            Quietly(Svc.Log.Flush);
 
             SingleInstance.Release();
         }
@@ -878,23 +882,23 @@ namespace Zentwik
             TuningApplyOutcome outcome;
             try
             {
-                outcome = TuningApplyService.ApplyFromStore();
+                outcome = Svc.TuningApply.ApplyFromStore();
             }
             catch (Exception ex)
             {
-                LogService.Error($"启动应用调校未处理异常：{ex}");
+                Svc.Log.Error($"启动应用调校未处理异常：{ex}");
                 return;
             }
 
             if (outcome.Skipped)
             {
-                LogService.Info("启动应用调校：" + outcome.SkipReason);
+                Svc.Log.Info("启动应用调校：" + outcome.SkipReason);
                 return;
             }
 
             if (outcome.Success)
             {
-                LogService.Info("启动应用调校：已写入并回读一致");
+                Svc.Log.Info("启动应用调校：已写入并回读一致");
                 return;
             }
 
@@ -903,7 +907,7 @@ namespace Zentwik
                 ? "未知原因"
                 : outcome.Summary;
 
-            LogService.Error("启动应用调校失败：" + message);
+            Svc.Log.Error("启动应用调校失败：" + message);
             // 失败原因写进日志，Toast 只给一句能看懂的话 + 下一步动作，
             // 不把整段 outcome.Summary 塞进一行气泡里。
             ShowWhenMainWindowReady(
@@ -933,7 +937,7 @@ namespace Zentwik
                 {
                     // 标题只用来进日志，气泡里只放一句话 —— 长文本塞进 Toast
                     // 会被截断，而这里的内容本来就该在日志里查。
-                    LogService.Warn($"{title}");
+                    Svc.Log.Warn($"{title}");
                     Services.ToastService.Warning(message);
                     return;
                 }
@@ -941,7 +945,7 @@ namespace Zentwik
                 if (attempt >= 20)
                 {
                     // 窗口迟迟没出来就不要再等了，日志里已经记过一次
-                    LogService.Error($"启动应用调校失败提示未能显示（窗口就绪超时）：{title}");
+                    Svc.Log.Error($"启动应用调校失败提示未能显示（窗口就绪超时）：{title}");
                     return;
                 }
 
@@ -978,22 +982,22 @@ namespace Zentwik
         /// <summary>读界面设置（主题 / 强调色）与调校 / 绑核 / 掩码配置，并应用主题。</summary>
         private static void LoadStores()
         {
-            UiSettingsStore.Load();
+            Svc.Ui.Load();
             ThemeService.Initialize();
             ThemeService.StartSystemMonitor();
 
-            TuningStore.Load();
-            MaskStore.Load();
-            BindingStore.Load();
+            Svc.Tuning.Load();
+            Svc.Masks.Load();
+            Svc.Bindings.Load();
 
             // 方案与场景规则也要在启动时读进来：场景自动切换可能在界面还没打开
             // 的时候就被后台事件触发，那时再读盘就晚了（规则还没进内存）。
-            ProfileService.Load();
-            ScenarioService.Load();
+            Svc.Profiles.Load();
+            Svc.Scenarios.Load();
 
             // 规则读进来之后才决定监听什么：需要监听哪些输入源取决于规则内容
             // （只配了电源规则就不该挂进程事件）。Sync 内部幂等，重复调用安全。
-            ScenarioMonitor.Sync();
+            Svc.Monitor.Sync();
 
             RunSelfCheckIfRequested();
         }
@@ -1020,12 +1024,12 @@ namespace Zentwik
                 if (!requested)
                     return;
 
-                ScenarioSelfCheck.Run();
+                Svc.SelfCheck.Run();
             }
             catch (Exception ex)
             {
                 // 自检自己出问题绝不能影响启动
-                LogService.Warn($"场景自检执行失败：{ex.Message}");
+                Svc.Log.Warn($"场景自检执行失败：{ex.Message}");
             }
         }
 
@@ -1033,7 +1037,7 @@ namespace Zentwik
         {
             try
             {
-                if (LogService.Verbose)
+                if (Svc.Log.Verbose)
                     return;
 
                 bool byArg = args != null && args.Any(a =>
@@ -1043,7 +1047,7 @@ namespace Zentwik
                 bool byEnv = string.Equals(
                     Environment.GetEnvironmentVariable("ZENFORGE_DEBUG"), "1", StringComparison.Ordinal);
 
-                LogService.Verbose = byArg || byEnv;
+                Svc.Log.Verbose = byArg || byEnv;
             }
             catch
             {
@@ -1129,7 +1133,7 @@ namespace Zentwik
                     }
                     catch (Exception ex)
                     {
-                        LogService.Warn($"跳过无法解析的资源「{key}」：{ex.Message}");
+                        Svc.Log.Warn($"跳过无法解析的资源「{key}」：{ex.Message}");
                         continue;
                     }
 
@@ -1152,7 +1156,7 @@ namespace Zentwik
                     catch (Exception ex)
                     {
                         // 其它原因加不进去也不该中断启动
-                        LogService.Warn($"样式「{key}」追加 FocusVisualStyle 失败：{ex.Message}");
+                        Svc.Log.Warn($"样式「{key}」追加 FocusVisualStyle 失败：{ex.Message}");
                     }
                 }
 
@@ -1343,11 +1347,11 @@ namespace Zentwik
         {
             if (IsElevated())
             {
-                LogService.Info("已获得管理员权限，SMU 只读探测可用");
+                Svc.Log.Info("已获得管理员权限，SMU 只读探测可用");
                 return true;
             }
 
-            LogService.Warn("未以管理员身份运行，尝试提权重启…");
+            Svc.Log.Warn("未以管理员身份运行，尝试提权重启…");
 
             try
             {
@@ -1356,7 +1360,7 @@ namespace Zentwik
                     exePath = Process.GetCurrentProcess().MainModule?.FileName;
                 if (string.IsNullOrEmpty(exePath))
                 {
-                    LogService.Error("无法定位当前可执行文件，跳过提权重启");
+                    Svc.Log.Error("无法定位当前可执行文件，跳过提权重启");
                     return true;
                 }
 
@@ -1368,18 +1372,18 @@ namespace Zentwik
                     Arguments = BuildArgumentString(args)
                 });
 
-                LogService.Info("已请求提权重启，当前实例即将退出");
+                Svc.Log.Info("已请求提权重启，当前实例即将退出");
                 return false;
             }
             catch (Win32Exception)
             {
                 // 用户在 UAC 对话框中拒绝：以普通权限继续，SMU 读取会失败并给出友好提示
-                LogService.Warn("用户取消了 UAC 提权，将以普通权限继续运行（SMU 读取可能失败）");
+                Svc.Log.Warn("用户取消了 UAC 提权，将以普通权限继续运行（SMU 读取可能失败）");
                 return true;
             }
             catch (Exception ex)
             {
-                LogService.Error($"提权重启失败: {ex.Message}");
+                Svc.Log.Error($"提权重启失败: {ex.Message}");
                 return true;
             }
         }

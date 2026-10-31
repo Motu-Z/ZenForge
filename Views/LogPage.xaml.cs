@@ -42,7 +42,7 @@ namespace Zentwik.Views
         /// 暂停状态直接读 <see cref="LogService.Paused"/>，不在页面里另存一份。
         /// 两份状态一定会不同步：用户从托盘或别处改了，页面这份就永远停在旧值。
         /// </summary>
-        private bool Paused => LogService.Paused;
+        private bool Paused => Svc.Log.Paused;
 
         /// <summary>当前级别筛选（null = 全部）。点同一枚 pill 再点一次可取消。</summary>
         private LogLevel? _levelFilter;
@@ -72,7 +72,7 @@ namespace Zentwik.Views
             // 详细日志不持久化：它是排障时的临时开关，
             // 不该在下一次启动还开着、把日志写满磁盘。
             // 这里回填的是本次运行的实际状态。
-            VerboseToggle.IsChecked = LogService.Verbose;
+            VerboseToggle.IsChecked = Svc.Log.Verbose;
 
             RebuildVisibleList();
         }
@@ -97,13 +97,13 @@ namespace Zentwik.Views
             if (_subscribed)
                 return;
 
-            LogService.EntryAdded += OnEntryAdded;
+            Svc.Log.EntryAdded += OnEntryAdded;
             _subscribed = true;
 
             // 暂停状态是进程级的（LogService.Paused），离开页面再回来仍是暂停态。
             // 不在这里同步按钮文案的话，界面会说「暂停」而实际已在暂停，
             // 点一下反而变成暂停 —— 按钮说的和做的不一致。
-            PauseButton.Content = LogService.Paused ? "恢复" : "暂停";
+            PauseButton.Content = Svc.Log.Paused ? "恢复" : "暂停";
 
             UpdateStats();
         }
@@ -115,7 +115,7 @@ namespace Zentwik.Views
             if (!_subscribed)
                 return;
 
-            LogService.EntryAdded -= OnEntryAdded;
+            Svc.Log.EntryAdded -= OnEntryAdded;
             _subscribed = false;
         }
 
@@ -171,11 +171,11 @@ namespace Zentwik.Views
         /// </summary>
         private void UpdateStats()
         {
-            PillInfo.Content = $"信息 {LogService.CountInfo}";
-            PillWarn.Content = $"警告 {LogService.CountWarn}";
+            PillInfo.Content = $"信息 {Svc.Log.CountInfo}";
+            PillWarn.Content = $"警告 {Svc.Log.CountWarn}";
 
             // 致命合并进「错误」：显示为一个数，但两级的竖条颜色各自保留。
-            PillError.Content = $"错误 {LogService.CountError + LogService.CountCritical}";
+            PillError.Content = $"错误 {Svc.Log.CountError + Svc.Log.CountCritical}";
         }
 
         // ==================== 列表重建 ====================
@@ -210,7 +210,7 @@ namespace Zentwik.Views
 
             string keyword = (SearchBox?.Text ?? string.Empty).Trim();
 
-            IEnumerable<LogEntry> query = LogService.Entries;
+            IEnumerable<LogEntry> query = Svc.Log.Entries;
             if (_levelFilter is LogLevel level)
                 query = query.Where(x => LevelMatches(x, level));
             if (keyword.Length > 0)
@@ -310,7 +310,7 @@ namespace Zentwik.Views
         private void RefreshEmptyHint()
         {
             EmptyHint.Visibility = VisibleEntries.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            EmptyHint.Text = LogService.Entries.Count == 0 ? "暂无日志" : "没有匹配的日志";
+            EmptyHint.Text = Svc.Log.Entries.Count == 0 ? "暂无日志" : "没有匹配的日志";
         }
 
         /// <summary>
@@ -460,14 +460,14 @@ namespace Zentwik.Views
 
         // ==================== 工具栏 ====================
 
-        private void VerboseToggle_Checked(object sender, RoutedEventArgs e) => LogService.Verbose = true;
+        private void VerboseToggle_Checked(object sender, RoutedEventArgs e) => Svc.Log.Verbose = true;
 
-        private void VerboseToggle_Unchecked(object sender, RoutedEventArgs e) => LogService.Verbose = false;
+        private void VerboseToggle_Unchecked(object sender, RoutedEventArgs e) => Svc.Log.Verbose = false;
 
         private void PauseButton_Click(object sender, RoutedEventArgs e)
         {
-            bool paused = !LogService.Paused;
-            LogService.Paused = paused;
+            bool paused = !Svc.Log.Paused;
+            Svc.Log.Paused = paused;
             PauseButton.Content = paused ? "恢复" : "暂停";
 
             if (paused)
@@ -479,12 +479,12 @@ namespace Zentwik.Views
 
                 // 这条自己的日志在置 Paused 之后写，会被丢弃 —— 这是预期的：
                 // 暂停就是暂停，不能为了一条「我暂停了」的记录破例。
-                LogService.Info("日志记录已暂停（新日志不再写入内存与文件）");
+                Svc.Log.Info("日志记录已暂停（新日志不再写入内存与文件）");
                 return;
             }
 
             RebuildVisibleList();
-            LogService.Info("日志记录已恢复");
+            Svc.Log.Info("日志记录已恢复");
         }
 
         private void ClearLogButton_Click(object sender, RoutedEventArgs e)
@@ -505,7 +505,7 @@ namespace Zentwik.Views
             try
             {
                 VisibleEntries.Clear();
-                LogService.Clear();
+                Svc.Log.Clear();
             }
             finally
             {
@@ -525,14 +525,14 @@ namespace Zentwik.Views
         {
             try
             {
-                Process.Start(new ProcessStartInfo("explorer.exe", LogService.LogDirectory)
+                Process.Start(new ProcessStartInfo("explorer.exe", Svc.Log.LogDirectory)
                 {
                     UseShellExecute = true
                 });
             }
             catch (Exception ex)
             {
-                LogService.Error($"打开日志目录失败: {ex.Message}");
+                Svc.Log.Error($"打开日志目录失败: {ex.Message}");
             }
         }
 

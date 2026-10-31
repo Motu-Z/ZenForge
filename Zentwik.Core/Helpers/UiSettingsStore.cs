@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Zentwik.Core.Serialization;
 
 namespace Zentwik.Core.Helpers
 {
@@ -13,7 +14,7 @@ namespace Zentwik.Core.Helpers
         /// <summary>出厂强调色。与 ThemeService 的默认色、通用页色板的兜底色同一值。</summary>
         public const string DefaultAccentHex = "#38BDF8";
 
-        [JsonConverter(typeof(JsonStringEnumConverter))]
+        [JsonConverter(typeof(JsonStringEnumConverter<AppThemeMode>))]
         public AppThemeMode ThemeMode { get; set; } = AppThemeMode.System;
 
         /// <summary>
@@ -92,13 +93,21 @@ namespace Zentwik.Core.Helpers
         public bool NotifyOnError { get; set; } = true;
     }
 
-    public static class UiSettingsStore
+    public class UiSettingsStore : IUiSettingsStore
     {
-        private static readonly string FilePath = AppPaths.File("ui.json");
+        private readonly IAppPaths _paths;
 
-        public static UiSettings Settings { get; private set; } = new();
+        public UiSettingsStore(IAppPaths paths)
+        {
+            ArgumentNullException.ThrowIfNull(paths);
+            _paths = paths;
+        }
 
-        public static void Load()
+        private string FilePath => _paths.File("ui.json");
+
+        public UiSettings Settings { get; private set; } = new();
+
+        public void Load()
         {
             try
             {
@@ -112,13 +121,13 @@ namespace Zentwik.Core.Helpers
             Normalize();
         }
 
-        private static UiSettings? ReadFromDisk()
+        private UiSettings? ReadFromDisk()
         {
             if (!File.Exists(FilePath))
                 return null;
 
             string json = File.ReadAllText(FilePath);
-            UiSettings settings = JsonSerializer.Deserialize<UiSettings>(json) ?? new UiSettings();
+            UiSettings settings = JsonSerializer.Deserialize(json, AppJsonContext.Default.UiSettings) ?? new UiSettings();
 
             // 旧版 ui.json 的 followSystemAccent 默认 false 且配过写死的青色，
             // 于是老用户打开程序看到的都是硬编码青。文件里没写过这个键 = 从未设置过，
@@ -138,7 +147,7 @@ namespace Zentwik.Core.Helpers
         /// 把数值类字段拉回合法区间：配置文件是纯文本，人手改坏或从旧版本继承
         /// 一个 0 / 负数都是常事，在这里统一收口，读出来的值就能直接用。
         /// </summary>
-        private static void Normalize()
+        private void Normalize()
         {
             // 延迟目前不在界面暴露，一律回到默认 3 秒（旧配置里可能是 1 或 30）。
             // 等输入框加回来，这里再改成只做区间收敛。
@@ -155,18 +164,18 @@ namespace Zentwik.Core.Helpers
         /// 顺便清掉 FollowSystemAccentExplicit：重置后不该再带着
         /// 「用户曾显式设过强调色」的历史标记，否则下次读盘时会跳过迁移逻辑。
         /// </summary>
-        public static void ResetToFactory()
+        public void ResetToFactory()
         {
             Settings = new UiSettings();
             Settings.FollowSystemAccentExplicit = false;
             Save();
         }
 
-        public static void Save()
+        public void Save()
         {
             try
             {
-                JsonFile.Write(FilePath, Settings);
+                JsonFile.Write(FilePath, Settings, AppJsonContext.Default.UiSettings);
             }
             catch
             {

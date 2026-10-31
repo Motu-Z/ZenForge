@@ -88,7 +88,7 @@ namespace Zentwik.Views
             }
             catch (Exception ex)
             {
-                LogService.Critical($"高级页操作异常：{ex}");
+                Svc.Log.Critical($"高级页操作异常：{ex}");
                 ToastService.Error($"操作过程出现异常：{ex.Message}（请查看日志确认已完成的部分）");
                 return null;
             }

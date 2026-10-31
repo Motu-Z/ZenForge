@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using Zentwik.Core.Helpers;
+using Zentwik.Core.Serialization;
 
 namespace Zentwik.Core.Services
 {
@@ -71,7 +72,7 @@ namespace Zentwik.Core.Services
         /// 空白会被读成「这条规则没配方案」，而实际是配过的那个没了。
         /// </summary>
         [System.Text.Json.Serialization.JsonIgnore]
-        public string ProfileName => ProfileService.FindById(ProfileId)?.Name ?? "（已删除）";
+        public string ProfileName { get; set; } = "（已删除）";
     }
 
     /// <summary>scenarios.json 的根对象。</summary>
@@ -98,25 +99,39 @@ namespace Zentwik.Core.Services
     /// 【后台零占用】
     /// 本类不持有任何定时器、不启动任何线程。所有状态变化都来自外部调用 Notify。
     /// </summary>
-    public static class ScenarioService
+    public class ScenarioService
     {
-        private static readonly string FilePath = AppPaths.File("scenarios.json");
+        private readonly ILogService _log;
+        private readonly ProfileService _profiles;
+        private readonly IAppPaths _paths;
 
-        private static readonly object Sync = new();
+        public ScenarioService(ILogService log, ProfileService profiles, IAppPaths paths)
+        {
+            ArgumentNullException.ThrowIfNull(log);
+            _log = log;
+            ArgumentNullException.ThrowIfNull(profiles);
+            _profiles = profiles;
+            ArgumentNullException.ThrowIfNull(paths);
+            _paths = paths;
+        }
+
+        private string FilePath => _paths.File("scenarios.json");
+
+        private readonly object Sync = new();
 
         /// <summary>界面绑定的规则集合。</summary>
-        public static ObservableCollection<ScenarioRule> Rules { get; } = new();
+        public ObservableCollection<ScenarioRule> Rules { get; } = new();
 
         /// <summary>规则或总闸变化时触发。</summary>
-        public static event Action? Changed;
+        public event Action? Changed;
 
         /// <summary>
         /// 总闸。关掉时 <see cref="Notify"/> 直接返回，一条规则都不评估。
         /// </summary>
-        public static bool Enabled { get; private set; }
+        public bool Enabled { get; private set; }
 
         /// <summary>最近一次实际切换到的方案 Id（供界面显示当前场景出自哪条规则）。</summary>
-        public static string? LastAppliedProfileId { get; private set; }
+        public string? LastAppliedProfileId { get; private set; }
 
         /// <summary>
         /// 是否存在启用中的「进程运行」类规则。
@@ -127,7 +142,7 @@ namespace Zentwik.Core.Services
         /// —— 而采集名单是为了判定进程规则，一条都没配时它是纯浪费。
         /// 「要监听什么」由规则内容决定，不是由「场景功能开着」决定。
         /// </summary>
-        public static bool HasProcessRules
+        public bool HasProcessRules
         {
             get
             {
@@ -137,7 +152,7 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>是否存在启用中的电源类规则（电池 / 交流）。同上，决定要不要挂电源监听。</summary>
-        public static bool HasPowerRules
+        public bool HasPowerRules
         {
             get
             {
@@ -156,20 +171,20 @@ namespace Zentwik.Core.Services
         /// InvalidOperationException 的。封送责任放在后台入口这一侧：
         /// 谁把调用带到了别的线程，谁负责把它送回来。
         /// </summary>
-        public static SynchronizationContext? UiContext { get; set; }
+        public SynchronizationContext? UiContext { get; set; }
 
-        public static void Load()
+        public void Load()
         {
             lock (Sync)
             {
                 ScenarioFile? file = null;
                 try
                 {
-                    file = JsonFile.Read<ScenarioFile>(FilePath);
+                    file = JsonFile.Read(FilePath, AppJsonContext.Default.ScenarioFile);
                 }
                 catch (Exception ex)
                 {
-                    LogService.Error($"读取场景规则失败: {ex.Message}");
+                    _log.Error($"读取场景规则失败: {ex.Message}");
                 }
 
                 Enabled = file?.Enabled ?? false;
@@ -194,7 +209,7 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>切换总闸。</summary>
-        public static void SetEnabled(bool enabled)
+        public void SetEnabled(bool enabled)
         {
             lock (Sync)
             {
@@ -205,12 +220,12 @@ namespace Zentwik.Core.Services
                 Persist();
             }
 
-            LogService.Info(enabled ? "场景自动切换：已开启" : "场景自动切换：已关闭");
+            _log.Info(enabled ? "场景自动切换：已开启" : "场景自动切换：已关闭");
             Changed?.Invoke();
         }
 
         /// <summary>新增或按 Id 覆盖一条规则。</summary>
-        public static void Save(ScenarioRule rule)
+        public void Save(ScenarioRule rule)
         {
             lock (Sync)
             {
@@ -226,7 +241,7 @@ namespace Zentwik.Core.Services
             Changed?.Invoke();
         }
 
-        public static bool Delete(string id)
+        public bool Delete(string id)
         {
             lock (Sync)
             {
@@ -258,7 +273,7 @@ namespace Zentwik.Core.Services
         /// 实装时应在调用侧合并（同一次扫描只调一次），而不是在这里加延时 ——
         /// 延时窗口取多长没有依据，只能靠猜。
         /// </summary>
-        public static void Notify(IEnumerable<(ScenarioTrigger Trigger, string Argument)> active)
+        public void Notify(IEnumerable<(ScenarioTrigger Trigger, string Argument)> active)
         {
             if (!Enabled)
                 return;
@@ -285,23 +300,23 @@ namespace Zentwik.Core.Services
             // 「静音」，再拔插一次电源，场景一看 target 和上次一样就跳过了，
             // 于是用户的手动选择被无声地保留下来，而他期待的是场景重新接管。
             // 比「当前实际生效的是哪套」，两种来源的切换都算数，才不会短路错。
-            bool alreadyActive = string.Equals(target, ProfileService.ActiveId, StringComparison.Ordinal);
+            bool alreadyActive = string.Equals(target, _profiles.ActiveId, StringComparison.Ordinal);
             LastAppliedProfileId = target;
 
             if (alreadyActive)
                 return;
 
-            if (ProfileService.Apply(target))
-                LogService.Info($"场景切换：{Describe(target)} ← {DescribeHit(active)}");
+            if (_profiles.Apply(target))
+                _log.Info($"场景切换：{Describe(target)} ← {DescribeHit(active)}");
             else
-                LogService.Warn("场景切换：目标方案不存在，已跳过（方案可能已被删除）");
+                _log.Warn("场景切换：目标方案不存在，已跳过（方案可能已被删除）");
         }
 
         /// <summary>
         /// 仲裁：从命中的规则里挑出该生效的那条。纯函数，不落盘、不下发，
         /// 因此界面可以拿它做「当前会切到哪套」的预览。
         /// </summary>
-        public static string? Resolve(IEnumerable<(ScenarioTrigger Trigger, string Argument)> active)
+        public string? Resolve(IEnumerable<(ScenarioTrigger Trigger, string Argument)> active)
         {
             List<(ScenarioTrigger Trigger, string Argument)> snapshot = active.ToList();
             if (snapshot.Count == 0)
@@ -318,8 +333,8 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>方案名；查不到就退回 Id —— 日志里写「（已删除）」会被读成别的问题。</summary>
-        private static string Describe(string profileId)
-            => ProfileService.FindById(profileId)?.Name ?? profileId;
+        private string Describe(string profileId)
+            => _profiles.FindById(profileId)?.Name ?? profileId;
 
         /// <summary>
         /// 把「此刻成立的触发」写成一句人话，只服务于日志。
@@ -328,7 +343,7 @@ namespace Zentwik.Core.Services
         /// 「已应用方案 X」，用户对着它没法判断是哪条规则命中的。补上触发源，
         /// 排查时一眼就能对上。
         /// </summary>
-        private static string DescribeHit(IEnumerable<(ScenarioTrigger Trigger, string Argument)> active)
+        private string DescribeHit(IEnumerable<(ScenarioTrigger Trigger, string Argument)> active)
         {
             List<string> parts = new();
             foreach ((ScenarioTrigger trigger, string argument) in active)
@@ -352,13 +367,13 @@ namespace Zentwik.Core.Services
             return parts.Count == 0 ? "无任何触发" : string.Join("、", parts);
         }
 
-        private static bool Matches(ScenarioRule rule,
+        private bool Matches(ScenarioRule rule,
                                     List<(ScenarioTrigger Trigger, string Argument)> active)
             => active.Any(a =>
                 a.Trigger == rule.Trigger &&
                 string.Equals(a.Argument, rule.Argument, StringComparison.OrdinalIgnoreCase));
 
-        private static int IndexOfId(string id)
+        private int IndexOfId(string id)
         {
             for (int i = 0; i < Rules.Count; i++)
                 if (Rules[i].Id == id)
@@ -366,7 +381,7 @@ namespace Zentwik.Core.Services
             return -1;
         }
 
-        private static void Persist()
+        private void Persist()
         {
             try
             {
@@ -374,11 +389,11 @@ namespace Zentwik.Core.Services
                 {
                     Enabled = Enabled,
                     Rules = Rules.ToList()
-                });
+                }, AppJsonContext.Default.ScenarioFile);
             }
             catch (Exception ex)
             {
-                LogService.Error($"保存场景规则失败: {ex.Message}");
+                _log.Error($"保存场景规则失败: {ex.Message}");
             }
         }
     }

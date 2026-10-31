@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -66,23 +66,23 @@ namespace Zentwik.Services
             // 大部分步骤会打日志。日志文件本身稍后要被删掉，
             // 但 reset 过程必须在日志里留痕 —— 否则下次启动时用户报「我重置过」
             // 而日志里一片空白，连发生过什么都不知道。所以先记一条开始标记。
-            LogService.Info("=== 全局重置开始：恢复出厂设置 ===");
-            LogService.Flush();
+            Svc.Log.Info("=== 全局重置开始：恢复出厂设置 ===");
+            Svc.Log.Flush();
 
             FactoryResetReport report = await Task.Run(() => RunSteps()).ConfigureAwait(true);
 
             // 收尾日志在文件删完之后写，会重新创建一个「reset 之后」的新日志文件。
             // 这是有意为之：上一次会话的日志已被清空，新的这份只记录重置结果。
-            LogService.Info(report.AllSucceeded
+            Svc.Log.Info(report.AllSucceeded
                 ? "=== 全局重置完成：已恢复出厂设置 ==="
                 : $"=== 全局重置完成，但有 {report.Failed.Count} 项未成功 ===");
             foreach (string line in report.Done)
-                LogService.Info($"  已恢复：{line}");
+                Svc.Log.Info($"  已恢复：{line}");
             foreach (string line in report.Skipped)
-                LogService.Info($"  无需处理：{line}");
+                Svc.Log.Info($"  无需处理：{line}");
             foreach (string line in report.Failed)
-                LogService.Warn($"  失败：{line}");
-            LogService.Flush();
+                Svc.Log.Warn($"  失败：{line}");
+            Svc.Log.Flush();
 
             return report;
         }
@@ -99,23 +99,23 @@ namespace Zentwik.Services
         /// </summary>
         public static async Task<FactoryResetReport> DisableAllFeaturesAsync()
         {
-            LogService.Info("=== 停用全部功能开始（保留用户配置）===");
-            LogService.Flush();
+            Svc.Log.Info("=== 停用全部功能开始（保留用户配置）===");
+            Svc.Log.Flush();
 
             FactoryResetReport report = await Task.Run(() => RunDisableSteps()).ConfigureAwait(true);
 
-            LogService.Info(report.AllSucceeded
+            Svc.Log.Info(report.AllSucceeded
                 ? "=== 停用全部功能完成 ==="
                 : $"=== 停用全部功能完成，但有 {report.Failed.Count} 项未成功 ===");
 
             foreach (string line in report.Done)
-                LogService.Info($"  已完成：{line}");
+                Svc.Log.Info($"  已完成：{line}");
             foreach (string line in report.Skipped)
-                LogService.Info($"  无需处理：{line}");
+                Svc.Log.Info($"  无需处理：{line}");
             foreach (string line in report.Failed)
-                LogService.Warn($"  失败：{line}");
+                Svc.Log.Warn($"  失败：{line}");
 
-            LogService.Flush();
+            Svc.Log.Flush();
             return report;
         }
 
@@ -139,9 +139,9 @@ namespace Zentwik.Services
         {
             try
             {
-                if (ProcessWatcher.IsRunning)
+                if (Svc.Watcher.IsRunning)
                 {
-                    ProcessWatcher.Stop();
+                    Svc.Watcher.Stop();
                     report.Ok("已停止后台进程监听");
                 }
                 else
@@ -179,13 +179,13 @@ namespace Zentwik.Services
         {
             try
             {
-                if (!AutoStartService.IsEnabled())
+                if (!Svc.AutoStart.IsEnabled())
                 {
                     report.Skip("开机自启（未启用）");
                     return;
                 }
 
-                if (AutoStartService.Disable())
+                if (Svc.AutoStart.Disable())
                     report.Ok("已移除开机自启计划任务");
                 else
                     report.Fail("移除开机自启计划任务", "计划任务删除失败");
@@ -219,12 +219,12 @@ namespace Zentwik.Services
         {
             try
             {
-                UiSettings settings = UiSettingsStore.Settings;
+                UiSettings settings = Svc.Ui.Settings;
                 settings.BackendService = false;
                 settings.WatchProcessBinding = false;
                 settings.ShowTrayIcon = false;
                 settings.AutoStart = false;
-                UiSettingsStore.Save();
+                Svc.Ui.Save();
 
                 TrayIconService.SetVisible(false);
                 report.Ok("后台服务已停用（调度、托盘一并关闭）");
@@ -258,7 +258,7 @@ namespace Zentwik.Services
         {
             try
             {
-                return TuningStore.Profile.FMaxBaselineMHz;
+                return Svc.Tuning.Profile.FMaxBaselineMHz;
             }
             catch
             {
@@ -278,9 +278,9 @@ namespace Zentwik.Services
             // 一次完整的 Save 就把旧规则重新写回磁盘，重置白做。
             try
             {
-                if (ProcessWatcher.IsRunning)
+                if (Svc.Watcher.IsRunning)
                 {
-                    ProcessWatcher.Stop();
+                    Svc.Watcher.Stop();
                     report.Ok("已停止后台进程监听");
                 }
                 else
@@ -318,9 +318,9 @@ namespace Zentwik.Services
             // 1-3 删除 Windows 计划任务（关闭开机自启）。
             try
             {
-                if (AutoStartService.IsEnabled())
+                if (Svc.AutoStart.IsEnabled())
                 {
-                    if (AutoStartService.Disable())
+                    if (Svc.AutoStart.Disable())
                         report.Ok("已删除开机自启计划任务");
                     else
                         report.Fail("删除开机自启计划任务", "schtasks 返回失败，可能需要管理员权限");
@@ -370,7 +370,7 @@ namespace Zentwik.Services
 
             try
             {
-                foreach (BindingRule rule in BindingStore.Profile.Rules)
+                foreach (BindingRule rule in Svc.Bindings.Profile.Rules)
                 {
                     if (!string.IsNullOrWhiteSpace(rule.Name))
                         names.Add(rule.Name);
@@ -386,14 +386,14 @@ namespace Zentwik.Services
             if (names.Count == 0)
                 return;
 
-            foreach (ProcessRefresher.Entry entry in ProcessRefresher.Latest)
+            foreach (ProcessRefresher.Entry entry in Svc.Refresher.Latest)
             {
                 if (!names.Contains(entry.Name))
                     continue;
 
                 // 空数组 = 清除默认 CPU Set，进程回到系统默认调度。
                 // 这是 SetProcessDefaultCpuSets 的语义，不是「绑到 0 个核」。
-                if (CpuSetBinder.ClearDefaultCpuSets(entry.Pid, out _))
+                if (Svc.CpuSets.ClearDefaultCpuSets(entry.Pid, out _))
                     released++;
                 else
                     failed++;
@@ -406,7 +406,7 @@ namespace Zentwik.Services
 
         private static void StepResetHardware(FactoryResetReport report, uint fMaxBaseline)
         {
-            SmuReader reader = SmuReader.Shared;
+            SmuReader reader = Svc.Smu;
 
             // 2-1 / 2-2 Curve Optimizer 全零、FMax 解锁。
             if (!reader.IsAvailable)
@@ -502,7 +502,7 @@ namespace Zentwik.Services
             // 有存储类持有内存副本，直接删文件下次 Save 会把旧内容写回来。
             try
             {
-                TuningStore.ResetToFactory();
+                Svc.Tuning.ResetToFactory();
                 report.Ok("tuning.json 已清空");
             }
             catch (Exception ex)
@@ -512,7 +512,7 @@ namespace Zentwik.Services
 
             try
             {
-                BindingStore.ResetToFactory();
+                Svc.Bindings.ResetToFactory();
                 report.Ok("bindings.json 已清空");
             }
             catch (Exception ex)
@@ -522,7 +522,7 @@ namespace Zentwik.Services
 
             try
             {
-                MaskStore.ResetToFactory();
+                Svc.Masks.ResetToFactory();
                 report.Ok("masks.json 已清空");
             }
             catch (Exception ex)
@@ -555,7 +555,7 @@ namespace Zentwik.Services
             // 比直接删目录安全 —— 写盘线程正持有句柄时，直接删会失败。
             try
             {
-                LogService.Clear();
+                Svc.Log.Clear();
                 report.Ok("日志文件已清空");
             }
             catch (Exception ex)
@@ -575,7 +575,7 @@ namespace Zentwik.Services
             // 逐个赋值的话，将来新增字段时这里一定会漏。
             try
             {
-                UiSettingsStore.ResetToFactory();
+                Svc.Ui.ResetToFactory();
                 report.Ok("界面设置已恢复默认（主题与强调色跟随系统，轻量模式 / 托盘图标回到初始开启）");
             }
             catch (Exception ex)
@@ -597,6 +597,6 @@ namespace Zentwik.Services
 
         // ==================================================================
 
-        private static string AppDataDir => AppPaths.Root;
+        private static string AppDataDir => Svc.Paths.Root;
     }
 }

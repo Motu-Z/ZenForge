@@ -35,8 +35,16 @@ namespace Zentwik.Core.Services
     ///   UserId 的 LogonTrigger。组主体代表「一组人」，登录事件无法映射到具体主体，
     ///   表现就是这个任务创建成功、状态正常、但每次开机都不触发，且没有任何报错。
     /// </summary>
-    public static class AutoStartService
+    public class AutoStartService
     {
+        private readonly ILogService _log;
+
+        public AutoStartService(ILogService log)
+        {
+            ArgumentNullException.ThrowIfNull(log);
+            _log = log;
+        }
+
         /// <summary>计划任务名称（固定，便于用户识别）。</summary>
         public const string TaskName = "ZentwikAutoStart";
 
@@ -79,7 +87,7 @@ namespace Zentwik.Core.Services
         private static extern uint GetOEMCP();
 
         /// <summary>计划任务当前是否已注册。</summary>
-        public static bool IsEnabled()
+        public bool IsEnabled()
         {
             try
             {
@@ -88,7 +96,7 @@ namespace Zentwik.Core.Services
             }
             catch (Exception ex)
             {
-                LogService.Warn($"查询计划任务失败：{ex.Message}");
+                _log.Warn($"查询计划任务失败：{ex.Message}");
                 return false;
             }
         }
@@ -97,19 +105,19 @@ namespace Zentwik.Core.Services
         /// 创建（或覆盖）计划任务。
         /// </summary>
         /// <returns>true = 创建成功且已回查确认存在。</returns>
-        public static bool Enable()
+        public bool Enable()
         {
             string? exePath = ResolveExecutablePath();
             if (string.IsNullOrEmpty(exePath))
             {
-                LogService.Error("创建计划任务失败：无法定位 Zentwik.exe 路径");
+                _log.Error("创建计划任务失败：无法定位 Zentwik.exe 路径");
                 return false;
             }
 
             string? userId = ResolveCurrentUserIdentity();
             if (string.IsNullOrEmpty(userId))
             {
-                LogService.Error("创建计划任务失败：无法获取当前用户标识");
+                _log.Error("创建计划任务失败：无法获取当前用户标识");
                 return false;
             }
 
@@ -128,18 +136,18 @@ namespace Zentwik.Core.Services
 
                 if (exitCode != 0)
                 {
-                    LogService.Error($"创建计划任务失败（退出码 {exitCode}）：{output}");
+                    _log.Error($"创建计划任务失败（退出码 {exitCode}）：{output}");
                     return false;
                 }
 
                 // 回查：schtasks 偶有「返回 0 但任务没落地」的情况（多半是权限或策略拦截）
                 if (!IsEnabled())
                 {
-                    LogService.Error($"计划任务 {TaskName} 创建后回查不到，视为失败。原始输出：{output}");
+                    _log.Error($"计划任务 {TaskName} 创建后回查不到，视为失败。原始输出：{output}");
                     return false;
                 }
 
-                LogService.Info(
+                _log.Info(
                     $"计划任务 {TaskName} 创建成功：用户 {userId} · 登录后延时 {DelaySeconds} 秒 · 最高权限 · 静默启动 " +
                     $"（{exePath} {SilentArgument}）");
 
@@ -150,7 +158,7 @@ namespace Zentwik.Core.Services
             }
             catch (Exception ex)
             {
-                LogService.Error($"创建计划任务异常：{ex.Message}");
+                _log.Error($"创建计划任务异常：{ex.Message}");
                 return false;
             }
             finally
@@ -171,29 +179,29 @@ namespace Zentwik.Core.Services
 
         /// <summary>删除计划任务。</summary>
         /// <returns>true = 已删除或本就不存在。</returns>
-        public static bool Disable()
+        public bool Disable()
         {
             try
             {
                 if (!IsEnabled())
                 {
-                    LogService.Info($"计划任务 {TaskName} 不存在，无需删除");
+                    _log.Info($"计划任务 {TaskName} 不存在，无需删除");
                     return true;
                 }
 
                 (int exitCode, string output) = RunSchtasks($"/Delete /TN \"{TaskName}\" /F");
                 if (exitCode == 0)
                 {
-                    LogService.Info($"计划任务 {TaskName} 已删除（开机静默自启已关闭）");
+                    _log.Info($"计划任务 {TaskName} 已删除（开机静默自启已关闭）");
                     return true;
                 }
 
-                LogService.Error($"删除计划任务失败（退出码 {exitCode}）：{output}");
+                _log.Error($"删除计划任务失败（退出码 {exitCode}）：{output}");
                 return false;
             }
             catch (Exception ex)
             {
-                LogService.Error($"删除计划任务异常：{ex.Message}");
+                _log.Error($"删除计划任务异常：{ex.Message}");
                 return false;
             }
         }
@@ -204,7 +212,7 @@ namespace Zentwik.Core.Services
         /// <param name="exePath">Zentwik.exe 完整路径。</param>
         /// <param name="arguments">启动参数（-silent）。</param>
         /// <param name="userId">当前用户 SID 或 DOMAIN\User；触发器和主体必须用同一份。</param>
-        private static string BuildTaskXml(string exePath, string arguments, string userId)
+        private string BuildTaskXml(string exePath, string arguments, string userId)
         {
             XNamespace ns = "http://schemas.microsoft.com/windows/2004/02/mit/task";
 
@@ -268,14 +276,14 @@ namespace Zentwik.Core.Services
         /// 把计划任务的关键状态写进日志：下次运行时间、上次运行时间、上次结果、运行方式。
         /// schtasks 输出是本地化的，因此同时匹配中英文标签。
         /// </summary>
-        private static void LogTaskState()
+        private void LogTaskState()
         {
             try
             {
                 (int code, string output) = RunSchtasks($"/Query /TN \"{TaskName}\" /V /FO LIST");
                 if (code != 0 || string.IsNullOrWhiteSpace(output))
                 {
-                    LogService.Warn($"读取计划任务 {TaskName} 状态失败（退出码 {code}）");
+                    _log.Warn($"读取计划任务 {TaskName} 状态失败（退出码 {code}）");
                     return;
                 }
 
@@ -296,19 +304,19 @@ namespace Zentwik.Core.Services
                         continue;
 
                     if (keys.Any(k => line.StartsWith(k + ":", StringComparison.OrdinalIgnoreCase)))
-                        LogService.Info($"[自启] {line}");
+                        _log.Info($"[自启] {line}");
                 }
             }
             catch (Exception ex)
             {
-                LogService.Warn($"读取计划任务状态异常：{ex.Message}");
+                _log.Warn($"读取计划任务状态异常：{ex.Message}");
             }
         }
 
         /// <summary>
         /// 取当前用户标识：优先 SID（与账户改名、域名变更无关），取不到再回退 DOMAIN\User。
         /// </summary>
-        private static string? ResolveCurrentUserIdentity()
+        private string? ResolveCurrentUserIdentity()
         {
             try
             {
@@ -338,7 +346,7 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>定位当前可执行文件（含自包含发布与单文件两种情况）。</summary>
-        private static string? ResolveExecutablePath()
+        private string? ResolveExecutablePath()
         {
             string? path = Environment.ProcessPath;
             if (!string.IsNullOrEmpty(path) && File.Exists(path))
@@ -359,7 +367,7 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>执行 schtasks 并收集输出（不弹窗、不阻塞 UI）。</summary>
-        private static (int ExitCode, string Output) RunSchtasks(string arguments)
+        private (int ExitCode, string Output) RunSchtasks(string arguments)
         {
             ProcessStartInfo psi = new("schtasks.exe", arguments)
             {
@@ -410,7 +418,7 @@ namespace Zentwik.Core.Services
         /// <summary>
         /// 静默观察一个可能已失败的 Task：吞掉异常，避免变成未观察异常。
         /// </summary>
-        private static void ObserveQuietly(Task task)
+        private void ObserveQuietly(Task task)
         {
             try
             {

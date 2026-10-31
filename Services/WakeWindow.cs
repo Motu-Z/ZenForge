@@ -89,7 +89,7 @@ namespace Zentwik.Services
                     _wakeMessage = NativeMethods.RegisterWindowMessage(MessageName);
                     if (_wakeMessage == 0)
                     {
-                        LogService.Warn("注册唤醒消息失败（RegisterWindowMessage 返回 0），唤醒退回命名事件");
+                        Svc.Log.Warn("注册唤醒消息失败（RegisterWindowMessage 返回 0），唤醒退回命名事件");
                         return false;
                     }
                 }
@@ -123,7 +123,7 @@ namespace Zentwik.Services
                     const int ERROR_CLASS_ALREADY_EXISTS = 1410;
                     if (err != ERROR_CLASS_ALREADY_EXISTS)
                     {
-                        LogService.Warn($"注册唤醒窗口类失败（Win32 错误 {err}），唤醒退回命名事件");
+                        Svc.Log.Warn($"注册唤醒窗口类失败（Win32 错误 {err}），唤醒退回命名事件");
                         return false;
                     }
                 }
@@ -140,7 +140,7 @@ namespace Zentwik.Services
 
                 if (_hwnd == IntPtr.Zero)
                 {
-                    LogService.Warn($"创建唤醒宿主窗口失败（Win32 错误 {Marshal.GetLastWin32Error()}），唤醒退回命名事件");
+                    Svc.Log.Warn($"创建唤醒宿主窗口失败（Win32 错误 {Marshal.GetLastWin32Error()}），唤醒退回命名事件");
                     return false;
                 }
 
@@ -148,13 +148,13 @@ namespace Zentwik.Services
                 // 不放行的话，低权限实例发来的消息会被内核静默丢弃，而 PostMessage 照样返回 true。
                 if (NativeMethods.ChangeWindowMessageFilterEx(_hwnd, _wakeMessage, MSGFLT_ALLOW, IntPtr.Zero))
                 {
-                    LogService.Info($"唤醒宿主窗口已就绪（消息 0x{_wakeMessage:X4}，已放行 UIPI）");
+                    Svc.Log.Info($"唤醒宿主窗口已就绪（消息 0x{_wakeMessage:X4}，已放行 UIPI）");
                 }
                 else
                 {
                     // 不走全进程 Add（会让所有窗口都放行），只记一条：
                     // 同权限级场景下唤醒依然可用，只是跨权限级会失效。
-                    LogService.Warn(
+                    Svc.Log.Warn(
                         $"ChangeWindowMessageFilterEx 失败（Win32 错误 {Marshal.GetLastWin32Error()}）：" +
                         "跨权限级唤醒可能失效，命名事件兜底仍在");
                 }
@@ -163,7 +163,7 @@ namespace Zentwik.Services
             }
             catch (Exception ex)
             {
-                LogService.Error($"创建唤醒宿主窗口异常：{ex.Message}");
+                Svc.Log.Error($"创建唤醒宿主窗口异常：{ex.Message}");
                 Destroy();
                 return false;
             }
@@ -225,7 +225,7 @@ namespace Zentwik.Services
                     Action? handler = Activated;
                     if (handler == null)
                     {
-                        LogService.Warn("收到唤醒消息，但宿主尚未注入处理器，已忽略");
+                        Svc.Log.Warn("收到唤醒消息，但宿主尚未注入处理器，已忽略");
                     }
                     else
                     {
@@ -235,7 +235,7 @@ namespace Zentwik.Services
                 catch (Exception ex)
                 {
                     // 唤醒失败不该拖垮常驻实例
-                    LogService.Warn($"处理唤醒消息失败：{ex.Message}");
+                    Svc.Log.Warn($"处理唤醒消息失败：{ex.Message}");
                 }
 
                 return IntPtr.Zero;
