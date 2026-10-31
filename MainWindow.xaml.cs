@@ -164,14 +164,14 @@ namespace Zentwik
             // 三道闸门一起推。顺序无所谓，但必须一次推完：
             // 只推其中一道就会出现「停了 A 还有 B 在跑」的错觉。
             PageTimerManager.SetHostVisible(visible);
-            ProcessRefresher.SetHostVisible(visible);
-            ProcessWatcher.SetHostVisible(visible);
+            Svc.Refresher.SetHostVisible(visible);
+            Svc.Watcher.SetHostVisible(visible);
 
-            LogService.Info(visible
+            Svc.Log.Info(visible
                 ? $"窗口可见：已恢复后台刷新（受管定时器 {PageTimerManager.RunningCount} 个在跑）"
                 : $"窗口不可见：已挂起全部 UI 刷新与采样（受管定时器 {PageTimerManager.RunningCount} 个在跑，" +
-                  $"采样观察者 {(ProcessRefresher.IsWatched ? "有" : "无")}，" +
-                  $"绑核监听 {(ProcessWatcher.IsRunning ? (ProcessWatcher.UsingEvents ? "WMI 事件" : "降级轮询") : "未运行")}）");
+                  $"采样观察者 {(Svc.Refresher.IsWatched ? "有" : "无")}，" +
+                  $"绑核监听 {(Svc.Watcher.IsRunning ? (Svc.Watcher.UsingEvents ? "WMI 事件" : "降级轮询") : "未运行")}）");
         }
 
         /// <summary>
@@ -203,14 +203,14 @@ namespace Zentwik
                 return;
             }
 
-            if (!UiSettingsStore.Settings.BackendService)
+            if (!Svc.Ui.Settings.BackendService)
             {
                 StopLightCountdown();
 
                 // 不同步在这里 Shutdown —— 正在 Closing 事件里关窗口会搅乱消息循环。
                 // 取消本次关闭后再排队退出，届时 AllowExit 已置位，第二次 OnClosing 直接放行。
                 e.Cancel = true;
-                LogService.Info("已关闭窗口，进程退出（后台服务未开启）");
+                Svc.Log.Info("已关闭窗口，进程退出（后台服务未开启）");
                 Dispatcher.BeginInvoke(new Action(() => App.ExitApplication()));
                 return;
             }
@@ -218,7 +218,7 @@ namespace Zentwik
             // 先取消这一次，再在消息循环里走销毁流程。
             // 直接在 Closing 里 Close 会让 WPF 在同一个 Closing 派发中重入。
             e.Cancel = true;
-            LogService.Info("已关闭窗口：销毁界面，仅保留后台服务（下次打开为全新实例）");
+            Svc.Log.Info("已关闭窗口：销毁界面，仅保留后台服务（下次打开为全新实例）");
             Dispatcher.BeginInvoke(new Action(CloseAndDestroy));
         }
 
@@ -278,7 +278,7 @@ namespace Zentwik
         /// <summary>最小化进入倒计时；恢复显示时取消。点 × 的路径在 OnClosing 里。</summary>
         private void OnWindowStateChangedForLightMode()
         {
-            UiSettings s = UiSettingsStore.Settings;
+            UiSettings s = Svc.Ui.Settings;
 
             if (!s.BackendService || !s.LightMode)
             {
@@ -298,7 +298,7 @@ namespace Zentwik
         /// </summary>
         private void EnterLightMode()
         {
-            UiSettings s = UiSettingsStore.Settings;
+            UiSettings s = Svc.Ui.Settings;
 
             // 倒计时期间用户可能已经把窗口召回来了，或自己关了总闸
             if (!s.BackendService || !s.LightMode)
@@ -307,7 +307,7 @@ namespace Zentwik
             if (IsVisible && WindowState != WindowState.Minimized)
                 return;
 
-            LogService.Info("仅留服务进程：已销毁主窗口");
+            Svc.Log.Info("仅留服务进程：已销毁主窗口");
             CloseAndDestroy();
         }
 
@@ -355,7 +355,7 @@ namespace Zentwik
             }
             catch (Exception ex)
             {
-                LogService.Warn($"销毁窗口前释放页面失败：{ex.Message}");
+                Svc.Log.Warn($"销毁窗口前释放页面失败：{ex.Message}");
             }
 
             try
@@ -367,7 +367,7 @@ namespace Zentwik
             }
             catch (Exception ex)
             {
-                LogService.Warn($"销毁主窗口失败：{ex.Message}");
+                Svc.Log.Warn($"销毁主窗口失败：{ex.Message}");
                 AllowRealClose = false;
                 return;
             }
@@ -384,7 +384,7 @@ namespace Zentwik
             }
             catch (Exception ex)
             {
-                LogService.Warn($"清空 Application.MainWindow 失败：{ex.Message}");
+                Svc.Log.Warn($"清空 Application.MainWindow 失败：{ex.Message}");
             }
 
             // Close() 只是把销毁排进消息队列，可视树 / HwndSource / 绑定要到本轮之后才真拆完。
@@ -392,7 +392,7 @@ namespace Zentwik
             // 用局部 dispatcher，别在 lambda 里捕获 this —— 那会把窗口拖到这一轮之后才可回收。
             Dispatcher dispatcher = Dispatcher;
             dispatcher.BeginInvoke(
-                new Action(() => MemoryTrimmer.TrimInBackground("窗口销毁")),
+                new Action(() => Svc.Memory.TrimInBackground("窗口销毁")),
                 DispatcherPriority.ApplicationIdle);
 
             // 再补一次延迟回收：Close 之后仍会有 WMI 回调、终结器、日志落盘线程
@@ -405,7 +405,7 @@ namespace Zentwik
                     _ =>
                     {
                         if (App.CurrentMainWindow == null)
-                            MemoryTrimmer.TrimInBackground("窗口销毁·静息");
+                            Svc.Memory.TrimInBackground("窗口销毁·静息");
                     },
                     TaskScheduler.Default);
         }

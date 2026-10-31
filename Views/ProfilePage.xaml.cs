@@ -27,19 +27,19 @@ namespace Zentwik.Views
 
             // 直接绑服务里的集合：它俩都是 ObservableCollection，
             // 服务内部一律增量更新，界面不需要自己同步第二份列表。
-            ProfileList.ItemsSource = ProfileService.Items;
-            ScenarioList.ItemsSource = ScenarioService.Rules;
+            ProfileList.ItemsSource = Svc.Profiles.Items;
+            ScenarioList.ItemsSource = Svc.Scenarios.Rules;
         }
 
         public void OnActivated()
         {
-            ProfileService.Changed += OnServiceChanged;
-            ScenarioService.Changed += OnServiceChanged;
+            Svc.Profiles.Changed += OnServiceChanged;
+            Svc.Scenarios.Changed += OnServiceChanged;
 
             // 每次进页面重读一次：方案文件可能被后台的静默实例（-silent）改过，
             // 内存里那份不是唯一真相。
-            ProfileService.Load();
-            ScenarioService.Load();
+            Svc.Profiles.Load();
+            Svc.Scenarios.Load();
 
             Refresh();
         }
@@ -48,8 +48,8 @@ namespace Zentwik.Views
         {
             // 必须退订：Changed 是静态事件，页面实例会被路由长期持有，
             // 不退订就是「每次进页面多一个回调」，切十次就是十个。
-            ProfileService.Changed -= OnServiceChanged;
-            ScenarioService.Changed -= OnServiceChanged;
+            Svc.Profiles.Changed -= OnServiceChanged;
+            Svc.Scenarios.Changed -= OnServiceChanged;
         }
 
         private void OnServiceChanged() => Refresh();
@@ -60,15 +60,15 @@ namespace Zentwik.Views
             // 先摘掉事件再赋值：开关的初值同步不该被当成一次用户操作写回服务。
             ScenarioToggle.Checked -= ScenarioToggle_Checked;
             ScenarioToggle.Unchecked -= ScenarioToggle_Unchecked;
-            ScenarioToggle.IsChecked = ScenarioService.Enabled;
+            ScenarioToggle.IsChecked = Svc.Scenarios.Enabled;
             ScenarioToggle.Checked += ScenarioToggle_Checked;
             ScenarioToggle.Unchecked += ScenarioToggle_Unchecked;
 
-            ScenarioEmpty.Visibility = ScenarioService.Rules.Count == 0
+            ScenarioEmpty.Visibility = Svc.Scenarios.Rules.Count == 0
                 ? Visibility.Visible
                 : Visibility.Collapsed;
 
-            ProfileEmpty.Visibility = ProfileService.Items.Count == 0
+            ProfileEmpty.Visibility = Svc.Profiles.Items.Count == 0
                 ? Visibility.Visible
                 : Visibility.Collapsed;
         }
@@ -81,14 +81,14 @@ namespace Zentwik.Views
         /// </summary>
         private void SaveCurrent_Click(object sender, RoutedEventArgs e)
         {
-            int index = ProfileService.Items.Count + 1;
+            int index = Svc.Profiles.Items.Count + 1;
 
             // 重名就往后找空位：删掉中间某一份之后，「数量 + 1」会撞上已有的名字
             while (FindByName("方案 " + index.ToString()) != null)
                 index++;
 
             string name = "方案 " + index.ToString();
-            ProfileService.Save(ProfileService.CaptureCurrent(name));
+            Svc.Profiles.Save(Svc.Profiles.CaptureCurrent(name));
             ToastService.Success($"已保存「{name}」");
         }
 
@@ -97,7 +97,7 @@ namespace Zentwik.Views
             if (sender is not Button { Tag: string id })
                 return;
 
-            if (ProfileService.Apply(id))
+            if (Svc.Profiles.Apply(id))
                 ToastService.Success("已切换方案");
             else
                 ToastService.Error("方案不存在");
@@ -108,25 +108,25 @@ namespace Zentwik.Views
             if (sender is not Button { Tag: string id })
                 return;
 
-            string name = ProfileService.FindById(id)?.Name ?? id;
+            string name = Svc.Profiles.FindById(id)?.Name ?? id;
 
             // 删除没有回收站，必须问一句
             if (!DarkDialog.Confirm($"删除方案「{name}」？", "Zentwik"))
                 return;
 
-            ProfileService.Delete(id);
+            Svc.Profiles.Delete(id);
         }
 
         private void ScenarioToggle_Checked(object sender, RoutedEventArgs e)
-            => ScenarioService.SetEnabled(true);
+            => Svc.Scenarios.SetEnabled(true);
 
         private void ScenarioToggle_Unchecked(object sender, RoutedEventArgs e)
-            => ScenarioService.SetEnabled(false);
+            => Svc.Scenarios.SetEnabled(false);
 
         /// <summary>按名字找方案（保存时避开重名）。</summary>
         private static ProfileSnapshot? FindByName(string name)
         {
-            foreach (ProfileSnapshot snapshot in ProfileService.Items)
+            foreach (ProfileSnapshot snapshot in Svc.Profiles.Items)
                 if (snapshot.Name == name)
                     return snapshot;
             return null;

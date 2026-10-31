@@ -1,9 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Numerics;
 using Zentwik.Core.Services;
+using Zentwik.Core.Serialization;
 
 namespace Zentwik.Core.Helpers
 {
@@ -27,13 +28,24 @@ namespace Zentwik.Core.Helpers
     /// 自定义掩码持久化：保存到 %APPDATA%\Zentwik\masks.json。
     /// 重启软件时由 <see cref="Load"/> 自动加载，下拉框与绑核规则都引用这里的配置。
     /// </summary>
-    public static class MaskStore
+    public class MaskStore : IMaskStore
     {
-        private static readonly string FilePath = AppPaths.File("masks.json");
+        private readonly ILogService _log;
+        private readonly IAppPaths _paths;
 
-        private static readonly List<CustomMask> _masks = new();
+        public MaskStore(ILogService log, IAppPaths paths)
+        {
+            ArgumentNullException.ThrowIfNull(log);
+            _log = log;
+            ArgumentNullException.ThrowIfNull(paths);
+            _paths = paths;
+        }
 
-        public static IReadOnlyList<CustomMask> Masks => _masks;
+        private string FilePath => _paths.File("masks.json");
+
+        private readonly List<CustomMask> _masks = new();
+
+        public IReadOnlyList<CustomMask> Masks => _masks;
 
         /// <summary>
         /// 自定义掩码套数上限。
@@ -44,7 +56,7 @@ namespace Zentwik.Core.Helpers
         public const int MaxCount = 10;
 
         /// <summary>当前是否已经达到套数上限（新建前用它决定是否还允许加草稿）。</summary>
-        public static bool IsFull => _masks.Count >= MaxCount;
+        public bool IsFull => _masks.Count >= MaxCount;
 
         /// <summary>
         /// 除某个 Id 之外已占用的名称，供重名校验使用。
@@ -53,7 +65,7 @@ namespace Zentwik.Core.Helpers
         /// （用户手敲了一个「纯大核」），按名称排除会把真正的冲突对象一起跳过，
         /// 于是重名检查形同虚设。Id 是唯一可靠的「自己」标识。
         /// </summary>
-        public static IEnumerable<string> NamesExceptId(string? excludeId)
+        public IEnumerable<string> NamesExceptId(string? excludeId)
         {
             foreach (CustomMask m in _masks)
             {
@@ -64,13 +76,13 @@ namespace Zentwik.Core.Helpers
         }
 
         /// <summary>任一掩码被新增 / 改名 / 删除时触发（用于联动主界面下拉框）。</summary>
-        public static event Action? Changed;
+        public event Action? Changed;
 
-        public static void Load()
+        public void Load()
         {
             try
             {
-                List<CustomMask>? loaded = JsonFile.Read<List<CustomMask>>(FilePath);
+                List<CustomMask>? loaded = JsonFile.Read(FilePath, AppJsonContext.Default.ListCustomMask);
                 if (loaded == null)
                     return;
 
@@ -79,20 +91,20 @@ namespace Zentwik.Core.Helpers
             }
             catch (Exception ex)
             {
-                LogService.Error($"读取自定义掩码失败: {ex.Message}");
+                _log.Error($"读取自定义掩码失败: {ex.Message}");
             }
         }
 
-        private static void Save()
+        private void Save()
         {
             try
             {
-                JsonFile.Write(FilePath, _masks);
+                JsonFile.Write(FilePath, _masks, AppJsonContext.Default.ListCustomMask);
                 Changed?.Invoke();
             }
             catch (Exception ex)
             {
-                LogService.Error($"保存自定义掩码失败: {ex.Message}");
+                _log.Error($"保存自定义掩码失败: {ex.Message}");
             }
         }
 
@@ -130,17 +142,17 @@ namespace Zentwik.Core.Helpers
         /// 进程页的下拉框与已保存规则才会跟着同步，不会留下一堆
         /// 指向已删除掩码的悬空规则。
         /// </summary>
-        public static void ResetToFactory()
+        public void ResetToFactory()
         {
             if (_masks.Count == 0)
                 return;
 
             _masks.Clear();
             Save();
-            LogService.Info("全局重置：自定义掩码已清空");
+            _log.Info("全局重置：自定义掩码已清空");
         }
 
-        public static bool Upsert(CustomMask mask, out UpsertError error)
+        public bool Upsert(CustomMask mask, out UpsertError error)
         {
             string name = (mask.Name ?? string.Empty).Trim();
 
@@ -189,15 +201,15 @@ namespace Zentwik.Core.Helpers
             return true;
         }
 
-        public static void Remove(string id)
+        public void Remove(string id)
         {
             if (_masks.RemoveAll(m => m.Id == id) > 0)
                 Save();
         }
 
-        public static CustomMask? FindById(string id) => _masks.FirstOrDefault(m => m.Id == id);
+        public CustomMask? FindById(string id) => _masks.FirstOrDefault(m => m.Id == id);
 
-        public static CustomMask? FindByName(string name) =>
+        public CustomMask? FindByName(string name) =>
             _masks.FirstOrDefault(m => m.Name == name);
     }
 }

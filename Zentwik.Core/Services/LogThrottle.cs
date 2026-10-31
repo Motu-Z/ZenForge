@@ -22,7 +22,7 @@ namespace Zentwik.Core.Services
     /// 也就是说 N 总是滞后的 —— 但日志本来就是事后看的，滞后一窗没有实际影响，
     /// 换来的是不需要额外的定时器去冲刷（后台零占用这条线不能破）。
     /// </summary>
-    internal static class LogThrottle
+    public sealed class LogThrottle
     {
         /// <summary>节流窗口。60 秒是用户要求的粒度，也刚好是「一条 WARN 只占一屏」的量级。</summary>
         private const int WindowMs = 60_000;
@@ -39,10 +39,10 @@ namespace Zentwik.Core.Services
             public int Suppressed;
         }
 
-        private static readonly Dictionary<string, Bucket> Buckets =
+        private readonly Dictionary<string, Bucket> Buckets =
             new(StringComparer.OrdinalIgnoreCase);
 
-        private static readonly object Gate = new();
+        private readonly object Gate = new();
 
         /// <summary>
         /// 申请一次写日志的许可。
@@ -50,7 +50,7 @@ namespace Zentwik.Core.Services
         /// <param name="key">节流键，约定为「类别|主体|错误码」。</param>
         /// <param name="suppressed">上一个窗口内被压掉的条数（0 = 没有）。</param>
         /// <returns>true = 这次应当写；false = 已被节流，调用方直接丢弃这条日志。</returns>
-        public static bool TryAcquire(string key, out int suppressed)
+        public bool TryAcquire(string key, out int suppressed)
         {
             suppressed = 0;
 
@@ -82,7 +82,7 @@ namespace Zentwik.Core.Services
         /// 清掉某个 key 的窗口。用于「同一个对象下一次成功了」的场合：
         /// 成功过就说明它现在可达，后面若再失败应当立刻能看到，而不是等窗口过期。
         /// </summary>
-        public static void Reset(string key)
+        public void Reset(string key)
         {
             lock (Gate)
                 Buckets.Remove(key);

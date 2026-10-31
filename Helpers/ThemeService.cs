@@ -55,17 +55,17 @@ namespace Zentwik.Helpers
 
         public static void ApplyFromSettings()
         {
-            UiSettings settings = UiSettingsStore.Settings;
+            UiSettings settings = Svc.Ui.Settings;
             Apply(settings.ThemeMode, settings.FollowSystemAccent, settings.CustomAccentHex);
         }
 
         /// <summary>应用主题并持久化。</summary>
         public static void ApplyAndSave(AppThemeMode mode, bool followSystemAccent, string? customAccentHex)
         {
-            UiSettingsStore.Settings.ThemeMode = mode;
-            UiSettingsStore.Settings.FollowSystemAccent = followSystemAccent;
-            UiSettingsStore.Settings.CustomAccentHex = string.IsNullOrWhiteSpace(customAccentHex) ? DefaultAccentHex : customAccentHex;
-            UiSettingsStore.Save();
+            Svc.Ui.Settings.ThemeMode = mode;
+            Svc.Ui.Settings.FollowSystemAccent = followSystemAccent;
+            Svc.Ui.Settings.CustomAccentHex = string.IsNullOrWhiteSpace(customAccentHex) ? DefaultAccentHex : customAccentHex;
+            Svc.Ui.Save();
 
             Apply(mode, followSystemAccent, customAccentHex);
         }

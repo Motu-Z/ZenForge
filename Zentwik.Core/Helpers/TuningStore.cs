@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using System.IO;
 using Zentwik.Core.Services;
+using Zentwik.Core.Serialization;
 
 namespace Zentwik.Core.Helpers
 {
@@ -26,17 +27,28 @@ namespace Zentwik.Core.Helpers
         public string? AppliedAt { get; set; }
     }
 
-    public static class TuningStore
+    public class TuningStore : ITuningStore
     {
-        private static readonly string FilePath = AppPaths.File("tuning.json");
+        private readonly ILogService _log;
+        private readonly IAppPaths _paths;
 
-        public static TuningProfile Profile { get; private set; } = new();
+        public TuningStore(ILogService log, IAppPaths paths)
+        {
+            ArgumentNullException.ThrowIfNull(log);
+            _log = log;
+            ArgumentNullException.ThrowIfNull(paths);
+            _paths = paths;
+        }
 
-        public static void Load()
+        private string FilePath => _paths.File("tuning.json");
+
+        public TuningProfile Profile { get; private set; } = new();
+
+        public void Load()
         {
             try
             {
-                if (JsonFile.Read<TuningProfile>(FilePath) is { } loaded)
+                if (JsonFile.Read(FilePath, AppJsonContext.Default.TuningProfile) is { } loaded)
                     Profile = loaded;
             }
             catch
@@ -46,18 +58,18 @@ namespace Zentwik.Core.Helpers
         }
 
         /// <summary>用给定设定覆盖当前 Profile 并落盘（先写临时文件再原子替换）。</summary>
-        public static void Save(TuningProfile profile)
+        public void Save(TuningProfile profile)
         {
             profile.AppliedAt = DateTime.Now.ToString("o");
 
             try
             {
-                JsonFile.Write(FilePath, profile);
+                JsonFile.Write(FilePath, profile, AppJsonContext.Default.TuningProfile);
                 Profile = profile;
             }
             catch (Exception ex)
             {
-                LogService.Error($"保存调校配置失败: {ex.Message}");
+                _log.Error($"保存调校配置失败: {ex.Message}");
             }
         }
 
@@ -69,7 +81,7 @@ namespace Zentwik.Core.Helpers
         /// 早先基线未知时回落 5400——那是桌面 Zen5 的值，在移动端或其他 SKU 上
         /// 要么超出真实上限，要么把频率锁在一个陌生数字上。"不知道"就该说不知道。
         /// </summary>
-        public static uint ResetToFactory()
+        public uint ResetToFactory()
         {
             uint baseline = Profile.FMaxBaselineMHz;
 
@@ -81,9 +93,9 @@ namespace Zentwik.Core.Helpers
             });
 
             if (baseline == 0)
-                LogService.Info("全局重置：CO 归零；FMax 出厂基线未知，未写回 FMax");
+                _log.Info("全局重置：CO 归零；FMax 出厂基线未知，未写回 FMax");
             else
-                LogService.Info($"全局重置：CO 归零，FMax 恢复出厂 {baseline} MHz");
+                _log.Info($"全局重置：CO 归零，FMax 恢复出厂 {baseline} MHz");
 
             return baseline;
         }

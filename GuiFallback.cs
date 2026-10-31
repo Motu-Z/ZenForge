@@ -31,7 +31,7 @@ namespace Zentwik
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static int Run()
         {
-            LogService.Info("升级回退：改用 WPF 托盘常驻（绑核不中断，双击 exe 可重试打开界面）");
+            Svc.Log.Info("升级回退：改用 WPF 托盘常驻（绑核不中断，双击 exe 可重试打开界面）");
 
             try
             {
@@ -47,7 +47,7 @@ namespace Zentwik
                         new System.Action(TrayIconService.ShowOrCreateMainWindow));
                 };
 
-                if (UiSettingsStore.Settings.ShowTrayIcon)
+                if (Svc.Ui.Settings.ShowTrayIcon)
                     TrayIconService.EnsureCreated();
 
                 using ManualResetEventSlim exit = new(false);
@@ -60,7 +60,7 @@ namespace Zentwik
             }
             catch (System.Exception ex)
             {
-                LogService.Error($"升级回退失败，进程退出：{ex}");
+                Svc.Log.Error($"升级回退失败，进程退出：{ex}");
                 return 1;
             }
         }

@@ -18,9 +18,32 @@ namespace Zentwik.Core.Services
     ///      所以要记录异常再继续下一项。
     ///   3. 全程不弹窗、不碰 UI，由调用方在后台线程执行。
     /// </summary>
-    public static class SmuDiagnostics
+    public class SmuDiagnostics
     {
-        public static string Run()
+        private readonly ILogService _log;
+        private readonly IAppPaths _paths;
+        private readonly ICpuSetBinder _cpuSets;
+        private readonly ProcessRefresher _refresher;
+        private readonly IProcessWatcher _watcher;
+        private readonly SmuReader _smu;
+
+        public SmuDiagnostics(ILogService log, IAppPaths paths, ICpuSetBinder cpuSets, ProcessRefresher refresher, IProcessWatcher watcher, SmuReader smu)
+        {
+            ArgumentNullException.ThrowIfNull(log);
+            _log = log;
+            ArgumentNullException.ThrowIfNull(paths);
+            _paths = paths;
+            ArgumentNullException.ThrowIfNull(cpuSets);
+            _cpuSets = cpuSets;
+            ArgumentNullException.ThrowIfNull(refresher);
+            _refresher = refresher;
+            ArgumentNullException.ThrowIfNull(watcher);
+            _watcher = watcher;
+            ArgumentNullException.ThrowIfNull(smu);
+            _smu = smu;
+        }
+
+        public string Run()
         {
             StringBuilder sb = new();
             void Line(string text = "") => sb.AppendLine(text);
@@ -46,7 +69,7 @@ namespace Zentwik.Core.Services
             return Write(sb.ToString());
         }
 
-        private static void AppendEnvironment(StringBuilder sb)
+        private void AppendEnvironment(StringBuilder sb)
         {
             void Line(string text = "") => sb.AppendLine(text);
 
@@ -71,7 +94,7 @@ namespace Zentwik.Core.Services
             Line();
         }
 
-        private static void AppendTopology(StringBuilder sb)
+        private void AppendTopology(StringBuilder sb)
         {
             void Line(string text = "") => sb.AppendLine(text);
 
@@ -79,9 +102,9 @@ namespace Zentwik.Core.Services
             Line("[2] Zentwik 侧拓扑（决定 CO 掩码怎么拆）");
             try
             {
-                Line($"    逻辑处理器数（CpuSetBinder）：{CpuSetBinder.LogicalProcessorCount}");
-                SmuReader reader = SmuReader.Shared;
-                Line($"    每 CCD 核数（SmuReader.CoresPerCcd）：{reader.CoresPerCcd}");
+                Line($"    逻辑处理器数（CpuSetBinder）：{_cpuSets.LogicalProcessorCount}");
+                SmuReader reader = _smu;
+                Line($"    每 CCD 核数（_smu.CoresPerCcd）：{reader.CoresPerCcd}");
                 Line($"    每 CCD 核数（原始探测值，0=未探测）：{reader.CoresPerCcdRaw}");
                 Line($"    SMU 可用：{reader.IsAvailable}");
                 if (!string.IsNullOrEmpty(reader.LastError))
@@ -100,7 +123,7 @@ namespace Zentwik.Core.Services
             Line();
         }
 
-        private static SmuSnapshot AppendSnapshot(StringBuilder sb)
+        private SmuSnapshot AppendSnapshot(StringBuilder sb)
         {
             void Line(string text = "") => sb.AppendLine(text);
 
@@ -109,7 +132,7 @@ namespace Zentwik.Core.Services
             SmuSnapshot snapshot = new();
             try
             {
-                SmuReader reader = SmuReader.Shared;
+                SmuReader reader = _smu;
                 snapshot = reader.ReadSnapshot();
 
                 if (!snapshot.Success)
@@ -130,16 +153,16 @@ namespace Zentwik.Core.Services
                     Line($"    FMax 当前值：{snapshot.FMaxMHz} MHz");
 
                     // 这三项决定「是命令没通，还是命令不支持」
-                    (string status, string? lastError) = SmuReader.Shared.CpuStateForDiagnostics();
+                    (string status, string? lastError) = _smu.CpuStateForDiagnostics();
                     Line($"    Cpu 状态：{status}");
                     Line($"    Cpu 最后错误：{(lastError ?? "(无)")}");
 
-                    (bool testOk, string? testError) = SmuReader.Shared.TestMessageForDiagnostics();
+                    (bool testOk, string? testError) = _smu.TestMessageForDiagnostics();
                     Line($"    SMU 测试消息：{(testOk ? "通过" : "失败")}" +
                          (testError == null ? "" : $"（{testError}）"));
 
                     (uint getDldo, uint setDldo, uint setBoost, uint getBoost) =
-                        SmuReader.Shared.SmuMsgIdsForDiagnostics();
+                        _smu.SmuMsgIdsForDiagnostics();
                     Line("    SMU 消息号（0 = 该平台未初始化这条命令）：");
                     Line($"      GetDldoPsmMargin            = 0x{getDldo:X}");
                     Line($"      SetDldoPsmMargin            = 0x{setDldo:X}");
@@ -163,7 +186,7 @@ namespace Zentwik.Core.Services
             return snapshot;
         }
 
-        private static void AppendMaskDeduction(StringBuilder sb, SmuSnapshot snapshot)
+        private void AppendMaskDeduction(StringBuilder sb, SmuSnapshot snapshot)
         {
             void Line(string text = "") => sb.AppendLine(text);
 
@@ -171,7 +194,7 @@ namespace Zentwik.Core.Services
             Line("[4] CO 掩码推演（不做任何写入）");
             try
             {
-                SmuReader reader = SmuReader.Shared;
+                SmuReader reader = _smu;
                 int cores = snapshot.Success ? (int)snapshot.PhysicalCores : 0;
                 if (cores <= 0)
                 {
@@ -196,7 +219,7 @@ namespace Zentwik.Core.Services
             Line();
         }
 
-        private static void AppendWriteTest(StringBuilder sb, SmuSnapshot snapshot)
+        private void AppendWriteTest(StringBuilder sb, SmuSnapshot snapshot)
         {
             void Line(string text = "") => sb.AppendLine(text);
 
@@ -204,7 +227,7 @@ namespace Zentwik.Core.Services
             Line("[5] 写入测试（只写当前值，等价于不改动）");
             try
             {
-                SmuReader reader = SmuReader.Shared;
+                SmuReader reader = _smu;
                 if (!reader.IsAvailable)
                 {
                     Line("    跳过：SMU 不可用");
@@ -266,7 +289,7 @@ namespace Zentwik.Core.Services
             Line();
         }
 
-        private static void AppendFMaxChannel(StringBuilder sb)
+        private void AppendFMaxChannel(StringBuilder sb)
         {
             void Line(string text = "") => sb.AppendLine(text);
 
@@ -274,7 +297,7 @@ namespace Zentwik.Core.Services
             Line("[6] FMax 读取通道");
             try
             {
-                SmuReader reader = SmuReader.Shared;
+                SmuReader reader = _smu;
                 if (!reader.IsAvailable)
                 {
                     Line("    跳过：SMU 不可用");
@@ -298,7 +321,7 @@ namespace Zentwik.Core.Services
             Line();
         }
 
-        private static void AppendWatcherState(StringBuilder sb)
+        private void AppendWatcherState(StringBuilder sb)
         {
             void Line(string text = "") => sb.AppendLine(text);
 
@@ -306,9 +329,9 @@ namespace Zentwik.Core.Services
             Line("[7] 进程绑核监听");
             try
             {
-                Line($"    运行中：{ProcessWatcher.IsRunning}");
-                Line($"    WMI 事件模式：{ProcessWatcher.UsingEvents}");
-                Line($"    进程快照采样中（有人看列表）：{ProcessRefresher.IsWatched}");
+                Line($"    运行中：{_watcher.IsRunning}");
+                Line($"    WMI 事件模式：{_watcher.UsingEvents}");
+                Line($"    进程快照采样中（有人看列表）：{_refresher.IsWatched}");
             }
             catch (Exception ex)
             {
@@ -317,9 +340,9 @@ namespace Zentwik.Core.Services
             Line();
         }
 
-private static string Write(string content)
+private string Write(string content)
         {
-            string dir = AppPaths.Dir("Diagnostics");
+            string dir = _paths.Dir("Diagnostics");
             Directory.CreateDirectory(dir);
 
             string path = Path.Combine(dir, $"smu-diag-{DateTime.Now:yyyyMMdd-HHmmss}.txt");

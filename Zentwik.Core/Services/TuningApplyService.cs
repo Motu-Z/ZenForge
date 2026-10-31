@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Zentwik.Core.Helpers;
@@ -40,21 +40,38 @@ namespace Zentwik.Core.Services
     /// 「启动时自动应用调校」开关在最常见的启动方式下完全不起作用。
     /// 两条路径现在共用本类。
     /// </summary>
-    public static class TuningApplyService
+    public class TuningApplyService
     {
+        private readonly ILogService _log;
+        private readonly IUiSettingsStore _settings;
+        private readonly ITuningStore _tuning;
+        private readonly ISmuReader _smu;
+
+        public TuningApplyService(ILogService log, IUiSettingsStore settings, ITuningStore tuning, ISmuReader smu)
+        {
+            ArgumentNullException.ThrowIfNull(log);
+            _log = log;
+            ArgumentNullException.ThrowIfNull(settings);
+            _settings = settings;
+            ArgumentNullException.ThrowIfNull(tuning);
+            _tuning = tuning;
+            ArgumentNullException.ThrowIfNull(smu);
+            _smu = smu;
+        }
+
         /// <summary>最近一次执行结果，供调校页在加载后显示。</summary>
-        public static TuningApplyOutcome? LastOutcome { get; private set; }
+        public TuningApplyOutcome? LastOutcome { get; private set; }
 
         /// <summary>
         /// 读取 tuning.json 并写回 SMU。全程可抛异常已内部兜住，返回值里带失败明细。
         /// 调用方决定要不要弹窗（静默模式不弹，GUI 模式弹）。
         /// </summary>
-        public static TuningApplyOutcome ApplyFromStore()
+        public TuningApplyOutcome ApplyFromStore()
         {
-            TuningStore.Load();
-            UiSettingsStore.Load();
+            _tuning.Load();
+            _settings.Load();
 
-            TuningProfile profile = TuningStore.Profile;
+            TuningProfile profile = _tuning.Profile;
             int[] margins = profile.CurveOptimizer ?? Array.Empty<int>();
             uint fMax = profile.FMaxMHz;
 
@@ -63,7 +80,7 @@ namespace Zentwik.Core.Services
 
             // 跳过也算一次结果：调校页要靠它显示「本次启动未应用 + 原因」，
             // 否则用户无从区别「应用失败」和「压根没尝试」。
-            if (!UiSettingsStore.Settings.ApplyTuningOnStartup)
+            if (!_settings.Settings.ApplyTuningOnStartup)
                 return Skip("「启动时自动应用调校」已关闭，本次未写入 SMU");
 
             if (!hasCo && !hasFMax)
@@ -75,17 +92,17 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>跳过也要留下结果，让界面能区分「应用失败」和「压根没尝试」。</summary>
-        private static TuningApplyOutcome Skip(string reason) =>
+        private TuningApplyOutcome Skip(string reason) =>
             Record(new TuningApplyOutcome { Skipped = true, SkipReason = reason });
 
-        private static TuningApplyOutcome Record(TuningApplyOutcome outcome)
+        private TuningApplyOutcome Record(TuningApplyOutcome outcome)
         {
             LastOutcome = outcome;
             return outcome;
         }
 
         /// <summary>执行 SMU 写入（CO / FMax）。失败明细写进 outcome，不向外抛。</summary>
-        private static void Write(
+        private void Write(
             TuningProfile profile,
             int[] margins,
             uint fMax,
@@ -99,15 +116,16 @@ namespace Zentwik.Core.Services
             //
             // 用完不 Dispose：Cpu.Dispose() 会 Opcode.Close() 掉进程级静态资源，
             // 一键打哑所有 Cpu 的 SMU 通道。SmuReader.Dispose 本身已是 no-op。
-            SmuReader? reader = SmuReader.WaitForPawnIO(60);
-            if (reader == null)
+            if (!_smu.WaitForAvailability(60))
             {
                 outcome.Errors.Add("PawnIO 未加载（60 秒内未就绪），跳过调校写入");
-                LogService.Error("启动应用调校：PawnIO 未加载，跳过写入");
+                _log.Error("启动应用调校：PawnIO 未加载，跳过写入");
                 return;
             }
 
-            LogService.Info(
+            ISmuReader reader = _smu;
+
+            _log.Info(
                 $"启动应用调校：读取到已保存配置，CO {margins.Length} 核" +
                 (hasFMax ? $"，FMax {fMax} MHz" : "，未设置 FMax"));
 
@@ -117,13 +135,13 @@ namespace Zentwik.Core.Services
                 SmuSnapshot snapshot = reader.ReadSnapshot();
                 if (!snapshot.Success)
                 {
-                    LogService.Error(
+                    _log.Error(
                         $"启动应用调校：SMU 探测失败（{snapshot.Error}），继续尝试写入");
                 }
             }
             catch (Exception ex)
             {
-                LogService.Warn($"启动应用调校：SMU 探测异常（继续尝试写入）：{ex.Message}");
+                _log.Warn($"启动应用调校：SMU 探测异常（继续尝试写入）：{ex.Message}");
             }
 
             // ---------- CO ----------
@@ -142,7 +160,7 @@ namespace Zentwik.Core.Services
                     if (co.AllSucceeded)
                     {
                         outcome.CurveOptimizerApplied = true;
-                        LogService.Info($"启动应用调校：CO {co.Applied.Count} 核写入并回读一致");
+                        _log.Info($"启动应用调校：CO {co.Applied.Count} 核写入并回读一致");
                     }
                     else
                     {
@@ -153,13 +171,13 @@ namespace Zentwik.Core.Services
                         if (co.VerifyFailed.Count > 0)
                             outcome.Errors.Add($"CO 回读不一致核心：{string.Join(", ", co.VerifyFailed)}");
 
-                        LogService.Error("启动应用调校：CO 写入未完全成功（详见上方明细）");
+                        _log.Error("启动应用调校：CO 写入未完全成功（详见上方明细）");
                     }
                 }
                 catch (Exception ex)
                 {
                     outcome.Errors.Add($"CO 写入异常：{ex.Message}");
-                    LogService.Error($"启动应用调校：CO 写入异常：{ex.Message}");
+                    _log.Error($"启动应用调校：CO 写入异常：{ex.Message}");
                 }
             }
 
@@ -172,7 +190,7 @@ namespace Zentwik.Core.Services
                     if (fm.AllSucceeded)
                     {
                         outcome.FMaxApplied = true;
-                        LogService.Info($"启动应用调校：FMax {fm.ReadBack} MHz 写入并回读一致");
+                        _log.Info($"启动应用调校：FMax {fm.ReadBack} MHz 写入并回读一致");
                     }
                     else
                     {
@@ -180,7 +198,7 @@ namespace Zentwik.Core.Services
                             ? $"FMax 写入失败：{fm.Fatal}"
                             : $"FMax 回读不一致（请求 {fm.Requested}，回读 {fm.ReadBack}）");
 
-                        LogService.Error(
+                        _log.Error(
                             fm.Fatal != null
                                 ? $"启动应用调校：FMax 写入失败：{fm.Fatal}"
                                 : $"启动应用调校：FMax 回读不一致（请求 {fm.Requested}，回读 {fm.ReadBack}）");
@@ -189,7 +207,7 @@ namespace Zentwik.Core.Services
                 catch (Exception ex)
                 {
                     outcome.Errors.Add($"FMax 写入异常：{ex.Message}");
-                    LogService.Error($"启动应用调校：FMax 写入异常：{ex.Message}");
+                    _log.Error($"启动应用调校：FMax 写入异常：{ex.Message}");
                 }
             }
         }

@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using Zentwik.Core.Helpers;
+using Zentwik.Core.Serialization;
 
 namespace Zentwik.Core.Services
 {
@@ -99,44 +100,67 @@ namespace Zentwik.Core.Services
     /// 绑核下发交给后台的 ProcessWatcher 按规则自然生效。
     /// 本类不碰任何 SMU / 注册表调用 —— 那是那两个服务的事，重复实现只会长出两套行为。
     /// </summary>
-    public static class ProfileService
+    public class ProfileService
     {
-        private static readonly string FilePath = AppPaths.File("profiles.json");
+        private readonly ILogService _log;
+        private readonly ITuningStore _tuning;
+        private readonly IBindingStore _bindings;
+        private readonly TuningApplyService _tuningApply;
+        private readonly IProcessWatcher _watcher;
+        private readonly IAppPaths _paths;
 
-        private static readonly object Sync = new();
+        public ProfileService(ILogService log, ITuningStore tuning, IBindingStore bindings, TuningApplyService tuningApply, IProcessWatcher watcher, IAppPaths paths)
+        {
+            ArgumentNullException.ThrowIfNull(log);
+            _log = log;
+            ArgumentNullException.ThrowIfNull(tuning);
+            _tuning = tuning;
+            ArgumentNullException.ThrowIfNull(bindings);
+            _bindings = bindings;
+            ArgumentNullException.ThrowIfNull(tuningApply);
+            _tuningApply = tuningApply;
+            ArgumentNullException.ThrowIfNull(watcher);
+            _watcher = watcher;
+            ArgumentNullException.ThrowIfNull(paths);
+            _paths = paths;
+        }
+
+        private string FilePath => _paths.File("profiles.json");
+
+        private readonly object Sync = new();
 
         /// <summary>界面绑定的集合。方案数量是个位数到几十，不需要虚拟化，但更新仍走增量。</summary>
-        public static ObservableCollection<ProfileSnapshot> Items { get; } = new();
+        public ObservableCollection<ProfileSnapshot> Items { get; } = new();
 
         /// <summary>方案集合发生变化（增删改、切换生效）时触发，界面据此刷新。</summary>
-        public static event Action? Changed;
+        public event Action? Changed;
 
         /// <summary>当前生效方案的 Id；没有（启动后未切换过任何方案）时为 null。</summary>
-        public static string? ActiveId { get; private set; }
+        public string? ActiveId { get; private set; }
 
         /// <summary>
         /// 把生效标记刷到每项上。集合本身不变，只改元素的 IsActive。
         /// 每次写 ActiveId 之后都要调一次，否则界面上的标记会停在旧的那一套。
         /// </summary>
-        private static void RefreshActiveMarks()
+        private void RefreshActiveMarks()
         {
             foreach (ProfileSnapshot snapshot in Items)
                 snapshot.IsActive = snapshot.Id == ActiveId;
         }
 
         /// <summary>程序启动、或 store 被别处改动后重新读盘。</summary>
-        public static void Load()
+        public void Load()
         {
             lock (Sync)
             {
                 ProfileFile? file = null;
                 try
                 {
-                    file = JsonFile.Read<ProfileFile>(FilePath);
+                    file = JsonFile.Read(FilePath, AppJsonContext.Default.ProfileFile);
                 }
                 catch (Exception ex)
                 {
-                    LogService.Error($"读取方案列表失败: {ex.Message}");
+                    _log.Error($"读取方案列表失败: {ex.Message}");
                 }
 
                 List<ProfileSnapshot> loaded = file?.Profiles ?? new List<ProfileSnapshot>();
@@ -152,7 +176,7 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>按 Id 查方案。</summary>
-        public static ProfileSnapshot? FindById(string id)
+        public ProfileSnapshot? FindById(string id)
         {
             lock (Sync)
                 return Items.FirstOrDefault(p => p.Id == id);
@@ -165,9 +189,9 @@ namespace Zentwik.Core.Services
         /// 「已成功下发并回读校验通过」的设定（见 TuningStore 的类注释），
         /// 界面上还没点应用的输入不配成为一份方案。
         /// </summary>
-        public static ProfileSnapshot CaptureCurrent(string name, string note = "")
+        public ProfileSnapshot CaptureCurrent(string name, string note = "")
         {
-            TuningProfile tuning = TuningStore.Profile;
+            TuningProfile tuning = _tuning.Profile;
 
             return new ProfileSnapshot
             {
@@ -178,14 +202,14 @@ namespace Zentwik.Core.Services
 
                 // 规则也要克隆：BindingRule 是引用类型，直接塞列表会让方案
                 // 与当前规则集共享同一批对象，之后改进程页等于改方案。
-                BindingRules = BindingStore.Profile.Rules
+                BindingRules = _bindings.Profile.Rules
                     .Select(Clone)
                     .ToList()
             };
         }
 
         /// <summary>保存（新增或按 Id 覆盖）一份方案。</summary>
-        public static void Save(ProfileSnapshot snapshot)
+        public void Save(ProfileSnapshot snapshot)
         {
             snapshot.UpdatedAt = DateTime.Now.ToString("o");
 
@@ -200,12 +224,12 @@ namespace Zentwik.Core.Services
                 Persist();
             }
 
-            LogService.Info($"方案已保存: {snapshot.Name}");
+            _log.Info($"方案已保存: {snapshot.Name}");
             Changed?.Invoke();
         }
 
         /// <summary>删除一份方案。删的正好是生效中方案时只清标记，不动当前硬件设置。</summary>
-        public static bool Delete(string id)
+        public bool Delete(string id)
         {
             lock (Sync)
             {
@@ -241,7 +265,7 @@ namespace Zentwik.Core.Services
         ///    理想做法是恢复上一份方案。现在只记录日志，因为「部分写成功」的
         ///    回滚顺序（先 FMax 后 CO）还没有实测依据，不猜。
         /// </summary>
-        public static bool Apply(string id)
+        public bool Apply(string id)
         {
             ProfileSnapshot? snapshot = FindById(id);
             if (snapshot == null)
@@ -249,25 +273,25 @@ namespace Zentwik.Core.Services
 
             // FMax 基线不进快照：它是这台机器的出厂值，属于硬件属性，
             // 不是方案属性 —— 换方案不该把基线也换掉。
-            TuningStore.Save(new TuningProfile
+            _tuning.Save(new TuningProfile
             {
                 CurveOptimizer = (int[])snapshot.CurveOptimizer.Clone(),
                 FMaxMHz = snapshot.FMaxMHz,
-                FMaxBaselineMHz = TuningStore.Profile.FMaxBaselineMHz
+                FMaxBaselineMHz = _tuning.Profile.FMaxBaselineMHz
             });
 
-            BindingStore.Save(snapshot.BindingRules.Select(Clone));
+            _bindings.Save(snapshot.BindingRules.Select(Clone));
 
             // 让**已经在跑**的进程立刻跟上新规则。
             // WMI 事件只覆盖之后启动的进程：不补这一下，用户切完方案看到的会是
             // 「设置都变了，但那个游戏还绑在旧核心上」，而它要等到下次重启才生效 ——
             // 那种「切了等于没切」的观感比不做这个功能更糟。
             // 重扫是异步的（内部 Task.Run），UI 线程不等它。
-            ProcessWatcher.ReapplyNow();
+            _watcher.ReapplyNow();
 
-            TuningApplyOutcome? outcome = TuningApplyService.ApplyFromStore();
+            TuningApplyOutcome? outcome = _tuningApply.ApplyFromStore();
             if (outcome != null && !outcome.Success)
-                LogService.Warn($"方案「{snapshot.Name}」的调校部分未完全生效: {outcome.Summary}");
+                _log.Warn($"方案「{snapshot.Name}」的调校部分未完全生效: {outcome.Summary}");
 
             lock (Sync)
             {
@@ -276,7 +300,7 @@ namespace Zentwik.Core.Services
                 Persist();
             }
 
-            LogService.Info($"已切换方案: {snapshot.Name}");
+            _log.Info($"已切换方案: {snapshot.Name}");
             Changed?.Invoke();
             return true;
         }
@@ -285,20 +309,20 @@ namespace Zentwik.Core.Services
         /// 当前设置与给定方案是否一致。界面用它给「生效中」的那一张卡片打标，
         /// 而不是让用户记自己最后点的是哪一张。
         /// </summary>
-        public static bool IsCurrentEqualTo(string id)
+        public bool IsCurrentEqualTo(string id)
         {
             ProfileSnapshot? snapshot = FindById(id);
             if (snapshot == null)
                 return false;
 
-            TuningProfile tuning = TuningStore.Profile;
+            TuningProfile tuning = _tuning.Profile;
             if (!snapshot.CurveOptimizer.SequenceEqual(tuning.CurveOptimizer))
                 return false;
 
             if (snapshot.FMaxMHz != tuning.FMaxMHz)
                 return false;
 
-            List<BindingRule> current = BindingStore.Profile.Rules;
+            List<BindingRule> current = _bindings.Profile.Rules;
             if (current.Count != snapshot.BindingRules.Count)
                 return false;
 
@@ -319,7 +343,7 @@ namespace Zentwik.Core.Services
         /// 这里是配置页，方案只有几条，但规矩就是规矩 —— 顺手的地方最容易破例，
         /// 破了例下次在进程列表上也会这么写。
         /// </summary>
-        private static void MergeInto(List<ProfileSnapshot> desired)
+        private void MergeInto(List<ProfileSnapshot> desired)
         {
             for (int i = Items.Count - 1; i >= 0; i--)
             {
@@ -337,7 +361,7 @@ namespace Zentwik.Core.Services
             }
         }
 
-        private static int IndexOfId(string id)
+        private int IndexOfId(string id)
         {
             for (int i = 0; i < Items.Count; i++)
                 if (Items[i].Id == id)
@@ -345,7 +369,7 @@ namespace Zentwik.Core.Services
             return -1;
         }
 
-        private static void Persist()
+        private void Persist()
         {
             try
             {
@@ -353,11 +377,11 @@ namespace Zentwik.Core.Services
                 {
                     Profiles = Items.ToList(),
                     ActiveId = ActiveId
-                });
+                }, AppJsonContext.Default.ProfileFile);
             }
             catch (Exception ex)
             {
-                LogService.Error($"保存方案列表失败: {ex.Message}");
+                _log.Error($"保存方案列表失败: {ex.Message}");
             }
         }
 

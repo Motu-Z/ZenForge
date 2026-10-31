@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -41,8 +41,19 @@ namespace Zentwik.Core.Services
     ///   - 写目标进程的默认 CpuSet（SetProcessDefaultCpuSets）
     /// 不涉及任何 SMU / 电源 / VBIOS 逻辑。
     /// </summary>
-    public static class CpuSetBinder
+    public class CpuSetBinder : ICpuSetBinder
     {
+        private readonly ILogService _log;
+        private readonly ISmuReader _smu;
+
+        public CpuSetBinder(ILogService log, ISmuReader smu)
+        {
+            ArgumentNullException.ThrowIfNull(log);
+            _log = log;
+            ArgumentNullException.ThrowIfNull(smu);
+            _smu = smu;
+        }
+
         // ---------------- P/Invoke ----------------
 
         /// <summary>
@@ -129,23 +140,23 @@ namespace Zentwik.Core.Services
         // ---------------- 拓扑缓存 ----------------
 
         /// <summary>逻辑处理器序号 → CpuSetId（按 CCD 分组）。</summary>
-        private static List<uint>[]? _ccdCpuSetIds;
+        private List<uint>[]? _ccdCpuSetIds;
 
         /// <summary>按逻辑处理器序号（0 起）排列的 CpuSetId，供自定义掩码直接索引。</summary>
-        private static uint[]? _lpToCpuSetId;
+        private uint[]? _lpToCpuSetId;
 
-        private static int _ccdCount;
+        private int _ccdCount;
 
-        private static readonly object _topologyLock = new();
+        private readonly object _topologyLock = new();
 
         /// <summary>最近一次拓扑读取失败的原因（成功时为 null），供 UI 警告横幅展示。</summary>
-        public static string? LastTopologyError { get; private set; }
+        public string? LastTopologyError { get; private set; }
 
         /// <summary>
         /// 拓扑是否可用。false 表示无法枚举 CPU Sets，此时所有绑定都会失败，
         /// UI 必须禁用绑定下拉框并显示红色警告，避免用户误以为绑定成功。
         /// </summary>
-        public static bool IsTopologyAvailable
+        public bool IsTopologyAvailable
         {
             get
             {
@@ -155,7 +166,7 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>清空拓扑缓存，下次访问时重新读取（供 UI「重试」或排障用）。</summary>
-        public static void ResetTopology()
+        public void ResetTopology()
         {
             lock (_topologyLock)
             {
@@ -164,7 +175,7 @@ namespace Zentwik.Core.Services
             }
         }
 
-        private static void ClearCache()
+        private void ClearCache()
         {
             _ccdCpuSetIds = null;
             _lpToCpuSetId = null;
@@ -178,7 +189,7 @@ namespace Zentwik.Core.Services
         /// 把所有核都归到 CCD0（标题出现「CCD0 · Core 0 - 15」这种错位）。
         /// 所以这里退化到「按物理核 / 8」推算——Zen 系列每 CCD 8 核。
         /// </summary>
-        public static int CcdCount
+        public int CcdCount
         {
             get
             {
@@ -205,7 +216,7 @@ namespace Zentwik.Core.Services
         /// Environment.ProcessorCount 始终可靠。
         /// 勾选界面只需要核数，不需要 CpuSetId，所以这里优先用运行时值。
         /// </summary>
-        public static int LogicalProcessorCount
+        public int LogicalProcessorCount
         {
             get
             {
@@ -251,7 +262,7 @@ namespace Zentwik.Core.Services
         /// </summary>
         /// <param name="processId">目标进程 ID。</param>
         /// <param name="mask">逻辑核掩码，位 i = 1 表示包含逻辑处理器 i。</param>
-        public static CpuSetBindResult BindToMask(int processId, ulong mask)
+        public CpuSetBindResult BindToMask(int processId, ulong mask)
         {
             EnsureTopology();
 
@@ -284,7 +295,7 @@ namespace Zentwik.Core.Services
         /// </summary>
         /// <param name="processId">目标进程 ID。</param>
         /// <param name="ccdIndex">0 = CCD0，1 = CCD1。</param>
-        public static CpuSetBindResult BindToCcd(int processId, int ccdIndex)
+        public CpuSetBindResult BindToCcd(int processId, int ccdIndex)
         {
             EnsureTopology();
 
@@ -304,7 +315,7 @@ namespace Zentwik.Core.Services
         /// <summary>
         /// 实际下发 CPU Set 的公共实现（CCD 绑定与掩码绑定共用）。
         /// </summary>
-        private static CpuSetBindResult ApplyCpuSets(int processId, uint[] ids, int ccdIndex)
+        private CpuSetBindResult ApplyCpuSets(int processId, uint[] ids, int ccdIndex)
         {
             // 【最小必要权限】SetProcessDefaultCpuSets 只要求 PROCESS_SET_LIMITED_INFORMATION
             // （Win10 1709+ 的「有限」写权限），这里就只要这一位。
@@ -353,7 +364,7 @@ namespace Zentwik.Core.Services
         /// 用任务管理器 / 其他工具设的亲和性 —— 本程序从不使用
         /// SetProcessAffinityMask，所以「清默认 CPU Set」恰好只会影响我们。
         /// </summary>
-        public static bool ClearDefaultCpuSets(int processId, out string? error)
+        public bool ClearDefaultCpuSets(int processId, out string? error)
         {
             error = null;
 
@@ -396,7 +407,7 @@ namespace Zentwik.Core.Services
         /// <summary>
         /// 判断 CCD 是否可用（用于 UI 提示与规则校验）。
         /// </summary>
-        public static bool IsCcdAvailable(int ccdIndex)
+        public bool IsCcdAvailable(int ccdIndex)
         {
             EnsureTopology();
             return ccdIndex >= 0 && ccdIndex < _ccdCount;
@@ -412,7 +423,7 @@ namespace Zentwik.Core.Services
         /// 再按 CCD 数量等分。对 9955HX（16 核 / 32 线程 / 2 CCD）即为
         /// 逻辑核 0-15 → CCD0，16-31 → CCD1，与实际 SMU 拓扑一致。
         /// </summary>
-        private static void EnsureTopology()
+        private void EnsureTopology()
         {
             lock (_topologyLock)
             {
@@ -433,7 +444,7 @@ namespace Zentwik.Core.Services
                         // WARN 而不是 ERROR：这是「这台机器/这个权限下拿不到拓扑」，
                         // 属于环境能力缺失，程序本身没有出错，绑核功能按设计降级为不可用。
                         // 记 ERROR 会让用户以为软件坏了，去翻一堆其实正常的堆栈。
-                        LogService.Warn($"CPU Sets 拓扑不可用：{LastTopologyError}");
+                        _log.Warn($"CPU Sets 拓扑不可用：{LastTopologyError}");
                         return;
                     }
 
@@ -444,13 +455,13 @@ namespace Zentwik.Core.Services
                 {
                     LastTopologyError = $"CPU Sets 拓扑解析异常：{ex.Message}";
                     ClearCache();
-                    LogService.Warn(LastTopologyError);
+                    _log.Warn(LastTopologyError);
                 }
             }
         }
 
         /// <summary>把已排序前未分组的处理器列表切分成 CCD，并落成扁平索引表。</summary>
-        private static void GroupProcessors(
+        private void GroupProcessors(
             List<(uint Id, byte LpIndex, ushort Group, byte LlcIndex)> processors, int ccds)
         {
             // 按 (Group, LogicalProcessorIndex) 排序，保证顺序稳定
@@ -475,12 +486,12 @@ namespace Zentwik.Core.Services
                 ? "L3 缓存索引（真实 CCD 边界）"
                 : $"逻辑序号均分（每组 {perCcd} 个）";
 
-            LogService.Info(
+            _log.Info(
                 $"CPU Sets 拓扑：{processors.Count} 个逻辑处理器，划分为 {ccds} 个 CCD，分组依据 = {groupBasis}");
         }
 
         /// <summary>回退分组：第 i 个处理器落入第 i / ceil(n / ccds) 组。</summary>
-        private static List<uint>[] SplitEvenly(
+        private List<uint>[] SplitEvenly(
             List<(uint Id, byte LpIndex, ushort Group, byte LlcIndex)> processors, int ccds, int perCcd)
         {
             List<uint>[] groups = new List<uint>[ccds];
@@ -499,7 +510,7 @@ namespace Zentwik.Core.Services
         /// 仅在「分组数恰好等于推断出的 CCD 数」时才采用，否则返回 null 由调用方回退到均分，
         /// 避免某些平台把缓存索引报成全 0 或每核唯一，反而分出错误的组。
         /// </summary>
-        private static List<uint>[]? GroupByLastLevelCache(
+        private List<uint>[]? GroupByLastLevelCache(
             List<(uint Id, byte LpIndex, ushort Group, byte LlcIndex)> processors, int ccds)
         {
             if (ccds <= 1)
@@ -547,7 +558,7 @@ namespace Zentwik.Core.Services
         /// 现在优先用 SMU 读到的 coresPerCcx（与写入掩码同源），
         /// 拿不到时才退回按 8 核推断。
         /// </summary>
-        private static int DetectCcdCount(int logicalProcessors)
+        private int DetectCcdCount(int logicalProcessors)
         {
             // 逻辑处理器数为偶数，物理核 ≈ 逻辑 / 2
             int physical = logicalProcessors / 2 > 0 ? logicalProcessors / 2 : logicalProcessors;
@@ -559,7 +570,7 @@ namespace Zentwik.Core.Services
             // 用 Peek 而不是 Shared：Shared 会「触发创建」，而本方法在应用启动、
             // 调度页首次加载时就会跑，那时 PawnIO 往往还没就绪。逼着此刻建实例
             // 会拿到一个 SMU 不应答的 Cpu 并占住单例，之后所有 SMU 读取都会失败。
-            int perCcdFromSmu = (int)SmuReader.PeekCoresPerCcdRaw();
+            int perCcdFromSmu = (int)_smu.PeekCoresPerCcdRaw();
             if (perCcdFromSmu > 0 && physical >= perCcdFromSmu)
             {
                 int n = physical / perCcdFromSmu;
@@ -574,7 +585,7 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>调用 GetSystemCpuSetInformation 枚举全部 CPU Set 条目。</summary>
-        private static List<(uint Id, byte LpIndex, ushort Group, byte LlcIndex)> QueryProcessorCpuSets()
+        private List<(uint Id, byte LpIndex, ushort Group, byte LlcIndex)> QueryProcessorCpuSets()
         {
             // 先传 IntPtr.Zero 探测所需缓冲区大小：按官方用法此时返回 FALSE 且
             // lastError = ERROR_INSUFFICIENT_BUFFER(122)，ReturnedLength 回填真实字节数。
@@ -596,7 +607,7 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>按探测到的大小分配缓冲并读取，缓冲区不够时按回填值扩容重试。</summary>
-        private static bool TryReadCpuSets(ref IntPtr buffer, uint required, out uint returned)
+        private bool TryReadCpuSets(ref IntPtr buffer, uint required, out uint returned)
         {
             const int MaxBufferSize = 4 * 1024 * 1024;
             int bufferSize = required > 0 ? (int)required + 1024 : 8192;
@@ -618,7 +629,7 @@ namespace Zentwik.Core.Services
                 if (err != 122 && err != 111)
                 {
                     LastTopologyError = $"GetSystemCpuSetInformation 失败（错误 {err}）";
-                    LogService.Error(LastTopologyError);
+                    _log.Error(LastTopologyError);
                     return false;
                 }
 
@@ -629,12 +640,12 @@ namespace Zentwik.Core.Services
             LastTopologyError = $"GetSystemCpuSetInformation 在 {bufferSize} 字节下仍失败";
             // 反复放大缓冲区仍拿不到 → 系统状态异常（少见），按 WARN 记录：
             // 结论仍然是「功能不可用」，不是「本次操作失败」。
-            LogService.Warn(LastTopologyError);
+            _log.Warn(LastTopologyError);
             return false;
         }
 
         /// <summary>逐条解析回填的记录，推进步长一律用 Windows 回填的 Size（真实长度）。</summary>
-        private static List<(uint Id, byte LpIndex, ushort Group, byte LlcIndex)> ParseEntries(
+        private List<(uint Id, byte LpIndex, ushort Group, byte LlcIndex)> ParseEntries(
             IntPtr buffer, int total)
         {
             List<(uint Id, byte LpIndex, ushort Group, byte LlcIndex)> result = new();

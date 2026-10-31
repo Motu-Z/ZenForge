@@ -18,8 +18,16 @@ namespace Zentwik.Core.Services
     /// 那要引 System.Windows.Forms，为一个字段把整个 WinForms 拖进一个纯 WPF 工程
     /// 不值得 —— 它背后也只是 GetSystemPowerStatus，这里直接调同一个 API。
     /// </summary>
-    public static class PowerStatusWatcher
+    public class PowerStatusWatcher
     {
+        private readonly ILogService _log;
+
+        public PowerStatusWatcher(ILogService log)
+        {
+            ArgumentNullException.ThrowIfNull(log);
+            _log = log;
+        }
+
         [StructLayout(LayoutKind.Sequential)]
         private struct SYSTEM_POWER_STATUS
         {
@@ -54,14 +62,14 @@ namespace Zentwik.Core.Services
         private const int PollIntervalMs = 30_000;
 
         /// <summary>供电状态变化。</summary>
-        public static event Action? Changed;
+        public event Action? Changed;
 
-        private static Timer? _poll;
-        private static int _attached;
-        private static int _lastKnownAc = -1;
+        private Timer? _poll;
+        private int _attached;
+        private int _lastKnownAc = -1;
 
         /// <summary>当前是否电池供电。台式机（无电池）恒为 false。</summary>
-        public static bool IsOnBattery
+        public bool IsOnBattery
         {
             get
             {
@@ -78,7 +86,7 @@ namespace Zentwik.Core.Services
         /// <summary>
         /// 开始监听。幂等：重复调用只挂一次。
         /// </summary>
-        public static void Start()
+        public void Start()
         {
             if (Interlocked.Exchange(ref _attached, 1) != 0)
                 return;
@@ -92,7 +100,7 @@ namespace Zentwik.Core.Services
             catch (Exception ex)
             {
                 // SystemEvents 需要一个消息泵。挂不上不致命 —— 下面还有轮询兜底。
-                LogService.Warn($"电源事件订阅失败，改用轮询检测：{ex.Message}");
+                _log.Warn($"电源事件订阅失败，改用轮询检测：{ex.Message}");
             }
 
             // dueTime 给足一个完整间隔：启动瞬间刚读过一次状态，不需要立刻再读。
@@ -105,7 +113,7 @@ namespace Zentwik.Core.Services
         /// 必须真的把 Timer 释放掉：场景总闸关掉后如果它还每 30 秒醒一次，
         /// 「关掉就等于零占用」这条约定就是假的。
         /// </summary>
-        public static void Stop()
+        public void Stop()
         {
             if (Interlocked.Exchange(ref _attached, 0) != 0)
                 return;
@@ -123,7 +131,7 @@ namespace Zentwik.Core.Services
             timer?.Dispose();
         }
 
-        private static void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
+        private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
         {
             // 只关心供电状态变化。Suspend / Resume 是睡眠与恢复，
             // 那时供电状态未必变（合盖再打开，还是插着电），
@@ -134,7 +142,7 @@ namespace Zentwik.Core.Services
             RaiseIfChanged();
         }
 
-        private static void OnPollTick(object? state)
+        private void OnPollTick(object? state)
         {
             try
             {
@@ -142,7 +150,7 @@ namespace Zentwik.Core.Services
             }
             catch (Exception ex)
             {
-                LogService.Warn($"电源状态轮询异常：{ex.Message}");
+                _log.Warn($"电源状态轮询异常：{ex.Message}");
             }
         }
 
@@ -152,20 +160,20 @@ namespace Zentwik.Core.Services
         /// 轮询每 30 秒一次，无条件广播会让订阅方跟着每 30 秒重评一遍场景；
         /// 而重评要取一次全量进程名单 —— 那是几百次 OpenProcess，比这次轮询贵得多。
         /// </summary>
-        private static void RaiseIfChanged()
+        private void RaiseIfChanged()
         {
             int current = IsOnBattery ? 0 : 1;
             if (Interlocked.Exchange(ref _lastKnownAc, current) == current)
                 return;
 
-            LogService.Info(current == 0 ? "供电状态：电池" : "供电状态：交流");
+            _log.Info(current == 0 ? "供电状态：电池" : "供电状态：交流");
 
             Action? handler = Changed;
             if (handler == null)
                 return;
 
             try { handler(); }
-            catch (Exception ex) { LogService.Warn($"电源变化订阅者处理失败：{ex.Message}"); }
+            catch (Exception ex) { _log.Warn($"电源变化订阅者处理失败：{ex.Message}"); }
         }
     }
 }

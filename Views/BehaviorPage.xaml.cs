@@ -50,12 +50,12 @@ namespace Zentwik.Views
 
         private void LoadToggles() => Suppressed(() =>
         {
-            UiSettings s = UiSettingsStore.Settings;
+            UiSettings s = Svc.Ui.Settings;
 
             AutoStartToggle.IsChecked = s.AutoStart;
             ApplyTuningToggle.IsChecked = s.ApplyTuningOnStartup;
             BackendServiceToggle.IsChecked = s.BackendService;
-            ProcessWatchToggle.IsChecked = s.WatchProcessBinding && ProcessWatcher.IsRunning;
+            ProcessWatchToggle.IsChecked = s.WatchProcessBinding && Svc.Watcher.IsRunning;
             LightModeToggle.IsChecked = s.LightMode;
             ShowTrayToggle.IsChecked = s.ShowTrayIcon;
             ErrorNotifyToggle.IsChecked = s.NotifyOnError;
@@ -76,7 +76,7 @@ namespace Zentwik.Views
 
             try
             {
-                bool taskExists = await Task.Run(AutoStartService.IsEnabled);
+                bool taskExists = await Task.Run(Svc.AutoStart.IsEnabled);
 
                 // 校准期间用户可能已经手动拨过开关，此时不要再覆盖他的操作
                 if (_suppress)
@@ -84,19 +84,19 @@ namespace Zentwik.Views
 
                 Suppressed(() => AutoStartToggle.IsChecked = taskExists);
 
-                if (taskExists == UiSettingsStore.Settings.AutoStart)
+                if (taskExists == Svc.Ui.Settings.AutoStart)
                     return;
 
-                UiSettingsStore.Settings.AutoStart = taskExists;
-                UiSettingsStore.Save();
+                Svc.Ui.Settings.AutoStart = taskExists;
+                Svc.Ui.Save();
 
-                LogService.Info(taskExists
+                Svc.Log.Info(taskExists
                     ? "已校准开机自启状态：计划任务存在，开关显示为开启"
                     : "已校准开机自启状态：计划任务不存在，开关已复位为关闭");
             }
             catch (Exception ex)
             {
-                LogService.Warn($"校准开机自启状态失败：{ex.Message}");
+                Svc.Log.Warn($"校准开机自启状态失败：{ex.Message}");
             }
         }
 
@@ -118,13 +118,13 @@ namespace Zentwik.Views
             AutoStartToggle.IsEnabled = false;
             try
             {
-                bool ok = await Task.Run(() => enable ? AutoStartService.Enable() : AutoStartService.Disable());
+                bool ok = await Task.Run(() => enable ? Svc.AutoStart.Enable() : Svc.AutoStart.Disable());
 
                 if (ok)
                 {
-                    UiSettingsStore.Settings.AutoStart = enable;
-                    UiSettingsStore.Save();
-                    LogService.Info(enable ? "开机静默自启：已注册计划任务" : "开机静默自启：已移除计划任务");
+                    Svc.Ui.Settings.AutoStart = enable;
+                    Svc.Ui.Save();
+                    Svc.Log.Info(enable ? "开机静默自启：已注册计划任务" : "开机静默自启：已移除计划任务");
                 }
                 else
                 {
@@ -136,7 +136,7 @@ namespace Zentwik.Views
             }
             catch (Exception ex)
             {
-                LogService.Error($"切换开机自启失败：{ex.Message}");
+                Svc.Log.Error($"切换开机自启失败：{ex.Message}");
                 SetToggle(AutoStartToggle, !enable);
                 ToastService.Error($"开机自启切换失败：{ex.Message}");
             }
@@ -153,10 +153,10 @@ namespace Zentwik.Views
                 return;
 
             bool enabled = ApplyTuningToggle.IsChecked == true;
-            UiSettingsStore.Settings.ApplyTuningOnStartup = enabled;
-            UiSettingsStore.Save();
+            Svc.Ui.Settings.ApplyTuningOnStartup = enabled;
+            Svc.Ui.Save();
 
-            LogService.Info(enabled
+            Svc.Log.Info(enabled
                 ? "自动应用调校：已开启（启动时将回写 tuning.json）"
                 : "自动应用调校：已关闭（启动时不再回写 SMU）");
         }
@@ -177,17 +177,17 @@ namespace Zentwik.Views
                 return;
 
             bool enabled = BackendServiceToggle.IsChecked == true;
-            UiSettingsStore.Settings.BackendService = enabled;
+            Svc.Ui.Settings.BackendService = enabled;
 
             if (enabled)
                 ReopenBackend();
             else
                 CloseBackend();
 
-            UiSettingsStore.Save();
+            Svc.Ui.Save();
             RefreshSubOptions();
 
-            LogService.Info(enabled
+            Svc.Log.Info(enabled
                 ? "后台服务：已开启（点 × 不再退出进程）"
                 : "后台服务：已关闭（点 × 将直接退出进程，调度与托盘一并停止）");
         }
@@ -208,14 +208,14 @@ namespace Zentwik.Views
         /// <summary>重新打开总闸：把用户上次的意愿（ui.json 里的值）恢复成实际状态。</summary>
         private void ReopenBackend()
         {
-            UiSettings ui = UiSettingsStore.Settings;
+            UiSettings ui = Svc.Ui.Settings;
 
             if (ui.WatchProcessBinding)
                 StartScheduling();
 
             Suppressed(() =>
             {
-                ProcessWatchToggle.IsChecked = ProcessWatcher.IsRunning;
+                ProcessWatchToggle.IsChecked = Svc.Watcher.IsRunning;
                 ShowTrayToggle.IsChecked = ui.ShowTrayIcon;
             });
 
@@ -228,11 +228,11 @@ namespace Zentwik.Views
         {
             try
             {
-                ProcessWatcher.Start();
+                Svc.Watcher.Start();
             }
             catch (Exception ex)
             {
-                LogService.Error($"启动后台常驻调度失败：{ex.Message}");
+                Svc.Log.Error($"启动后台常驻调度失败：{ex.Message}");
             }
         }
 
@@ -240,12 +240,12 @@ namespace Zentwik.Views
         {
             try
             {
-                ProcessWatcher.Stop();
-                LogService.Info($"后台常驻调度已停止（{reason}）");
+                Svc.Watcher.Stop();
+                Svc.Log.Info($"后台常驻调度已停止（{reason}）");
             }
             catch (Exception ex)
             {
-                LogService.Error($"停止后台常驻调度失败：{ex.Message}");
+                Svc.Log.Error($"停止后台常驻调度失败：{ex.Message}");
             }
         }
 
@@ -256,11 +256,11 @@ namespace Zentwik.Views
                 return;
 
             bool enabled = LightModeToggle.IsChecked == true;
-            UiSettingsStore.Settings.LightMode = enabled;
-            UiSettingsStore.Save();
+            Svc.Ui.Settings.LightMode = enabled;
+            Svc.Ui.Save();
 
-            LogService.Info(enabled
-                ? $"最小化后释放界面：已开启（最小化 {UiSettingsStore.Settings.LightModeDelaySeconds} 秒后销毁界面）"
+            Svc.Log.Info(enabled
+                ? $"最小化后释放界面：已开启（最小化 {Svc.Ui.Settings.LightModeDelaySeconds} 秒后销毁界面）"
                 : "最小化后释放界面：已关闭（最小化只挂起刷新，界面保留）");
         }
 
@@ -280,32 +280,32 @@ namespace Zentwik.Views
             try
             {
                 if (enabled)
-                    ProcessWatcher.Start();
+                    Svc.Watcher.Start();
                 else
-                    ProcessWatcher.Stop();
+                    Svc.Watcher.Stop();
 
-                bool actual = ProcessWatcher.IsRunning;
+                bool actual = Svc.Watcher.IsRunning;
                 SetToggle(ProcessWatchToggle, actual);
 
-                UiSettingsStore.Settings.WatchProcessBinding = actual;
-                UiSettingsStore.Save();
+                Svc.Ui.Settings.WatchProcessBinding = actual;
+                Svc.Ui.Save();
 
                 TrayIconService.RefreshMenuState();   // 托盘菜单里也有一个暂停 / 恢复
 
                 if (actual)
                 {
-                    LogService.Info(ProcessWatcher.UsingEvents
+                    Svc.Log.Info(Svc.Watcher.UsingEvents
                         ? "后台常驻调度：已开启（WMI 事件驱动，空闲零轮询）"
                         : "后台常驻调度：已开启");
                 }
                 else
                 {
-                    LogService.Info("后台常驻调度：已关闭");
+                    Svc.Log.Info("后台常驻调度：已关闭");
                 }
             }
             catch (Exception ex)
             {
-                LogService.Error($"切换后台常驻调度失败：{ex.Message}");
+                Svc.Log.Error($"切换后台常驻调度失败：{ex.Message}");
                 SetToggle(ProcessWatchToggle, !enabled);
             }
         }
@@ -321,12 +321,12 @@ namespace Zentwik.Views
 
             bool visible = ShowTrayToggle.IsChecked == true;
 
-            UiSettingsStore.Settings.ShowTrayIcon = visible;
-            UiSettingsStore.Save();
+            Svc.Ui.Settings.ShowTrayIcon = visible;
+            Svc.Ui.Save();
 
             TrayIconService.SetVisible(visible);
 
-            LogService.Info(visible
+            Svc.Log.Info(visible
                 ? "托盘图标：已显示"
                 : "托盘图标：已隐藏（后台服务仍在运行；双击 Zentwik.exe 唤出界面）");
         }
@@ -346,10 +346,10 @@ namespace Zentwik.Views
                 return;
 
             bool enabled = ErrorNotifyToggle.IsChecked == true;
-            UiSettingsStore.Settings.NotifyOnError = enabled;
-            UiSettingsStore.Save();
+            Svc.Ui.Settings.NotifyOnError = enabled;
+            Svc.Ui.Save();
 
-            LogService.Info(enabled ? "错误通知：已开启" : "错误通知：已关闭（错误仍会写入日志）");
+            Svc.Log.Info(enabled ? "错误通知：已开启" : "错误通知：已关闭（错误仍会写入日志）");
         }
 
         // ==================== 共用 ====================

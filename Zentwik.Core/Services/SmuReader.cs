@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.ServiceProcess;
@@ -19,8 +19,10 @@ namespace Zentwik.Core.Services
     ///   4. 仅暴露经过验证的高层 Set（SetPsmMarginSingleCore / SetFMax），
     ///      不提供任何写寄存器 / 原始 mailbox 的底层接口。
     /// </summary>
-    public sealed class SmuReader : IDisposable
+    public sealed class SmuReader : ISmuReader
     {
+        private readonly ILogService _log;
+
         private Cpu? _cpu;
 
         // 由 ReadSnapshot 填充，供写入时编码核心掩码（避免重复探测拓扑）
@@ -36,11 +38,10 @@ namespace Zentwik.Core.Services
         ///   并发进入会互相踩踏总线，导致回读校验读到写了一半的状态。
         ///
         /// 【为什么是 static】
-        ///   进程内可能存在不止一个 SmuReader：Shared 单例，以及 WaitForPawnIO 在
-        ///   开机静默自启时临时创建、用完即弃的实例（它刻意绕开 Shared 的失败缓存）。
-        ///   锁若是实例字段，两者各持一把，等于没有互斥——启动后 60 秒内打开调校页，
-        ///   页面探测可能与后台自启写入同时碰同一个 SMU 邮箱，回读就会莫名不一致。
-        ///   改成静态后，无论多少个实例，进程内只有一把锁。
+        ///   SMU 邮箱是进程级硬件资源，不是实例级资源。即便容器保证了单实例，
+        ///   这把锁也不该随对象走：将来若出现第二个访问通道（诊断工具、独立进程内嵌），
+        ///   实例锁会让两者各持一把，等于没有互斥——页面探测与后台写入同时碰同一个
+        ///   邮箱时，回读就会莫名不一致。
         /// </summary>
         private static readonly object _syncRoot = new();
 
@@ -63,145 +64,118 @@ namespace Zentwik.Core.Services
         /// </summary>
         public uint CoresPerCcdRaw => _coresPerCcd;
 
-        // ---------- 单例：进程内只创建一个 Cpu，且永不销毁 ----------
+        // ---------- 进程内只创建一个 Cpu，且永不销毁 ----------
         //
         // 这是硬约束，原因在库的实现里：
         //   Cpu.Dispose() -> Opcode.Close() + Mutexes.Close() + _pawnRyzenSmu.Dispose()
-        // 而 Opcode 是 internal static class，codeBuffer / Cpuid / Rdtsc 都是**静态**的，
+        // 而 Opcode 是 internal static class，codeBuffer / Cpuid / Rdtsc 都是静态的，
         // 即进程级共享。所以只要销毁任何一个 Cpu 实例：
         //   · Opcode.Close() 会释放那块静态代码缓存；
-        //   · 之后**所有** Cpu（包括没被销毁的那个）都不再能执行 CPUID / SMU 命令。
+        //   · 之后所有 Cpu（包括没被销毁的那个）都不再能执行 CPUID / SMU 命令。
         // 表现出来就是「SMU 可用，但读 CO 全部 null、读 FMax 全部 0」，
         // 因为 CPUID 缓存下来的 CPU 名 / 代号 / SMU 版本仍然正常显示。
         //
-        // 曾经踩过的两个坑（0.7.1 / 0.7.2 的实测报告）都属于这一类：
-        //   · WaitForPawnIO 另建一个 Cpu，自动调校结束后 Dispose 掉它 —— 顺手把共享实例打哑；
-        //   · WaitForPawnIO 改成复用单例后，调用方的 finally reader.Dispose() 直接把单例打死。
-        //
-        // 因此现在的规则是：
-        //   1. 进程内最多创建一个 Cpu；
-        //   2. 任何路径都不 Dispose（Dispose 本身已改为 no-op）；
+        // 因此本类的规则是：
+        //   1. 由依赖注入容器以 Singleton 注册，保证全进程只有一个实例；
+        //   2. 任何路径都不 Dispose（Dispose 已改为 no-op）；
         //   3. 驱动没就绪时只重试「测试消息」，不重建实例。
-        private static SmuReader? _shared;
-        private static readonly object _sharedLock = new();
 
         /// <summary>
         /// 本进程累计创建过多少个 Cpu 实例。正常必须是 1。
-        /// 大于 1 虽不再致命（已禁止 Dispose），但仍说明有重复创建路径，自检会报出来。
+        /// 大于 1 说明存在重复创建路径，自检会报出来。
         /// </summary>
         private static int _createdCount;
+
         internal static int CreatedCount => Volatile.Read(ref _createdCount);
 
         /// <summary>上一次探测失败的时间戳（Environment.TickCount64）。</summary>
-        private static long _lastFailureTick = long.MinValue / 2;
+        private long _lastFailureTick = long.MinValue / 2;
 
         /// <summary>失败后的重试冷却（毫秒）。避免每次访问都发一遍 SMU 测试消息。</summary>
         private const int RetryCooldownMs = 2000;
 
         /// <summary>
-        /// 进程内共享的 SMU 实例。
-        /// 首次访问创建；此后无论可用与否都返回同一个对象，只重新探测可用性。
+        /// 只读取已探测到的每 CCD 核心数，不触发探测。
+        /// 供拓扑推断这类「拿不到也能自己兜底」的场景使用。
         /// </summary>
-        public static SmuReader Shared
+        public uint PeekCoresPerCcdRaw()
         {
-            get
+            lock (_syncRoot)
             {
-                lock (_sharedLock)
-                {
-                    if (_shared == null)
-                    {
-                        _shared = TryCreate(out _);
-                        return _shared;
-                    }
-
-                    if (_shared.IsAvailable)
-                        return _shared;
-
-                    // 已创建但当前不可用：按冷却重试探测，绝不重建
-                    long now = Environment.TickCount64;
-                    if (now - Interlocked.Read(ref _lastFailureTick) < RetryCooldownMs)
-                        return _shared;
-
-                    Interlocked.Exchange(ref _lastFailureTick, now);
-                    _shared.RetryAvailabilityProbe();
-                    return _shared;
-                }
+                return IsAvailable ? _coresPerCcd : 0u;
             }
         }
 
         /// <summary>
-        /// 只读取「是否已有可用实例」，不会触发创建。
-        /// 供拓扑推断这类「拿不到也能自己兜底」的场景使用 ——
-        /// 早期调用 Shared 会逼着在 PawnIO 还没就绪时建实例。
+        /// 创建实例并立即探测。PawnIO 驱动缺失或未提权时不抛异常，
+        /// 实例以 <see cref="IsAvailable"/> = false 返回，原因在 <see cref="LastError"/>。
         /// </summary>
-        public static uint PeekCoresPerCcdRaw()
+        public SmuReader(ILogService log)
         {
-            lock (_sharedLock)
-            {
-                return _shared is { IsAvailable: true } r ? r._coresPerCcd : 0u;
-            }
+            ArgumentNullException.ThrowIfNull(log);
+
+            _log = log;
+            Initialize();
         }
 
-        /// <summary>
-        /// 重新探测可用性。若之前连 Cpu 都没建起来（驱动未就绪），这次补建；
-        /// 若已经有 Cpu 对象，只补发一次测试消息。
-        /// </summary>
-        private void RetryAvailabilityProbe()
+        private void Initialize()
         {
-            if (_cpu == null)
+            try
             {
+                // 1.93.1 起 Cpu 没有无参构造，必须显式给 CoreOptions。
+                // 传 Current 而不是 new CoreOptions()：库内部把这份实例当作
+                // 「进程级全局配置」，自己 new 一个会拿到与库内静态状态脱钩的副本。
+                _cpu = new Cpu(CoreOptions.Current);
+                Interlocked.Increment(ref _createdCount);
+
+                // 「构造成功」不等于「SMU 能应答」：Cpu 的构造函数在 SendTestMessage()
+                // 失败时只记 LastError、不抛异常，甚至把 Status 设成 OK。
+                // 旧版只看有无异常，会把一个 SMU 已不应答的实例当成可用并缓存起来。
+                bool responding;
                 try
                 {
-                    // 1.93.1 起 Cpu 没有无参构造，必须显式给 CoreOptions。
-                    // 传 Current 而不是 new CoreOptions()：库内部把这份实例当作
-                    // 「进程级全局配置」，自己 new 一个会拿到一份与库内静态状态
-                    // 脱钩的副本（模块开关、日志回调都对不上）。
-                    _cpu = new Cpu(CoreOptions.Current);
-                    Interlocked.Increment(ref _createdCount);
+                    responding = _cpu.SendTestMessage();
                 }
                 catch (Exception ex)
                 {
+                    responding = false;
                     LastError = ex.Message;
-                    return;
                 }
-            }
 
-            try
-            {
-                if (_cpu.SendTestMessage())
+                if (!responding)
                 {
-                    IsAvailable = true;
-                    LastError = null;
+                    // 不能 Dispose：Cpu.Dispose 会 Opcode.Close()，那是进程级静态资源。
+                    // 保留实例，稍后只重发一次测试消息（见 RetryAvailabilityProbe）。
+                    IsAvailable = false;
+                    LastError ??= "SMU 未应答测试消息（驱动可能尚未就绪）";
+                    _log.Warn($"ZenStates-Core 已构造但 SMU 无应答：{LastError}");
                     return;
                 }
 
-                LastError = "SMU 未应答测试消息";
+                IsAvailable = true;
+                LastError = null;
+                _log.Info($"ZenStates-Core 初始化成功：{_cpu.info.cpuName} ({_cpu.info.codeName})");
             }
             catch (Exception ex)
             {
+                IsAvailable = false;
                 LastError = ex.Message;
+                _log.Error($"ZenStates-Core 初始化失败: {ex}");
             }
-        }
-
-        private SmuReader()
-        {
         }
 
         /// <summary>
         /// 等待 PawnIO 驱动就绪（自启 / 静默场景专用）。
         ///
-        /// 为什么不用 <see cref="Shared"/>：Shared 是失败也缓存的懒加载单例——
-        /// 若启动时驱动还没加载好，单例会永久缓存一个不可用的实例，
-        /// 导致「开机静默自启」永远写不进 SMU。这里每轮都重建 reader（绕开缓存），
-        /// 一旦探测到 IsAvailable 即返回该可用实例；超过 maxSeconds 仍不可用则返回 null。
+        /// 只对当前实例反复重发测试消息，不创建新实例 ——
+        /// 进程内出现第二个 Cpu 会破坏 Opcode 的进程级静态状态。
         /// </summary>
         /// <param name="maxSeconds">最长等待秒数（默认 60）。</param>
         /// <param name="token">取消令牌：关机或用户放弃时可中断等待，不拖住后台线程。</param>
-        public static SmuReader? WaitForPawnIO(int maxSeconds = 60, CancellationToken token = default)
+        public bool WaitForAvailability(int maxSeconds = 60, CancellationToken token = default)
         {
-            // 已经有可用实例就直接用（Shared 保证进程内只有一个 Cpu）。
-            if (Shared is { IsAvailable: true } existing)
-                return existing;
+            if (IsAvailable)
+                return true;
 
             // best-effort 先尝试唤醒候选驱动服务，给加载器一点时间
             TryWakeDriverServices();
@@ -209,23 +183,25 @@ namespace Zentwik.Core.Services
             var sw = Stopwatch.StartNew();
             while (sw.Elapsed.TotalSeconds < maxSeconds)
             {
-                if (token.IsCancellationRequested) return null;
+                if (token.IsCancellationRequested)
+                    return false;
 
-                // 清掉冷却时间戳，让 Shared 立刻重发一次 SMU 测试消息。
-                // 注意：这里只是「重新探测」，不会重建 Cpu、也不会 Dispose 任何东西。
+                // 清掉冷却时间戳，立刻重发一次测试消息。
+                // 只是重新探测，不重建 Cpu、不 Dispose 任何东西。
                 Interlocked.Exchange(ref _lastFailureTick, long.MinValue / 2);
-                SmuReader reader = Shared;
-                if (reader.IsAvailable)
-                    return reader;
+                RetryAvailabilityProbe();
+
+                if (IsAvailable)
+                    return true;
 
                 // 用可取消的等待代替 Thread.Sleep：驱动常在几十毫秒内就绪，
                 // 固定睡满 1 秒会让首次写入白白延后。250ms 轮询兼顾响应与开销。
                 if (token.WaitHandle.WaitOne(250))
-                    return null;
+                    return false;
             }
 
-            LogService.Error($"PawnIO 未加载（{maxSeconds}s 内未就绪）");
-            return null;
+            _log.Error($"PawnIO 未加载（{maxSeconds}s 内未就绪）");
+            return false;
         }
 
         /// <summary>
@@ -251,62 +227,40 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>
-        /// 尝试创建 SMU 读取器。PawnIO 驱动缺失或未提权时不会抛出，
-        /// 而是返回 IsAvailable=false 的实例（错误信息在 initError 中）。
+        /// 重新探测可用性。若之前连 Cpu 都没建起来（驱动未就绪），这次补建；
+        /// 若已经有 Cpu 对象，只补发一次测试消息。
         /// </summary>
-        public static SmuReader TryCreate(out string? initError)
+        private void RetryAvailabilityProbe()
         {
-            SmuReader reader = new();
-            try
+            if (_cpu == null)
             {
-                reader._cpu = new Cpu(CoreOptions.Current);
-                Interlocked.Increment(ref _createdCount);
-
-                // 「构造成功」不等于「SMU 能应答」。
-                //
-                // Cpu 的构造函数在 SendTestMessage() 失败时只记 LastError、不抛异常，
-                // 甚至把 Status 设成 OK。旧版只看有没有抛异常，于是会把一个
-                // SMU 已不应答的实例当成可用并缓存起来 —— 之后读 CO 全 null、
-                // 读 FMax 全 0，界面却一直显示「SMU 可用」。
-                // 这里补一次真实校验：直接发一次 SMU 测试消息。
-                // 不用 LastError 判断 —— 它也被「拓扑读取失败」这类非致命问题写入，
-                // 拿它一刀切会把本来能用的平台误判掉。
-                bool responding;
                 try
                 {
-                    responding = reader._cpu.SendTestMessage();
+                    _cpu = new Cpu(CoreOptions.Current);
+                    Interlocked.Increment(ref _createdCount);
                 }
                 catch (Exception ex)
                 {
-                    responding = false;
-                    reader.LastError = ex.Message;
+                    LastError = ex.Message;
+                    return;
                 }
+            }
 
-                if (!responding)
+            try
+            {
+                if (_cpu.SendTestMessage())
                 {
-                    // 不能 Dispose：Cpu.Dispose 会 Opcode.Close()，而那是进程级静态资源，
-                    // 一关就把「所有」Cpu 的 CPUID / SMU 能力一起废掉。
-                    // 这里保留实例，稍后只重发一次测试消息（见 RetryAvailabilityProbe）。
-                    reader.IsAvailable = false;
-                    reader.LastError ??= "SMU 未应答测试消息（驱动可能尚未就绪）";
-                    initError = reader.LastError;
-                    LogService.Warn($"ZenStates-Core 已构造但 SMU 无应答：{reader.LastError}");
-                    return reader;
+                    IsAvailable = true;
+                    LastError = null;
+                    return;
                 }
 
-                reader.IsAvailable = true;
-                initError = null;
-                LogService.Info($"ZenStates-Core 初始化成功：{reader._cpu.info.cpuName} ({reader._cpu.info.codeName})");
+                LastError = "SMU 未应答测试消息";
             }
             catch (Exception ex)
             {
-                reader.IsAvailable = false;
-                reader.LastError = ex.Message;
-                initError = ex.Message;
-                LogService.Error($"ZenStates-Core 初始化失败: {ex}");
+                LastError = ex.Message;
             }
-
-            return reader;
         }
 
         /// <summary>执行一次完整的只读探测。</summary>
@@ -345,7 +299,7 @@ namespace Zentwik.Core.Services
 
                 snapshot.SmuVersion = SmuVersionString(cpu);
 
-                LogService.Info(
+                _log.Info(
                     $"CPU: {snapshot.CpuName} | {snapshot.CodeName} | {snapshot.Family} | " +
                     $"SMU {snapshot.SmuVersion} ({snapshot.SmuType}) | " +
                     $"{snapshot.Ccds} CCD / {snapshot.Cores} 核 / {snapshot.ThreadsPerCore} 线程每核");
@@ -377,12 +331,12 @@ namespace Zentwik.Core.Services
                 _coresPerCcd = coresPerCcd;
                 _coreCount = coreCount;
                 snapshot.CoresPerCcd = coresPerCcd;
-                LogService.Info($"Curve Optimizer 读取完成：{okCount}/{coreCount} 个核心返回有效值");
-                LogService.Info($"核心拓扑：每 CCD {coresPerCcd} 核，共 {coreCount} 物理核心");
+                _log.Info($"Curve Optimizer 读取完成：{okCount}/{coreCount} 个核心返回有效值");
+                _log.Info($"核心拓扑：每 CCD {coresPerCcd} 核，共 {coreCount} 物理核心");
 
                 // ---------- 3. FMax 当前限制（MHz） ----------
                 snapshot.FMaxMHz = cpu.GetFMax();
-                LogService.Info($"FMax 当前上限：{snapshot.FMaxMHz} MHz");
+                _log.Info($"FMax 当前上限：{snapshot.FMaxMHz} MHz");
 
                 snapshot.Success = true;
             }
@@ -390,7 +344,7 @@ namespace Zentwik.Core.Services
             {
                 snapshot.Success = false;
                 snapshot.Error = ex.Message;
-                LogService.Error($"SMU 只读探测失败: {ex}");
+                _log.Error($"SMU 只读探测失败: {ex}");
             }
 
             return snapshot;
@@ -446,7 +400,7 @@ namespace Zentwik.Core.Services
             // 写入前先把拓扑与 SMU 型号打出来：CO 被整片拒绝时，最常见的原因就是
             // 核心序号 → (core, ccd, ccx) 的拆分与 SMU 的预期不一致，
             // 而这条信息只有在这里才看得到。
-            LogService.Info(
+            _log.Info(
                 $"CO 写入开始：{count} 核，每 CCD {CoresPerCcd} 核，" +
                 $"SMU 型号 {cpu.smu.SMU_TYPE}，版本 0x{cpu.smu.Version:X}");
             for (int i = 0; i < count; i++)
@@ -463,7 +417,7 @@ namespace Zentwik.Core.Services
                 {
                     result.WriteFailed.Add(i);
                     result.RejectedReasons[i] = $"越界({value})";
-                    LogService.Error($"核心 {i} CO 值 {value} 越界，已拒绝下发");
+                    _log.Error($"核心 {i} CO 值 {value} 越界，已拒绝下发");
                     continue;
                 }
 
@@ -477,17 +431,17 @@ namespace Zentwik.Core.Services
                 }
                 catch (Exception ex)
                 {
-                    LogService.Error($"SetPsmMarginSingleCore 核心 {i} 异常: {ex}");
+                    _log.Error($"SetPsmMarginSingleCore 核心 {i} 异常: {ex}");
                 }
 
-                LogService.Info(
+                _log.Info(
                     $"  核 {i,2} → core={core} ccd={ccd} ccx={ccx} mask=0x{coreMask:X8} " +
                     $"值={value} 接受={accepted}");
 
                 if (!accepted)
                 {
                     result.WriteFailed.Add(i);
-                    LogService.Error($"核心 {i} CO 写入被 SMU 拒绝（值 {value}）");
+                    _log.Error($"核心 {i} CO 写入被 SMU 拒绝（值 {value}）");
                     continue;
                 }
 
@@ -501,14 +455,14 @@ namespace Zentwik.Core.Services
                 }
                 catch (Exception ex)
                 {
-                    LogService.Warn($"GetPsmMarginSingleCore 回读 核心 {i} 异常: {ex.Message}");
+                    _log.Warn($"GetPsmMarginSingleCore 回读 核心 {i} 异常: {ex.Message}");
                 }
 
                 if (readBack != value)
                 {
                     result.VerifyFailed.Add(i);
                     result.VerifiedValue[i] = readBack;
-                    LogService.Error($"核心 {i} CO 回读不一致：写入 {value}，回读 {readBack}");
+                    _log.Error($"核心 {i} CO 回读不一致：写入 {value}，回读 {readBack}");
                 }
                 else
                 {
@@ -536,7 +490,7 @@ namespace Zentwik.Core.Services
             if (mhz < FMaxMin || mhz > FMaxMax)
             {
                 result.Fatal = $"FMax 越界 {mhz}（允许 {FMaxMin}-{FMaxMax}）";
-                LogService.Error(result.Fatal);
+                _log.Error(result.Fatal);
                 return result;
             }
 
@@ -548,12 +502,12 @@ namespace Zentwik.Core.Services
                     // FMax 读取通道不可用（部分移动平台 SMU 不实现该消息），
                     // 那么「写入后回读 0」不能当作写入失败 —— 要能区分这两件事。
                     uint before = _cpu.GetFMax();
-                    LogService.Info($"FMax 写入前基线：{before} MHz");
+                    _log.Info($"FMax 写入前基线：{before} MHz");
 
                     result.SmuAccepted = _cpu.SetFMax(mhz);
                     result.ReadBack = _cpu.GetFMax();
 
-                    LogService.Info(
+                    _log.Info(
                         $"FMax 写入：请求 {mhz}，SMU 接受 {result.SmuAccepted}，" +
                         $"回读 {result.ReadBack}（基线 {before}）");
                 }
@@ -563,12 +517,12 @@ namespace Zentwik.Core.Services
                 result.AllSucceeded = result.SmuAccepted &&
                     Math.Abs((long)result.ReadBack - (long)mhz) <= FMaxReadTolerance;
                 if (!result.AllSucceeded)
-                    LogService.Error($"FMax 回读不一致：请求 {mhz}，SMU 接受 {result.SmuAccepted}，回读 {result.ReadBack}");
+                    _log.Error($"FMax 回读不一致：请求 {mhz}，SMU 接受 {result.SmuAccepted}，回读 {result.ReadBack}");
             }
             catch (Exception ex)
             {
                 result.Fatal = ex.Message;
-                LogService.Error($"SetFMax 异常: {ex}");
+                _log.Error($"SetFMax 异常: {ex}");
             }
 
             return result;

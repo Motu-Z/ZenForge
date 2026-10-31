@@ -62,14 +62,14 @@ namespace Zentwik.Services
             catch (Exception ex)
             {
                 // 走日志，不再往上抛：提示失败不该影响正在进行的业务操作
-                try { LogService.Warn($"Toast 显示失败：{ex.Message}"); } catch { }
+                try { Svc.Log.Warn($"Toast 显示失败：{ex.Message}"); } catch { }
                 return;
             }
 
             // 宿主不在（无窗口状态）：退化成日志，至少留下痕迹
             try
             {
-                LogService.Info($"[提示] {message}");
+                Svc.Log.Info($"[提示] {message}");
             }
             catch
             {

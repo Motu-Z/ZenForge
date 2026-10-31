@@ -293,7 +293,7 @@ namespace Zentwik.Services
             if (_icon == IntPtr.Zero)
             {
                 // 消息窗口仍在工作，双击 exe 依然能唤起界面，只是任务栏没有图标
-                LogService.Warn("托盘图标资源加载失败，任务栏不显示图标（后台仍在运行）");
+                Svc.Log.Warn("托盘图标资源加载失败，任务栏不显示图标（后台仍在运行）");
                 return;
             }
 
@@ -324,7 +324,7 @@ namespace Zentwik.Services
 
                 NativeMethods.AppendMenuW(
                     menu, MF_STRING, (IntPtr)CommandToggleWatch,
-                    ProcessWatcher.IsRunning ? "暂停绑核" : "恢复绑核");
+                    Svc.Watcher.IsRunning ? "暂停绑核" : "恢复绑核");
 
                 NativeMethods.AppendMenuW(menu, MF_SEPARATOR, IntPtr.Zero, null);
                 NativeMethods.AppendMenuW(menu, MF_STRING, (IntPtr)CommandExit, "退出");
@@ -369,14 +369,14 @@ namespace Zentwik.Services
         {
             try
             {
-                if (ProcessWatcher.IsRunning)
-                    ProcessWatcher.Stop();
+                if (Svc.Watcher.IsRunning)
+                    Svc.Watcher.Stop();
                 else
-                    ProcessWatcher.Start();
+                    Svc.Watcher.Start();
             }
             catch (Exception ex)
             {
-                LogService.Warn($"托盘切换绑核失败：{ex.Message}");
+                Svc.Log.Warn($"托盘切换绑核失败：{ex.Message}");
             }
         }
 

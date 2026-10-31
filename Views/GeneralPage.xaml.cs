@@ -50,7 +50,7 @@ namespace Zentwik.Views
 
         private void LoadSettings() => Suppressed(() =>
         {
-            UiSettings settings = UiSettingsStore.Settings;
+            UiSettings settings = Svc.Ui.Settings;
 
             string themeTag = settings.ThemeMode switch
             {
@@ -96,7 +96,7 @@ namespace Zentwik.Views
 
         private static string CurrentAccentHex()
         {
-            UiSettings s = UiSettingsStore.Settings;
+            UiSettings s = Svc.Ui.Settings;
             Color c = s.FollowSystemAccent ? ThemeService.AccentColor : ParseAccent(s.CustomAccentHex);
 
             return $"#{c.R:X2}{c.G:X2}{c.B:X2}";
@@ -234,10 +234,10 @@ namespace Zentwik.Views
                 _ => AppThemeMode.System
             };
 
-            UiSettingsStore.Settings.ThemeMode = mode;
+            Svc.Ui.Settings.ThemeMode = mode;
             ThemeService.ApplyAndSave(mode, ThemeService.FollowSystemAccent,
-                                      UiSettingsStore.Settings.CustomAccentHex);
-            LogService.Info($"主题模式：{mode}");
+                                      Svc.Ui.Settings.CustomAccentHex);
+            Svc.Log.Info($"主题模式：{mode}");
 
             // 跟随系统时强调色会变成系统色，输入框与滑块要跟着变
             SyncAccentUi();
@@ -252,11 +252,11 @@ namespace Zentwik.Views
             CustomAccentPanel.Visibility = follow ? Visibility.Collapsed : Visibility.Visible;
 
             ThemeService.ApplyAndSave(ThemeService.Mode, follow,
-                                      UiSettingsStore.Settings.CustomAccentHex);
+                                      Svc.Ui.Settings.CustomAccentHex);
 
             SyncAccentUi();
 
-            LogService.Info(follow ? "强调色：跟随系统" : "强调色：自定义");
+            Svc.Log.Info(follow ? "强调色：跟随系统" : "强调色：自定义");
         }
 
         /// <summary>「应用颜色」：接受用户手输的色值，输了不合法就明确提示。</summary>
@@ -289,7 +289,7 @@ namespace Zentwik.Views
             });
 
             ThemeService.ApplyAndSave(ThemeService.Mode, false, norm);
-            LogService.Info($"自定义强调色：{norm}");
+            Svc.Log.Info($"自定义强调色：{norm}");
         }
 
         /// <summary>
@@ -378,13 +378,13 @@ namespace Zentwik.Views
                 string target = dialog.FileName;
                 await Task.Run(() => WriteLogSnapshot(target));
 
-                LogService.Info($"已导出日志到 {target}");
+                Svc.Log.Info($"已导出日志到 {target}");
                 RevealInExplorer(target);
                 ToastService.Success("日志已导出");
             }
             catch (Exception ex)
             {
-                LogService.Error($"导出日志失败：{ex.Message}");
+                Svc.Log.Error($"导出日志失败：{ex.Message}");
                 ToastService.Error($"导出失败：{ex.Message}");
             }
             finally
@@ -402,7 +402,7 @@ namespace Zentwik.Views
         /// </summary>
         private static void WriteLogSnapshot(string path)
         {
-            LogEntry[] snapshot = LogService.Snapshot();
+            LogEntry[] snapshot = Svc.Log.Snapshot();
 
             StringBuilder sb = new();
             sb.AppendLine($"Zentwik 日志导出 · {DateTime.Now:yyyy-MM-dd HH:mm:ss} · 共 {snapshot.Length} 条");
@@ -428,11 +428,11 @@ namespace Zentwik.Views
             string? path;
             try
             {
-                path = await Task.Run(SmuDiagnostics.Run);
+                path = await Task.Run(Svc.Diag.Run);
             }
             catch (Exception ex)
             {
-                LogService.Error($"SMU 自检失败：{ex}");
+                Svc.Log.Error($"SMU 自检失败：{ex}");
                 ToastService.Error($"自检过程中出错：{ex.Message}");
                 return;
             }
@@ -448,7 +448,7 @@ namespace Zentwik.Views
                 return;
             }
 
-            LogService.Info($"SMU 自检完成，报告：{path}");
+            Svc.Log.Info($"SMU 自检完成，报告：{path}");
             RevealInExplorer(path);
             ToastService.Success("SMU 自检完成，报告已在资源管理器中打开");
         }
@@ -480,7 +480,7 @@ namespace Zentwik.Views
             }
             catch (Exception ex)
             {
-                LogService.Warn($"打开 GitHub 链接失败：{ex.Message}");
+                Svc.Log.Warn($"打开 GitHub 链接失败：{ex.Message}");
             }
 
             e.Handled = true;

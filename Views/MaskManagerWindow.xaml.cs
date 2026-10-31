@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -44,10 +44,10 @@ namespace Zentwik.Views
 
             UiTextOptions.Attach(this);
 
-            MaskStore.Changed += OnMasksChanged;
+            Svc.Masks.Changed += OnMasksChanged;
             // MaskStore 是静态存储，窗口关闭后必须解绑，否则反复开关窗口会累积回调，
             // 并让已关闭的窗口无法被回收。
-            Closed += (_, _) => MaskStore.Changed -= OnMasksChanged;
+            Closed += (_, _) => Svc.Masks.Changed -= OnMasksChanged;
 
             // 关窗时只要收起改名输入框即可。
             // 改名只在按回车时落盘，所以这里不需要（也不应该）提交任何东西。
@@ -57,7 +57,7 @@ namespace Zentwik.Views
 
         private void BuildUI()
         {
-            _logicalCount = Math.Max(1, CpuSetBinder.LogicalProcessorCount);
+            _logicalCount = Math.Max(1, Svc.CpuSets.LogicalProcessorCount);
 
             if (_logicalCount <= 1)
             {
@@ -111,7 +111,7 @@ namespace Zentwik.Views
         /// </summary>
         private void BuildBoxes()
         {
-            int ccdCount = Math.Max(1, CpuSetBinder.CcdCount);
+            int ccdCount = Math.Max(1, Svc.CpuSets.CcdCount);
             int coresPerCcd = Math.Max(1, _physicalCores / ccdCount);
 
             // 先量出单个勾选框的自然宽度，实际列宽由可用宽度均分（见 ReflowCorePanels）。
@@ -327,11 +327,11 @@ namespace Zentwik.Views
             object? selected = MaskList.SelectedItem;
 
             _rows.Clear();
-            foreach (CustomMask m in MaskStore.Masks)
+            foreach (CustomMask m in Svc.Masks.Masks)
                 _rows.Add(m);
 
             // 草稿排在最后，且不与已落盘条目重复
-            if (_draft != null && !MaskStore.Masks.Any(m => m.Id == _draft.Id))
+            if (_draft != null && !Svc.Masks.Masks.Any(m => m.Id == _draft.Id))
                 _rows.Add(_draft);
 
             if (selected is CustomMask prev)
@@ -343,8 +343,8 @@ namespace Zentwik.Views
 
             UpdateCapacityUi();
 
-            LogService.Debug(
-                $"[掩码窗口] 列表刷新：已存 {MaskStore.Masks.Count} 条，草稿 {(_draft == null ? "无" : "有")}");
+            Svc.Log.Debug(
+                $"[掩码窗口] 列表刷新：已存 {Svc.Masks.Masks.Count} 条，草稿 {(_draft == null ? "无" : "有")}");
         }
 
         /// <summary>
@@ -355,7 +355,7 @@ namespace Zentwik.Views
         /// </summary>
         private void UpdateCapacityUi()
         {
-            int used = MaskStore.Masks.Count + (_draft == null ? 0 : 1);
+            int used = Svc.Masks.Masks.Count + (_draft == null ? 0 : 1);
 
             if (MaskCountText != null)
                 MaskCountText.Text = $"{used} / {MaskStore.MaxCount}";
@@ -397,7 +397,7 @@ namespace Zentwik.Views
             _editingId = mask.Id;
             _pendingName = mask.Name;
             ApplyMask(mask.Mask);
-            LogService.Debug($"[掩码窗口] 载入编辑：{mask.Name}（{mask.Id}，mask=0x{mask.Mask:X}）");
+            Svc.Log.Debug($"[掩码窗口] 载入编辑：{mask.Name}（{mask.Id}，mask=0x{mask.Mask:X}）");
         }
 
         // ==================== 行内改名 ====================
@@ -448,7 +448,7 @@ namespace Zentwik.Views
             label.Visibility = Visibility.Collapsed;
             box.Visibility = Visibility.Visible;
 
-            LogService.Debug($"[掩码窗口] 开始改名：{mask.Name}（{mask.Id}）");
+            Svc.Log.Debug($"[掩码窗口] 开始改名：{mask.Name}（{mask.Id}）");
 
             box.Dispatcher.BeginInvoke(new Action(() =>
             {
@@ -483,7 +483,7 @@ namespace Zentwik.Views
             box.Tag = null;
             box.ToolTip = null;
 
-            LogService.Debug("[掩码窗口] 取消改名");
+            Svc.Log.Debug("[掩码窗口] 取消改名");
         }
 
         private void RowNameBox_KeyDown(object sender, KeyEventArgs e)
@@ -546,7 +546,7 @@ namespace Zentwik.Views
                 _trimming = false;
             }
 
-            LogService.Debug($"[掩码窗口] 名称超限已裁剪：\"{text}\" → \"{trimmed}\"");
+            Svc.Log.Debug($"[掩码窗口] 名称超限已裁剪：\"{text}\" → \"{trimmed}\"");
         }
 
         /// <summary>
@@ -573,12 +573,12 @@ namespace Zentwik.Views
             // 重名检查按 Id 排除自己：不改名直接回车不该被判重名；
             // 草稿的 Id 不在 MaskStore 里，所以它对自己的名字没有豁免 —— 正确，
             // 草稿与已保存条目同名时必须报冲突。
-            if (!MaskNamePolicy.IsValid(name, MaskStore.NamesExceptId(mask.Id), out string error))
+            if (!MaskNamePolicy.IsValid(name, Svc.Masks.NamesExceptId(mask.Id), out string error))
             {
                 if (!silent)
                     ToastService.Warning(error);
 
-                LogService.Debug($"[掩码窗口] 名称不可用，已回退：{error}");
+                Svc.Log.Debug($"[掩码窗口] 名称不可用，已回退：{error}");
                 return;
             }
 
@@ -591,13 +591,13 @@ namespace Zentwik.Views
                 mask.Name = name;
                 _pendingName = name;
                 RefreshList();
-                LogService.Debug($"[掩码窗口] 草稿改名：{name}（未落盘）");
+                Svc.Log.Debug($"[掩码窗口] 草稿改名：{name}（未落盘）");
                 return;
             }
 
             string oldName = mask.Name;
             mask.Name = name;
-            if (!MaskStore.Upsert(mask, out MaskStore.UpsertError err))
+            if (!Svc.Masks.Upsert(mask, out MaskStore.UpsertError err))
             {
                 mask.Name = oldName;   // 写盘被拒，内存里也要回滚，否则界面与文件不一致
                 ToastService.Warning(DescribeError(err));
@@ -606,7 +606,7 @@ namespace Zentwik.Views
             }
 
             _pendingName = name;
-            LogService.Debug($"[掩码窗口] 改名已落盘：{oldName} → {name}");
+            Svc.Log.Debug($"[掩码窗口] 改名已落盘：{oldName} → {name}");
             RefreshList();
         }
 
@@ -641,7 +641,7 @@ namespace Zentwik.Views
                 return;
             }
 
-            if (MaskStore.IsFull)
+            if (Svc.Masks.IsFull)
             {
                 ToastService.Warning($"自定义掩码最多 {MaskStore.MaxCount} 套，当前已满。删除一条不用的掩码后即可新建。");
                 return;
@@ -656,7 +656,7 @@ namespace Zentwik.Views
             RefreshList();
             SelectAndRename(draft);
 
-            LogService.Debug($"[掩码窗口] 新建草稿：{draft.Name}（{draft.Id}），尚未落盘");
+            Svc.Log.Debug($"[掩码窗口] 新建草稿：{draft.Name}（{draft.Id}），尚未落盘");
         }
 
         /// <summary>
@@ -671,7 +671,7 @@ namespace Zentwik.Views
             const string baseName = "自定义掩码";
 
             // Set 里包含已落盘 + 草稿，忽略大小写（与重名校验同一口径）
-            HashSet<string> taken = new(MaskStore.Masks.Select(m => m.Name.Trim()),
+            HashSet<string> taken = new(Svc.Masks.Masks.Select(m => m.Name.Trim()),
                                         StringComparer.OrdinalIgnoreCase);
 
             if (_draft != null)
@@ -730,11 +730,11 @@ namespace Zentwik.Views
 
         private void DeleteMask(CustomMask mask)
         {
-            LogService.Debug($"[掩码窗口] 请求删除：{mask.Name}（{mask.Id}）");
+            Svc.Log.Debug($"[掩码窗口] 请求删除：{mask.Name}（{mask.Id}）");
 
             if (!DarkDialog.Confirm($"确定删除掩码「{mask.Name}」？", "删除确认"))
             {
-                LogService.Debug("[掩码窗口] 删除已取消");
+                Svc.Log.Debug("[掩码窗口] 删除已取消");
                 return;
             }
 
@@ -746,16 +746,16 @@ namespace Zentwik.Views
                 _draft = null;
                 ResetEditor();
                 RefreshList();
-                LogService.Debug("[掩码窗口] 草稿已丢弃");
+                Svc.Log.Debug("[掩码窗口] 草稿已丢弃");
                 return;
             }
 
-            MaskStore.Remove(mask.Id);
+            Svc.Masks.Remove(mask.Id);
 
             if (_editingId == mask.Id)
                 ResetEditor();
 
-            LogService.Info($"已删除自定义掩码「{mask.Name}」");
+            Svc.Log.Info($"已删除自定义掩码「{mask.Name}」");
             RefreshList();
         }
 
@@ -778,7 +778,7 @@ namespace Zentwik.Views
 
             // 重名检查按 Id 排除自己：重新保存一条没有改名的掩码，
             // 不该被自己的旧名字挡住。
-            if (!MaskNamePolicy.IsValid(name, MaskStore.NamesExceptId(row.Id), out string error))
+            if (!MaskNamePolicy.IsValid(name, Svc.Masks.NamesExceptId(row.Id), out string error))
             {
                 // 保存是用户主动动作，这里必须明确告知原因
                 ToastService.Warning(error);
@@ -796,7 +796,7 @@ namespace Zentwik.Views
             row.Name = name.Trim();
             row.Mask = mask;
 
-            if (!MaskStore.Upsert(row, out MaskStore.UpsertError err))
+            if (!Svc.Masks.Upsert(row, out MaskStore.UpsertError err))
             {
                 row.Name = oldName;
                 ToastService.Error(DescribeError(err));
@@ -811,8 +811,8 @@ namespace Zentwik.Views
             _pendingName = row.Name;
             RefreshList();
 
-            LogService.Info($"已保存自定义掩码「{row.Name}」（{row.CoreCount} 个线程）");
-            LogService.Debug($"[掩码窗口] 保存：{(wasDraft ? "草稿→落盘" : "更新已有")}，mask=0x{mask:X}");
+            Svc.Log.Info($"已保存自定义掩码「{row.Name}」（{row.CoreCount} 个线程）");
+            Svc.Log.Debug($"[掩码窗口] 保存：{(wasDraft ? "草稿→落盘" : "更新已有")}，mask=0x{mask:X}");
             ToastService.Success($"已保存掩码「{row.Name}」");
         }
 
@@ -851,7 +851,7 @@ namespace Zentwik.Views
         /// </summary>
         private void Close_Click(object sender, RoutedEventArgs e)
         {
-            LogService.Debug("[掩码窗口] 用户请求关闭（取消/叉）");
+            Svc.Log.Debug("[掩码窗口] 用户请求关闭（取消/叉）");
             CancelRowRename();
             Close();
         }

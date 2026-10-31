@@ -56,7 +56,7 @@ namespace Zentwik.Services
                 System.Drawing.Icon? icon = LoadIcon();
                 if (icon == null)
                 {
-                    LogService.Error("托盘图标资源缺失，托盘不可用");
+                    Svc.Log.Error("托盘图标资源缺失，托盘不可用");
                     return false;
                 }
 
@@ -72,12 +72,12 @@ namespace Zentwik.Services
                 _icon.DoubleClick += (_, _) => ShowOrCreateMainWindow();
 
                 RefreshMenuState();
-                LogService.Info("托盘图标已就绪");
+                Svc.Log.Info("托盘图标已就绪");
                 return true;
             }
             catch (Exception ex)
             {
-                LogService.Error($"托盘图标创建失败：{ex.Message}");
+                Svc.Log.Error($"托盘图标创建失败：{ex.Message}");
                 DisposeIcon();
                 return false;
             }
@@ -127,7 +127,7 @@ namespace Zentwik.Services
             }
             catch (Exception ex)
             {
-                LogService.Error($"唤出主窗口失败：{ex.Message}");
+                Svc.Log.Error($"唤出主窗口失败：{ex.Message}");
             }
         }
 
@@ -137,7 +137,7 @@ namespace Zentwik.Services
             if (_icon == null)
                 return;
 
-            bool running = ProcessWatcher.IsRunning;
+            bool running = Svc.Watcher.IsRunning;
 
             try
             {
@@ -188,7 +188,7 @@ namespace Zentwik.Services
             }
 
             Shutdown();
-            LogService.Info("托盘图标已隐藏（后台仍常驻，双击 Zentwik.exe 打开界面）");
+            Svc.Log.Info("托盘图标已隐藏（后台仍常驻，双击 Zentwik.exe 打开界面）");
         }
 
         /// <summary>
@@ -226,7 +226,7 @@ namespace Zentwik.Services
             }
             catch (Exception ex)
             {
-                LogService.Warn($"托盘气泡显示失败：{ex.Message}");
+                Svc.Log.Warn($"托盘气泡显示失败：{ex.Message}");
                 return false;
             }
         }
@@ -299,7 +299,7 @@ namespace Zentwik.Services
             }
             catch (Exception ex)
             {
-                LogService.Error($"托盘菜单打开失败：{ex.Message}");
+                Svc.Log.Error($"托盘菜单打开失败：{ex.Message}");
             }
         }
 
@@ -346,7 +346,7 @@ namespace Zentwik.Services
             }
             catch (Exception ex)
             {
-                LogService.Error($"托盘菜单构建失败：{ex.Message}");
+                Svc.Log.Error($"托盘菜单构建失败：{ex.Message}");
                 return null;
             }
         }
@@ -405,7 +405,7 @@ namespace Zentwik.Services
             }
             catch (Exception ex)
             {
-                LogService.Error($"托盘菜单宿主创建失败：{ex.Message}");
+                Svc.Log.Error($"托盘菜单宿主创建失败：{ex.Message}");
             }
         }
 
@@ -418,22 +418,22 @@ namespace Zentwik.Services
         {
             try
             {
-                if (ProcessWatcher.IsRunning)
-                    ProcessWatcher.Stop();
+                if (Svc.Watcher.IsRunning)
+                    Svc.Watcher.Stop();
                 else
-                    ProcessWatcher.Start();
+                    Svc.Watcher.Start();
 
-                bool running = ProcessWatcher.IsRunning;
+                bool running = Svc.Watcher.IsRunning;
 
-                UiSettingsStore.Settings.WatchProcessBinding = running;
-                UiSettingsStore.Save();
+                Svc.Ui.Settings.WatchProcessBinding = running;
+                Svc.Ui.Save();
 
-                LogService.Info(running ? "托盘：已恢复进程绑核监听" : "托盘：已暂停进程绑核监听");
+                Svc.Log.Info(running ? "托盘：已恢复进程绑核监听" : "托盘：已暂停进程绑核监听");
                 RefreshMenuState();
             }
             catch (Exception ex)
             {
-                LogService.Error($"托盘切换绑核监听失败：{ex.Message}");
+                Svc.Log.Error($"托盘切换绑核监听失败：{ex.Message}");
             }
         }
 
@@ -450,7 +450,7 @@ namespace Zentwik.Services
             }
             catch (Exception ex)
             {
-                LogService.Warn($"读取内嵌图标失败：{ex.Message}");
+                Svc.Log.Warn($"读取内嵌图标失败：{ex.Message}");
             }
 
             string? exe = Environment.ProcessPath;
@@ -462,7 +462,7 @@ namespace Zentwik.Services
                 }
                 catch (Exception ex)
                 {
-                    LogService.Warn($"提取 exe 图标失败：{ex.Message}");
+                    Svc.Log.Warn($"提取 exe 图标失败：{ex.Message}");
                 }
             }
 
