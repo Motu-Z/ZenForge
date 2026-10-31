@@ -1,7 +1,9 @@
 using System;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Zentwik.App.Services;
+using Zentwik.App.ViewModels;
 using Zentwik.Core.Helpers;
 using Zentwik.Core.Services;
 using Zentwik.Core.Threading;
@@ -9,8 +11,8 @@ using Zentwik.Core.Threading;
 namespace Zentwik.App;
 
 /// <summary>
-/// 界面对象。业务逻辑一律在 Core，这里只做三件事：
-/// 建宿主、挂调度器、开窗。
+/// 界面对象。业务逻辑一律在 Core，这里只做四件事：
+/// 挂调度器、应用主题、建窗口、接住 XAML 线程异常。
 /// </summary>
 public partial class App : Application
 {
@@ -37,8 +39,25 @@ public partial class App : Application
         }
 
         AppHost.Dispatcher.Attach(new SynchronizationContextDispatcher(context));
+        IServiceProvider services = AppHost.Services;
 
-        _window = new MainWindow();
+        // 主题必须在任何 Window / Page 创建之前应用：
+        // 强调色是替换应用资源里的 Brush 键，控件一旦加载过就不会回头重算。
+        ThemeController theme = services.GetRequiredService<ThemeController>();
+        theme.Initialize();
+
+        _window = new MainWindow(
+            theme,
+            services.GetRequiredService<SettingsViewModel>(),
+            services.GetRequiredService<TuningViewModel>(),
+            services.GetRequiredService<ProcessViewModel>(),
+            services.GetRequiredService<ConfigViewModel>(),
+            services.GetRequiredService<BehaviorViewModel>(),
+            services.GetRequiredService<AdvancedViewModel>(),
+            services.GetRequiredService<LogViewModel>(),
+            services.GetRequiredService<ILogService>(),
+            services.GetRequiredService<IProcessWatcher>());
+
         _window.Activate();
     }
 

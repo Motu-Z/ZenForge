@@ -57,6 +57,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
 
+    <!--
+    只为本仓库的 P/Invoke 约定服务：项目红线要求封送一律用 [LibraryImport]，
+    而它的源生成器会产出指针代码，编译期必须允许 unsafe。
+    业务代码里没有任何手写 unsafe 块。
+    -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
     <!-- 关掉 XAML 自动生成的 Main：进程入口要能识别 silent 开关并在
          创建任何 WinUI 类型之前改道，见 Program.cs。 -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
@@ -64,6 +71,11 @@
     <!-- WinUI 3 外壳不做裁剪：XAML 的 XBF 与 CsWinRT 投影都有运行期按名解析，
          PublishTrimmed=true 在这里的收益远小于它带来的「某个页面白屏」风险。 -->
     <PublishTrimmed>false</PublishTrimmed>
+
+    <!-- exe 的资源图标。不设这一项时，任务管理器与快捷方式里显示的是
+         .NET 默认图标 —— 对「直接操作 SMU、要管理员权限」的工具来说，
+         用户第一眼就是靠这个图标判断该不该点「是」。 -->
+    <ApplicationIcon>..\Assets\Zentwik.ico</ApplicationIcon>
 
     <Version>2.0.0-can3</Version>
     <FileVersion>2.0.0.0</FileVersion>

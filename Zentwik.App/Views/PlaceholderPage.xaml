@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Zentwik.App.Views.PlaceholderPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="Transparent">
+
+    <!-- 占位页：导航骨架先立起来，页面内容按后续篇幅逐个补。
+         刻意只放一行文字，不放任何假控件 —— 假的卡片比空白更容易被误认为「已经做好了」。 -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollMode="Disabled"
+                  HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="28,18,28,24" Spacing="16">
+            <TextBlock x:Name="TitleText" Style="{StaticResource AppPageTitle}" Margin="0,10,0,2" />
+            <Border Style="{StaticResource AppCard}" Height="96">
+                <TextBlock x:Name="BodyText"
+                           Style="{StaticResource AppDesc}"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center" />
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

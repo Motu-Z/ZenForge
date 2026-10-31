@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Zentwik.App.Views.GeneralPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ctl="using:Zentwik.App.Controls"
+    Background="Transparent">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollMode="Disabled"
+                  HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="28,12,28,24" Spacing="16">
+
+            <TextBlock Text="通用" Style="{StaticResource AppPageTitle}" Margin="0,10,0,2" />
+
+            <!-- ==================== 外观 ==================== -->
+            <Border Style="{StaticResource AppCard}">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="外观" Style="{StaticResource AppCardTitle}" />
+
+                    <Grid ColumnSpacing="16" RowSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                   Text="主题模式" Style="{StaticResource AppLabel}" />
+                        <ctl:AppComboBox Grid.Row="0" Grid.Column="1"
+                                         Width="180" HorizontalAlignment="Right"
+                                         ItemsSource="{x:Bind ViewModel.ThemeOptions}"
+                                         SelectedIndex="{x:Bind ViewModel.ThemeIndex, Mode=TwoWay}" />
+
+                        <TextBlock Grid.Row="1" Grid.Column="0"
+                                   Text="材质背景" Style="{StaticResource AppLabel}" />
+                        <ctl:AppComboBox Grid.Row="1" Grid.Column="1"
+                                         Width="180" HorizontalAlignment="Right"
+                                         ItemsSource="{x:Bind ViewModel.BackdropOptions}"
+                                         SelectedIndex="{x:Bind ViewModel.BackdropIndex, Mode=TwoWay}" />
+
+                        <TextBlock Grid.Row="2" Grid.Column="0"
+                                   Text="窗口动效" Style="{StaticResource AppLabel}" />
+                        <ctl:AppComboBox Grid.Row="2" Grid.Column="1"
+                                         Width="180" HorizontalAlignment="Right"
+                                         ItemsSource="{x:Bind ViewModel.MotionOptions}"
+                                         SelectedIndex="{x:Bind ViewModel.MotionIndex, Mode=TwoWay}" />
+
+                        <TextBlock Grid.Row="3" Grid.Column="0"
+                                   Text="强调色" Style="{StaticResource AppLabel}" />
+                        <ctl:AppComboBox Grid.Row="3" Grid.Column="1"
+                                         Width="180" HorizontalAlignment="Right"
+                                         ItemsSource="{x:Bind ViewModel.AccentOptions}"
+                                         SelectedIndex="{x:Bind ViewModel.AccentIndex, Mode=TwoWay}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ==================== 诊断 ==================== -->
+            <Border Style="{StaticResource AppCard}">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="诊断" Style="{StaticResource AppCardTitle}" />
+
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0"
+                                   Text="数据目录"
+                                   Style="{StaticResource AppLabel}"
+                                   VerticalAlignment="Center" />
+
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button Content="打开目录"
+                                    Style="{StaticResource AppButton}"
+                                    Command="{x:Bind ViewModel.OpenDataFolderCommand}" />
+                            <Button Content="SMU 自检"
+                                    Style="{StaticResource AppButtonPrimary}"
+                                    Command="{x:Bind ViewModel.RunSelfCheckCommand}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Border Style="{StaticResource AppInnerPanel}"
+                            Visibility="{x:Bind ViewModel.IsDiagnosticsVisible, Mode=OneWay}">
+                        <TextBlock Text="{x:Bind ViewModel.DiagnosticsText, Mode=OneWay}"
+                                   Style="{StaticResource AppMeta}"
+                                   TextWrapping="Wrap"
+                                   IsTextSelectionEnabled="True" />
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <!-- ==================== 关于 ==================== -->
+            <Border Style="{StaticResource AppCard}">
+                <StackPanel Spacing="8" HorizontalAlignment="Center">
+                    <TextBlock Text="Zen twik"
+                               Style="{StaticResource AppCpuName}"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="{x:Bind ViewModel.AboutText}"
+                               Style="{StaticResource AppDesc}"
+                               HorizontalAlignment="Center" />
+                    <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+                        <HyperlinkButton Content="GitHub"
+                                         NavigateUri="{x:Bind ViewModel.GitHubUrl}"
+                                         Padding="6,2" />
+                        <TextBlock Text="{x:Bind ViewModel.LicenseText}"
+                                   Style="{StaticResource AppDesc}"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>

@@ -26,9 +26,30 @@ namespace Zentwik.Core.Helpers
         /// <summary>自定义强调色（十六进制，如 #38BDF8）。仅 FollowSystemAccent=false 时生效。</summary>
         public string CustomAccentHex { get; set; } = "#38BDF8";
 
+        /// <summary>
+        /// 窗口材质：Mica / Acrylic / Solid。
+        ///
+        /// 刻意存字符串而不是强类型枚举：ui.json 走源生成序列化（AppJsonContext），
+        /// 新增枚举会扩大序列化契约面，而这三个值的解析失败成本极低（回落 Mica）。
+        /// 解析与合法性收敛都在 ThemeController.ParseBackdrop 里做。
+        /// </summary>
+        public string Backdrop { get; set; } = "Mica";
+
+        /// <summary>窗口动效：Full / Reduced / Off。解析见 ThemeController.ParseMotion。</summary>
+        public string Motion { get; set; } = "Full";
+
         /// <summary>配置文件里是否显式写过 followSystemAccent（旧配置迁移用，不参与序列化）。</summary>
         [JsonIgnore]
         public bool FollowSystemAccentExplicit { get; set; }
+
+        /// <summary>
+        /// 强调色设定的版本号。0（缺键）= 旧版本写下的配置。
+        ///
+        /// 旧版 WPF 版本把 followSystemAccent 默认成 true 写进盘，于是老用户
+        /// 一升级就会看到系统青，而不是产品蓝。靠 FollowSystemAccentExplicit
+        /// 分辨不出来（旧文件里那个键是有的），只能另起一个版本号做一次性纠正。
+        /// </summary>
+        public int AccentVersion { get; set; }
 
         // 启动与后台
 
@@ -119,6 +140,7 @@ namespace Zentwik.Core.Helpers
             }
 
             Normalize();
+            Migrate();
         }
 
         private UiSettings? ReadFromDisk()
@@ -141,6 +163,27 @@ namespace Zentwik.Core.Helpers
                 settings.FollowSystemAccent = true;
 
             return settings;
+        }
+
+        /// <summary>
+        /// 一次性迁移：把旧版本「跟随系统强调色」的默认值纠正回产品色。
+        ///
+        /// 只在 AccentVersion 缺省（0）时跑一次，跑完落盘写 1；
+        /// 用户之后在通用页显式选了系统色，版本号已经是 1，不会再被改回去。
+        /// </summary>
+        private void Migrate()
+        {
+            if (Settings.AccentVersion >= 1)
+                return;
+
+            Settings.FollowSystemAccent = false;
+
+            // 只改 FollowSystemAccent 还不够：旧配置里存着一个自定义十六进制色，
+            // 关掉「跟随系统」之后就轮到它生效了 —— 结果是从系统青变成另一块遗留色。
+            Settings.CustomAccentHex = UiSettings.DefaultAccentHex;
+
+            Settings.AccentVersion = 1;
+            Save();
         }
 
         /// <summary>

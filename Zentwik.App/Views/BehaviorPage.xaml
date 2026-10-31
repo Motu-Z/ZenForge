@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Zentwik.App.Views.BehaviorPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Zentwik.App"
+    Background="Transparent">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollMode="Disabled"
+                  HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="28,12,28,24" Spacing="16">
+
+            <TextBlock Text="行为" Style="{StaticResource AppPageTitle}" Margin="0,10,0,2" />
+
+            <!-- ==================== 启动 ==================== -->
+            <Border Style="{StaticResource AppCard}">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="启动" Style="{StaticResource AppCardTitle}" />
+
+                    <Grid ColumnSpacing="16" RowSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                   Text="开机静默自启" Style="{StaticResource AppLabel}"
+                                   VerticalAlignment="Center" />
+                        <ToggleSwitch Grid.Row="0" Grid.Column="1"
+                                      OnContent="" OffContent=""
+                                      IsOn="{x:Bind ViewModel.AutoStart, Mode=TwoWay}" />
+
+                        <TextBlock Grid.Row="1" Grid.Column="0"
+                                   Text="启动时自动应用调校" Style="{StaticResource AppLabel}"
+                                   VerticalAlignment="Center" />
+                        <ToggleSwitch Grid.Row="1" Grid.Column="1"
+                                      OnContent="" OffContent=""
+                                      IsOn="{x:Bind ViewModel.ApplyTuningOnStartup, Mode=TwoWay}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ==================== 后台 ==================== -->
+            <Border Style="{StaticResource AppCard}">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="后台" Style="{StaticResource AppCardTitle}" />
+
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0"
+                                   Text="开启后台服务" Style="{StaticResource AppLabel}"
+                                   VerticalAlignment="Center" />
+                        <ToggleSwitch Grid.Column="1"
+                                      OnContent="" OffContent=""
+                                      IsOn="{x:Bind ViewModel.BackendService, Mode=TwoWay}" />
+                    </Grid>
+
+                    <!--
+                    子项整体缩进并跟随总闸的可用状态：
+                    总闸关掉时后台根本不启动，这几个开关留在可点状态只会误导用户
+                    以为「关了总闸但仍会绑核」。
+                    -->
+                    <StackPanel Margin="16,0,0,0" Spacing="12"
+                                IsHitTestVisible="{x:Bind ViewModel.BackendService, Mode=OneWay}"
+                                Opacity="{x:Bind local:UiConverters.ToEnabledOpacity(ViewModel.BackendService), Mode=OneWay}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="常驻调度" Style="{StaticResource AppLabel}"
+                                       VerticalAlignment="Center" />
+                            <ToggleSwitch Grid.Column="1"
+                                          OnContent="" OffContent=""
+                                          IsOn="{x:Bind ViewModel.WatchProcessBinding, Mode=TwoWay}" />
+                        </Grid>
+
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="轻量模式" Style="{StaticResource AppLabel}"
+                                       VerticalAlignment="Center" />
+                            <ToggleSwitch Grid.Column="1"
+                                          OnContent="" OffContent=""
+                                          IsOn="{x:Bind ViewModel.LightMode, Mode=TwoWay}" />
+                        </Grid>
+
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="托盘图标" Style="{StaticResource AppLabel}"
+                                       VerticalAlignment="Center" />
+                            <ToggleSwitch Grid.Column="1"
+                                          OnContent="" OffContent=""
+                                          IsOn="{x:Bind ViewModel.ShowTrayIcon, Mode=TwoWay}" />
+                        </Grid>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ==================== 通知 ==================== -->
+            <Border Style="{StaticResource AppCard}">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0"
+                               Text="出错时通知我" Style="{StaticResource AppLabel}"
+                               VerticalAlignment="Center" />
+                    <ToggleSwitch Grid.Column="1"
+                                  OnContent="" OffContent=""
+                                  IsOn="{x:Bind ViewModel.NotifyOnError, Mode=TwoWay}" />
+                </Grid>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>

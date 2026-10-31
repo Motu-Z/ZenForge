@@ -10,8 +10,11 @@
                 <!-- WinUI 3 不自带控件样式，不合并这一份则所有控件都是裸的默认模板。 -->
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
 
-                <!-- 语义色在 S4 后续补齐（深浅两套 ThemeDictionaries）。
-                     现在留位，避免届时改 x:Class 结构。 -->
+                <!-- 顺序有意义：Tokens 定义全部令牌，Typography / Controls 只引用它。
+                     Controls 必须最后合并，它的隐式样式要覆盖系统控件默认样式。 -->
+                <ResourceDictionary Source="ms-appx:///Themes/Tokens.xaml" />
+                <ResourceDictionary Source="ms-appx:///Themes/Typography.xaml" />
+                <ResourceDictionary Source="ms-appx:///Themes/Controls.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

@@ -1,5 +1,7 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Zentwik.App.ViewModels;
 using Zentwik.Core.DependencyInjection;
 using Zentwik.Core.Threading;
 
@@ -36,7 +38,23 @@ internal static class AppHost
             return _services;
 
         ServiceCollection services = new();
+
+        // Core 只把「服务按什么生命周期登记」交出来，容器实现留在宿主。
         services.AddZentwikCore(Dispatcher);
+
+        // ---------- 外壳层 ----------
+        // 主题控制器与三个 ViewModel 都是单例：
+        //   · ThemeController 持有窗口引用与标题栏通道，多实例会互相覆盖配色；
+        //   · ViewModel 持有页面级状态（CO 草稿、筛选条件、采样订阅计数），
+        //     页面实例已在外壳里缓存，再给 ViewModel 做瞬时生命周期只会让状态错位。
+        services.TryAddSingleton<ThemeController>();
+        services.TryAddSingleton<SettingsViewModel>();
+        services.TryAddSingleton<TuningViewModel>();
+        services.TryAddSingleton<ProcessViewModel>();
+        services.TryAddSingleton<LogViewModel>();
+        services.TryAddSingleton<ConfigViewModel>();
+        services.TryAddSingleton<BehaviorViewModel>();
+        services.TryAddSingleton<AdvancedViewModel>();
 
         _services = services.BuildServiceProvider();
         return _services;

@@ -1,0 +1,269 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Zentwik.App.Views.TuningPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:Zentwik.App.ViewModels"
+    xmlns:ctl="using:Zentwik.App.Controls"
+    xmlns:anim="using:Microsoft.UI.Xaml.Media.Animation"
+    xmlns:local="using:Zentwik.App"
+    Background="Transparent">
+
+    <!--
+    ============================================================================
+    调校页（按参考渲染图 1:1）
+    ============================================================================
+    卡片 8px 圆角 / 20,24 内边距；数值输入全部纯 TextBox（34px、Consolas、居中）；
+    下拉 34px / 圆角 6 / ▼ 小箭头；滑块 2px 轨道 14px 圆点（资源覆盖，见 Tokens）；
+    底部浮动保存条初始收起，草稿变更时从下方 20px 处淡入。
+    -->
+
+    <Grid>
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollMode="Disabled"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Padding="{StaticResource AppContentPadding}">
+            <StackPanel Spacing="16">
+
+                <TextBlock Text="调校" Style="{StaticResource AppPageTitle}" Margin="0,0,0,8" />
+
+                <!-- 提示条：只在出错 / 告警时出现，成功不占首屏 -->
+                <InfoBar IsOpen="{x:Bind ViewModel.IsStatusVisible, Mode=TwoWay}"
+                         IsClosable="True"
+                         Severity="{x:Bind local:UiConverters.ToInfoBarSeverity(ViewModel.StatusLevel), Mode=OneWay}"
+                         Title="{x:Bind ViewModel.StatusTitle, Mode=OneWay}"
+                         Message="{x:Bind ViewModel.StatusMessage, Mode=OneWay}">
+                    <InfoBar.Resources>
+                        <CornerRadius x:Key="ControlCornerRadius">8</CornerRadius>
+                    </InfoBar.Resources>
+                </InfoBar>
+
+                <!-- ==================== CPU 卡片 ==================== -->
+                <Border Style="{StaticResource AppCard}">
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- 同步：纯图标按钮，36×36 圆角 6，次级底 -->
+                        <Button Grid.Column="0"
+                                Style="{StaticResource AppIconButton}"
+                                Command="{x:Bind ViewModel.RefreshCommand}"
+                                VerticalAlignment="Center"
+                                ToolTipService.ToolTip="同步当前硬件状态（覆盖未保存的修改）"
+                                AutomationProperties.Name="同步">
+                            <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                        </Button>
+
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock Text="{x:Bind ViewModel.CpuName, Mode=OneWay}"
+                                       Style="{StaticResource AppCpuName}" />
+                            <TextBlock Text="{x:Bind ViewModel.CpuSubText, Mode=OneWay}"
+                                       Style="{StaticResource AppDesc}"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+
+                        <!-- 方案下拉 + 应用：一组操作，间距 8，统一 34px 高 -->
+                        <StackPanel Grid.Column="2"
+                                    Orientation="Horizontal"
+                                    Spacing="8"
+                                    VerticalAlignment="Center">
+                            <Grid MinWidth="150">
+                                <ctl:AppComboBox ItemsSource="{x:Bind ViewModel.ProfileOptions, Mode=OneWay}"
+                                                 SelectedIndex="{x:Bind ViewModel.ProfileIndex, Mode=TwoWay}" />
+                                <!-- 脏数据星号：挂在下拉框右上角，微微溢出边框 -->
+                                <TextBlock Text="*"
+                                           FontSize="18"
+                                           FontWeight="Bold"
+                                           Foreground="{ThemeResource AppAccentBrush}"
+                                           HorizontalAlignment="Right"
+                                           VerticalAlignment="Top"
+                                           Margin="0,-8,2,0"
+                                           IsHitTestVisible="False"
+                                           Visibility="{x:Bind local:UiConverters.ToVisibleWhenTrue(ViewModel.IsDraftDirty), Mode=OneWay}" />
+                            </Grid>
+                            <Button Content="应用"
+                                    Height="34"
+                                    Style="{StaticResource AppButtonPrimary}"
+                                    Command="{x:Bind ViewModel.ApplyCommand}" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- ==================== CO 卡片 ==================== -->
+                <Border Style="{StaticResource AppCard}">
+                    <StackPanel Spacing="16">
+                        <TextBlock Text="核心电压偏移"
+                                   Style="{StaticResource AppCardTitle}" />
+
+                        <Border Style="{StaticResource AppInnerPanel}"
+                                Visibility="{x:Bind ViewModel.IsCoreGridEmpty, Mode=OneWay}">
+                            <TextBlock Text="SMU 未连通，未取到核心列表"
+                                       Style="{StaticResource AppDesc}"
+                                       HorizontalAlignment="Center" />
+                        </Border>
+
+                        <!-- 8 列等分，间距 8；纯 TextBox，禁用加减号 -->
+                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.Cores, Mode=OneWay}"
+                                       Visibility="{x:Bind ViewModel.HasCores, Mode=OneWay}">
+                            <ItemsRepeater.Layout>
+                                <UniformGridLayout Orientation="Horizontal"
+                                                   MaximumRowsOrColumns="8"
+                                                   ItemsStretch="Fill"
+                                                   MinItemWidth="64"
+                                                   MinItemHeight="34"
+                                                   MinColumnSpacing="8"
+                                                   MinRowSpacing="8" />
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="vm:CoreSlotViewModel">
+                                    <TextBox Style="{StaticResource AppTextBoxMono}"
+                                             MaxLength="4"
+                                             Text="{x:Bind EditText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             TextChanged="OnCoTextChanged" />
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </StackPanel>
+                </Border>
+
+                <!-- ==================== FMax 卡片 ==================== -->
+                <Border Style="{StaticResource AppCard}">
+                    <Grid ColumnSpacing="16">
+                        <TextBlock Text="最高加速频率"
+                                   Style="{StaticResource AppCardTitle}"
+                                   VerticalAlignment="Center" />
+                        <StackPanel Orientation="Horizontal"
+                                    Spacing="10"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center">
+                            <TextBox Style="{StaticResource AppTextBoxMono}"
+                                     Width="80"
+                                     MaxLength="4"
+                                     Text="{x:Bind ViewModel.FMaxText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     TextChanged="OnFMaxTextChanged" />
+                            <TextBlock Text="MHz" Style="{StaticResource AppDesc}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- ==================== 电源策略卡片 ==================== -->
+                <Border Style="{StaticResource AppCard}">
+                    <StackPanel Spacing="16">
+                        <TextBlock Text="电源策略控制" Style="{StaticResource AppCardTitle}" />
+
+                        <Grid ColumnSpacing="16" RowSpacing="18">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Grid.Column="0"
+                                       Text="电源计划" Style="{StaticResource AppLabel}" />
+                            <ctl:AppComboBox Grid.Row="0" Grid.Column="1"
+                                             MinWidth="140"
+                                             HorizontalAlignment="Right"
+                                             ItemsSource="{x:Bind ViewModel.PowerPlanOptions}"
+                                             SelectedIndex="{x:Bind ViewModel.PowerPlanIndex, Mode=TwoWay}"
+                                             SelectionChanged="OnPowerSelectionChanged" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0"
+                                       Text="升频模式" Style="{StaticResource AppLabel}" />
+                            <ctl:AppComboBox Grid.Row="1" Grid.Column="1"
+                                             MinWidth="140"
+                                             HorizontalAlignment="Right"
+                                             ItemsSource="{x:Bind ViewModel.BoostOptions}"
+                                             SelectedIndex="{x:Bind ViewModel.BoostIndex, Mode=TwoWay}"
+                                             IsEnabled="{x:Bind ViewModel.PowerAvailable, Mode=OneWay}"
+                                             SelectionChanged="OnPowerSelectionChanged" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0"
+                                       Text="核心停放" Style="{StaticResource AppLabel}" />
+                            <StackPanel Grid.Row="2" Grid.Column="1"
+                                        Orientation="Horizontal"
+                                        Spacing="12"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Center">
+                                <Slider Width="140"
+                                        Minimum="0"
+                                        Maximum="100"
+                                        StepFrequency="5"
+                                        Value="{x:Bind ViewModel.ParkingValue, Mode=TwoWay}"
+                                        IsEnabled="{x:Bind ViewModel.PowerAvailable, Mode=OneWay}"
+                                        ValueChanged="OnParkingValueChanged"
+                                        VerticalAlignment="Center" />
+                                <TextBox Style="{StaticResource AppTextBoxMono}"
+                                         Width="64"
+                                         MaxLength="3"
+                                         Text="{x:Bind ViewModel.ParkingText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         TextChanged="OnParkingTextChanged" />
+                                <TextBlock Text="%" Style="{StaticResource AppDesc}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- ==================== 脏数据浮动保存条 ====================
+             初始收起；草稿变更时从下方 20px 淡入（ShowDirtyBar）。 -->
+        <Border x:Name="DirtyBar"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Bottom"
+                Margin="0,0,0,28"
+                Background="{ThemeResource AppPopupBackgroundBrush}"
+                BorderBrush="{ThemeResource AppAccentBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="10"
+                Padding="18,10"
+                Visibility="Collapsed">
+            <Border.RenderTransform>
+                <CompositeTransform x:Name="DirtyBarTransform" TranslateY="20" />
+            </Border.RenderTransform>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <TextBlock Text="参数已修改"
+                           FontSize="13"
+                           Foreground="{ThemeResource AppTextPrimaryBrush}"
+                           VerticalAlignment="Center"
+                           Margin="0,0,4,0" />
+                <Button Content="放弃"
+                        Style="{StaticResource AppButton}"
+                        Click="OnDiscardClick" />
+                <Button Content="保存覆盖"
+                        Style="{StaticResource AppButtonPrimary}"
+                        Click="OnSaveClick" />
+                <Button Content="另存为"
+                        Style="{StaticResource AppButton}"
+                        Click="OnSaveAsClick" />
+            </StackPanel>
+        </Border>
+
+        <!-- ==================== 写入期遮罩 ====================
+             覆盖整页并吃掉指针事件：SMU 写入期间任何输入都会被下一次写入带上。 -->
+        <Grid Background="{ThemeResource AppScrimBrush}"
+              Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay}">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
+                <ProgressRing IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}"
+                              Width="32" Height="32"
+                              HorizontalAlignment="Center" />
+                <TextBlock Text="{x:Bind ViewModel.BusyText, Mode=OneWay}"
+                           FontSize="14" FontWeight="Medium"
+                           Foreground="{ThemeResource AppTextPrimaryBrush}"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="若失败将自动回滚至原状态"
+                           Style="{StaticResource AppDesc}"
+                           HorizontalAlignment="Center" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Page>
