@@ -78,7 +78,17 @@ public sealed partial class TuningPage : Page
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(TuningViewModel.IsDraftDirty) && !ViewModel.IsDraftDirty)
+        if (e.PropertyName != nameof(TuningViewModel.IsDraftDirty))
+            return;
+
+        // 保存条的显隐完全由 IsDraftDirty 驱动，两个方向都走这一条路：
+        //   置脏（用户输入 / 步进按钮）→ 弹条；
+        //   清脏（应用 / 保存 / 放弃 / 同步）→ 收条。
+        // 早先两边各管一半，于是出现「角标消失了、保存条还杵着」
+        // 与「步进按钮改完值、保存条不弹」两种半吊子状态。
+        if (ViewModel.IsDraftDirty)
+            ShowDirtyBar();
+        else
             HideDirtyBar();
     }
 
@@ -89,7 +99,6 @@ public sealed partial class TuningPage : Page
             return;
 
         ViewModel.MarkDirty();
-        ShowDirtyBar();
     }
 
     // ==================== 浮动保存条 ====================

@@ -13,13 +13,32 @@ namespace Zentwik.App.ViewModels;
 /// </summary>
 public sealed partial class CoreSlotViewModel : ObservableObject
 {
+    /// <summary>
+    /// CO 值域下界。步进钳制与下发校验共用这一组常量 ——
+    /// 两处各写一份迟早会漂移，漂移的结果是「界面允许写、下发时被拒」。
+    /// </summary>
+    public const int CoMin = -50;
+
+    /// <summary>CO 值域上界。</summary>
+    public const int CoMax = 50;
+
     private readonly Action<CoreSlotViewModel> _apply;
+    private readonly Action<CoreSlotViewModel> _edited;
     private bool _suppressDirty;
 
-    public CoreSlotViewModel(int index, int coresPerCcd, int hardwareValue, Action<CoreSlotViewModel> apply)
+    public CoreSlotViewModel(
+        int index,
+        int coresPerCcd,
+        int hardwareValue,
+        Action<CoreSlotViewModel> apply,
+        Action<CoreSlotViewModel> edited)
     {
+        ArgumentNullException.ThrowIfNull(apply);
+        ArgumentNullException.ThrowIfNull(edited);
+
         Index = index;
         _apply = apply;
+        _edited = edited;
 
         int perCcd = coresPerCcd > 0 ? coresPerCcd : 8;
         CcdText = $"CCD{index / perCcd}";
@@ -79,6 +98,33 @@ public sealed partial class CoreSlotViewModel : ObservableObject
 
     public IRelayCommand ApplyCommand { get; }
 
+    /// <summary>
+    /// 步进 +1。
+    ///
+    /// 【为什么不接参数】
+    /// 前端把命令经 TextBox.Tag（减）/ Header（加）穿透进控件模板，
+    /// 模板内按钮没有 CommandParameter（每格自带命令，入口即身份），所以这里不接参数。
+    /// </summary>
+    [RelayCommand]
+    private void Increment() => Step(1);
+
+    /// <summary>步进 -1。</summary>
+    [RelayCommand]
+    private void Decrement() => Step(-1);
+
+    private void Step(int delta)
+    {
+        int next = Math.Clamp(Value + delta, CoMin, CoMax);
+        if (next == Value)
+            return;
+
+        Value = next;
+
+        // 步进按钮走命令，不经过 TextChanged：脏状态必须由这里显式上报，
+        // 否则浮动保存条与方案名旁的 * 角标都不会出现。
+        _edited(this);
+    }
+
     public int RoundedValue => Value;
 
     /// <summary>回填硬件值。刷新/写入成功后调用，同时清掉 dirty 态。</summary>
@@ -113,7 +159,13 @@ public sealed partial class CoreSlotViewModel : ObservableObject
         RaiseDirty();
     }
 
-    partial void OnValueChanged(int value) => RaiseDirty();
+    partial void OnValueChanged(int value)
+    {
+        // EditText 必须无条件通知：它绑在 TextBox 上，
+        // 后端改 Value（回填硬件值 / 步进）后界面不跟着变，格子就一直是旧值。
+        OnPropertyChanged(nameof(EditText));
+        RaiseDirty();
+    }
 
     private void RaiseDirty()
     {

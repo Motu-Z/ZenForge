@@ -6,6 +6,7 @@
 > **契约基线**：`v2.0.0-can15`（commit `3f928f7`，分支 `main`）。
 >
 > **契约版本记录**：
+> - **v1.4（2026-11-01，人类批准）**：补全**步进命令**（4 个成员 / 6 处绑定）：`CoreSlotViewModel.IncrementCommand` / `DecrementCommand`（CO ±1）与 `TuningViewModel.IncrementCommand` / `DecrementCommand`（`IRelayCommand<string>`，参数 `"FMax"` / `"Parking"`）。步进**必须置脏**（不经过 `TextChanged`，脏状态不会自动产生）。前端 XAML 无需改动，详见 4.3。
 > - **v1.3（2026-11-01，人类批准）**：`RefreshCommand` 升级为**全量同步** —— 一次读回 SMU 核心状态 **+** 电源策略（计划 / 升频 / 停放），并按「读到的真值覆盖草稿」处置界面状态（详见 4.2）。命令名称 / 来源方法 / 绑定方式全部未变，**前端 XAML 无需改动**；是否在同步前弹确认框由前端自行决定（判据与配方见 4.2）。
 > - **v1.2（2026-11-01，人类批准）**：电源策略防抖收敛到 ViewModel —— 滑杆变更停手 700ms 自动执行、下拉立即执行。**`ApplyPowerCommand` 本身不变**（名称 / 来源方法 / 行为 / 绑定方式全部照旧），新增 View 层可调用的非绑定方法 `SchedulePowerApply()`（详见 4.1）。**前端无需改动 XAML**：既有事件处理器名称与签名保持不变。v1.1 立项的 `IsCoreParkingSupported` / `IsFMaxSupported` 两个硬闸门属性**均已实现**。
 > - **v1.1（2026-11-01，人类批准）**：新增 `IsCoreParkingSupported` / `IsFMaxSupported` 两个能力闸门属性（详见 2.2 / 2.3），**由后端 AI 补全实现**（v1.1 当时代码尚无这两个属性，v1.2 起均已实现）。其余属性、命令、集合定义与 v1.0 完全一致，前端已有绑定不受影响。
@@ -148,6 +149,8 @@
 | `IsDirty` | `bool` | OneWay | `!HardwareKnown \|\| Value != HardwareValue`——只有 dirty 的格子才值得下发。 |
 | `RoundedValue` | `int` | OneWay | 下发 / 保存时读取的值（当前 = `Value`）。 |
 | `ApplyCommand` | `IRelayCommand` | — | **单核写入**入口（VM 已提供；当前 XAML 未绑定，保留给逐核下发按钮）。失败只回滚这一核，不会把别的核拽回旧值。 |
+| `IncrementCommand` | `IRelayCommand` | — | **步进 +1**（CO ±1，钳制 -50~+50）。经 `TextBox.Header` 穿透进模板，模板内按钮**没有** `CommandParameter`，故本命令**不接参数**。步进后必须置脏。 |
+| `DecrementCommand` | `IRelayCommand` | — | **步进 -1**（同上）。经 `TextBox.Tag` 穿透进模板，不接参数。步进后必须置脏。 |
 
 > 方法（非绑定，后端内部 / View 不直接调）：`UpdateHardware(int)`（回填硬件值并清 dirty）、`LoadDraft(int)`（从配置文件载入草稿，`int.MinValue` 忽略）。
 
@@ -166,6 +169,8 @@
 | `SaveCommand` | `Save()` | 浮动保存条「保存覆盖」按钮（View 层 `Click → Execute(null)`） | **只落盘不下发**。保存的是"期望状态"（逐核 `RoundedValue` + FMax + 出厂基线），供开机静默自启重新应用。无核心列表时拒绝。 |
 | `DiscardDraftCommand` | `DiscardDraft()` | 浮动保存条「放弃」按钮（`Click → Execute(null)`） | 界面回到**当前选中方案**（`ProfileIndex` 对应快照）的 CO / FMax 值，**不碰硬件**；清脏状态。 |
 | `SaveDraftAsCommand` | `SaveDraftAs()` | 浮动保存条「另存为」按钮（`Click → Execute(null)`） | 当前草稿（CO + FMax）存成新方案（名 "自定义方案 HHmmss"）并选中新方案，落盘，清脏状态。 |
+| `IncrementCommand` | `Increment(string target)` | 步进「加号」。前端经 `TextBox.Header` 穿透，模板内 `CommandParameter="FMax"` / `"Parking"` | 参数 `"FMax"` → FMax **+10 MHz**（钳制 400~5400）；参数 `"Parking"` → 核心停放 **+5%**（钳制 0~100）。**内部必须调 `MarkDirty()`**。 |
+| `DecrementCommand` | `Decrement(string target)` | 步进「减号」。前端经 `TextBox.Tag` 穿透，模板内 `CommandParameter="FMax"` / `"Parking"` | 同上，方向相反。**内部必须调 `MarkDirty()`**。 |
 
 > 模板示例名 → 真实名对照：`SyncHardwareCommand`→**`RefreshCommand`**；`ApplySettingsCommand`→**`ApplyCommand`**；`DiscardChangesCommand`→**`DiscardDraftCommand`**；`SaveProfileCommand`→**`SaveCommand`**；`SaveAsProfileCommand`→**`SaveDraftAsCommand`**。
 
@@ -213,6 +218,28 @@
 
 > **给前端的两条建议（属前端文件，后端不代改）**：① 同步按钮 Tooltip 现为「同步当前硬件状态（覆盖未保存的修改）」，可改为「同步硬件与电源策略（覆盖未保存的修改）」以匹配新语义；② 若采用确认框方案，`ContentDialog` 放在 XAML 里、由后端提供 `OnRefreshClick` 处理器是可行的分工。
 
+### 4.3 步进命令（v1.4 新增）
+
+调校页的三个数值入口（逐核 CO、FMax、核心停放）都提供隐式加减号：平时隐藏，悬浮 / 聚焦时淡入。
+
+| 入口 | 命令宿主 | 类型 | 步长 | 钳制 | 穿透方式 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 逐核 CO | `CoreSlotViewModel.IncrementCommand` / `DecrementCommand` | `IRelayCommand`（**无参**） | ±1 | -50 ~ +50 | `TextBox.Tag`（减）/ `Header`（加），模板内按钮**无** `CommandParameter` |
+| FMax | `TuningViewModel.IncrementCommand` / `DecrementCommand` | `IRelayCommand<string>` | ±10 MHz | 400 ~ 5400 | `TextBox.Tag` / `Header`，模板内 `CommandParameter="FMax"` |
+| 核心停放 | 同上（同一对命令） | `IRelayCommand<string>` | ±5% | 0 ~ 100 | `TextBox.Tag` / `Header`，模板内 `CommandParameter="Parking"` |
+
+**参数字面量契约**：`"FMax"` / `"Parking"` 两个字符串必须与前端 XAML 的 `CommandParameter` 逐字一致，改一处必须同时改另一处。
+
+**步进为什么必须显式置脏**：步进按钮走的是 `Command`，**不经过 `TextChanged`** —— 后端改值 → 界面数字变化 → 但没有任何事件去报告「用户改过东西」。所以两个步进命令在改值后都必须调一次 `MarkDirty()`，否则 `IsDraftDirty` 不置位，方案名旁的 `*` 角标与底部浮动保存条都不会出现。
+
+**停放步长为什么是 5**：滑杆 `StepFrequency=5`，步进结果必须仍落在滑杆可取的格点上，否则滑杆会把值回咬到最近的 5，两边数字对不上还会互相回写。步进前先把当前值归到格点再 ±5。
+
+**FMax 步长为什么是 10**：值域 400~5400 跨 5000，步进 1 要点五千下；10 既够细又能一步跨过一个常见档位差。
+
+**FMax / 停放步进受硬闸门约束**：`IsFMaxSupported == false` 时 FMax 步进不生效，`IsCoreParkingSupported == false` 时停放步进不生效 —— 与前端把输入框置灰的语义保持一致。
+
+> **后端实现约束（前端依赖）**：`CoreSlotViewModel.Value` 变化时**必须**发 `EditText` 的 `PropertyChanged`。`EditText` 是绑在 TextBox 上的计算属性，不发通知则后端改值（步进 / 回填硬件值）后界面数字不更新，格子会一直显示旧值。
+
 ---
 
 ## 5. 交互约定 (Interactions)
@@ -226,7 +253,7 @@
 ### 5.2 脏数据链路（View 层职责）
 1. 任何用户输入路径（CO/FMax/停放 TextBox 打字、下拉换项、拖滑杆）最终必须调用 `ViewModel.MarkDirty()` 一次 → `IsDraftDirty=true` → `*` 角标显现。
 2. 判定"是不是用户在操作"的门槛：TextBox 仅在**持有焦点**时才算用户输入（回填 / 容器延迟 realize 也触发 TextChanged，必须排除）；初始化回填全程压住（`_suppressUiDirty`）。
-3. 命令成功 / 切方案 / 同步后后端会清 `IsDraftDirty`，**View 层订阅 `IsDraftDirty` 的 PropertyChanged 自动收条**（v1.3 起由后端驱动，前端无需处理；显式 `HideDirtyBar()` 仍作兜底）。
+3. **浮动保存条的显隐完全由 `IsDraftDirty` 驱动，两个方向都自动**（v1.4 起）：置脏（用户输入 / 步进按钮）→ 弹条；清脏（应用 / 保存 / 放弃 / 同步）→ 收条。View 层订阅 `IsDraftDirty` 的 `PropertyChanged` 统一处理，前端无需参与（显式 `HideDirtyBar()` 仍作兜底）。
 4. `IsBusy=true` 期间忽略一切 MarkDirty。
 
 ### 5.3 提示条语义
@@ -261,6 +288,16 @@
 ---
 
 ## 7. 契约变更登记（新增属性必须走此流程）
+
+**v1.4 变更记录（2026-11-01，人类批准）**：
+
+| 提案项 | 类型 | 用途 | 落地状态 |
+| :--- | :--- | :--- | :--- |
+| `CoreSlotViewModel.IncrementCommand` / `DecrementCommand` | `IRelayCommand`（无参） | 逐核 CO 步进 ±1 | ✅ **已实现**（钳制 -50~+50；步进后置脏） |
+| `TuningViewModel.IncrementCommand` / `DecrementCommand` | `IRelayCommand<string>` | FMax（±10 MHz）与核心停放（±5%）步进 | ✅ **已实现**（参数 `"FMax"` / `"Parking"`；步进后置脏；受硬闸门约束） |
+| `EditText` 的 `PropertyChanged` | 既有属性的通知约定 | 后端改 `Value`（步进 / 回填）后 TextBox 数字同步 | ✅ **已实现**（v1.4 补齐；此前后端改值界面不更新） |
+| 浮动保存条双向绑定 `IsDraftDirty` | View 层行为 | 置脏弹条 / 清脏收条，同一条路 | ✅ **已实现**（顺带修掉「步进后保存条不弹」） |
+| `Strings/Resources.resw`（中性资源） | 资源文件 | `x:Uid` 引用的属性必须有默认或中性资源，否则 PRI263 警告 | ✅ **已补齐**（前端只建了 zh-CN 卫星；与 zh-CN 逐条对应） |
 
 **v1.3 变更记录（2026-11-01，人类批准）**：
 

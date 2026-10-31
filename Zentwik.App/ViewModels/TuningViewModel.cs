@@ -32,11 +32,24 @@ namespace Zentwik.App.ViewModels;
 public sealed partial class TuningViewModel : ObservableObject
 {
     /// <summary>CO 允许区间，与 Core 的下发校验保持一致（防砖红线）。</summary>
-    private const int CoMin = -50;
-    private const int CoMax = 50;
+    private const int CoMin = CoreSlotViewModel.CoMin;
+    private const int CoMax = CoreSlotViewModel.CoMax;
 
     private const int FMaxMin = 400;
     private const int FMaxMax = 5400;
+
+    /// <summary>
+    /// FMax 步进步长（MHz）。值域 400~5400 跨 5000，步进 1 要点五千下；
+    /// 10 既够细又能一步跨过一个常见档位差。
+    /// </summary>
+    private const int FMaxStep = 10;
+
+    /// <summary>
+    /// 核心停放步进步长（%）。与滑杆 <c>StepFrequency=5</c> 对齐：
+    /// 步进结果必须仍落在滑杆可取的格点上，否则滑杆会把值回咬到最近的 5，
+    /// 两边数字对不上还会互相回写。
+    /// </summary>
+    private const int ParkingStep = 5;
 
     /// <summary>
     /// 滑杆停手多久之后自动提交电源策略（毫秒）。
@@ -177,6 +190,8 @@ public sealed partial class TuningViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
     [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
     [NotifyCanExecuteChangedFor(nameof(ApplyPowerCommand))]
+    [NotifyCanExecuteChangedFor(nameof(IncrementCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DecrementCommand))]
     public partial bool IsBusy { get; set; }
 
     [ObservableProperty]
@@ -296,6 +311,70 @@ public sealed partial class TuningViewModel : ObservableObject
     /// </summary>
     [ObservableProperty]
     public partial bool IsCoreParkingSupported { get; set; }
+
+    // ==================== 步进命令 ====================
+
+    /// <summary>
+    /// 步进 +1：参数 <c>"FMax"</c> / <c>"Parking"</c>。
+    ///
+    /// 【为什么用字符串参数而不是四条独立命令】
+    /// 前端把命令经 TextBox.Tag（减）/ Header（加）穿透进控件模板，
+    /// 模板内按钮用 CommandParameter 传入口名。一个 Tag/Header 对就能表达
+    /// 「同一组加减号，不同入口」；拆成四条命令要占四个穿透位，且入口名写错时无处报错。
+    /// 参数字面量必须与前端 XAML 的 CommandParameter 一一对应。
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRun))]
+    private void Increment(string target) => StepValue(target, 1);
+
+    /// <summary>步进 -1：参数 <c>"FMax"</c> / <c>"Parking"</c>。</summary>
+    [RelayCommand(CanExecute = nameof(CanRun))]
+    private void Decrement(string target) => StepValue(target, -1);
+
+    private void StepValue(string target, int sign)
+    {
+        bool changed = target switch
+        {
+            "FMax" => StepFMax(sign),
+            "Parking" => StepParking(sign),
+            _ => false,
+        };
+
+        if (!changed)
+            return;
+
+        // 步进按钮走命令，不经过 TextChanged：脏状态必须在这里显式置位。
+        MarkDirty();
+    }
+
+    private bool StepFMax(int sign)
+    {
+        // 通道不支持时输入框本就置灰，步进同样不生效：两者语义必须一致。
+        if (!IsFMaxSupported)
+            return false;
+
+        int next = Math.Clamp(FMaxValue + sign * FMaxStep, FMaxMin, FMaxMax);
+        if (next == FMaxValue)
+            return false;
+
+        FMaxValue = next;
+        return true;
+    }
+
+    private bool StepParking(int sign)
+    {
+        if (!IsCoreParkingSupported)
+            return false;
+
+        // 先把当前值归到滑杆格点再步进，保证结果仍落在 StepFrequency 的格点上。
+        // 显式指定 AwayFromZero：默认的银行家舍入会把 .5 收到偶数侧，格点判定会飘。
+        double baseValue = Math.Round(ParkingValue / ParkingStep, MidpointRounding.AwayFromZero) * ParkingStep;
+        double next = Math.Clamp(baseValue + sign * ParkingStep, 0, 100);
+        if (Math.Abs(next - ParkingValue) < 0.001)
+            return false;
+
+        ParkingValue = next;
+        return true;
+    }
 
     // ==================== 脏数据状态（浮动保存条 / 预设星号联动） ====================
 
@@ -1054,7 +1133,9 @@ public sealed partial class TuningViewModel : ObservableObject
         Cores.Clear();
         for (int i = 0; i < margins.Length; i++)
         {
-            CoreSlotViewModel slot = new(i, coresPerCcd, margins[i], s => _ = ApplyCoreAsync(s));
+            CoreSlotViewModel slot = new(i, coresPerCcd, margins[i],
+                s => _ = ApplyCoreAsync(s),
+                s => MarkDirty());
             slot.PropertyChanged += OnSlotPropertyChanged;
             Cores.Add(slot);
         }
