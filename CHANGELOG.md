@@ -4,7 +4,44 @@
 
 ---
 
-## [Unreleased] — v1.1.x 骨架（尚未改版本号，代码已合入）
+## [1.2.0] — WPF 封版
+
+> WPF 线的最后一个版本。此后 UI 层迁 WinUI 3 + Native AOT，本版本只做「修干净 + 拆干净」。
+> 不引入 DI 容器与 EventBus —— 即将被重写的 UI 层不该再多一层要拆的抽象。
+
+### Changed (修改)
+
+- **点 × 不再隐藏窗口，直接销毁**（`MainWindow.OnClosing`）。v1.0.x 的「秒开」优化为了让第二次打开快几百毫秒，把整棵 WPF 可视树留在内存里，实测 74MB（早期版本 3~8MB）。对一个后台绑核工具来说这笔账不划算。现在关闭 = 拆窗口，下次双击由 `ShowOrCreateMainWindow` 全新实例化。
+- **补齐窗口销毁时的三处强引用**——这是「窗口关了内存不降」的真正原因，都在静态字段上：
+  1. `Application.MainWindow` 是强引用，`Close()` 不会替你清，不清就一直挂到下次 SetMainWindow；
+  2. `ToastService.Host` 静态指向可视树里的 `ToastHost`，视觉父级链一路指回 Window；
+  3. `PageTimerManager` 的静态表里若漏了一个定时器，它的回调委托就把整个页面钉在内存里。
+  现在分别用「置空 MainWindow / `Detach()` / `ClearAll()`」收掉，并在销毁后做两次内存回收（Idle 一次，3 秒静息后一次）。
+- **`ThemeService` 轮询跟随窗口生命周期**：以前窗口销毁时停掉就再也没起来，第二次打开后改系统主题界面不跟了。现在 `MainWindow` 构造时重新挂（方法本身幂等）。
+- **「后台轻量模式」改名「最小化后释放界面」**，语义收窄到只作用于最小化 —— 关闭已经一律销毁，这个开关再决定「关掉要不要销毁」就是死开关。
+
+### Added (新增)
+
+- **`ZenForge.Core` 类库**：SMU 读写、电源策略、日志、进程监听、方案与场景规则全部搬进去，`ZenForge.slnx` 管两个工程。
+  **红线由编译器守**：Core 不设 `UseWPF` / `UseWindowsForms`，代码里出现任何 `System.Windows.*` 当场编译失败。实测产物引用表里没有 `PresentationFramework` / `PresentationCore` / `WindowsBase` / `System.Windows.Forms` / `System.Drawing`。
+  命名空间刻意保持 `ZenForge.Services` / `ZenForge.Helpers` 不变：这次是把文件搬进独立程序集（隔离依赖），不是改名，全局改一遍命名空间只会让 diff 淹没真正要看的东西。
+- **`LogThrottle`**：同 key（进程名 + 错误码）60 秒内只放行一条，下次放行时补报「另有 N 条相同错误已抑制」。受保护进程（错误 5）不再刷屏，但也不静音 —— 把这类错误降成 Debug 等于把「绑不上」藏起来。
+- **`PriorityLabelConverter`**：优先级下拉与表格列显示中文（高 / 高于标准 / 标准 / 低于标准 / 低），数据层仍是 `High` / `Normal` 常量 —— 那些字符串存在 binding.json 里，改成中文等于让旧配置全部失效。
+
+### Fixed (修复)
+
+- **搜索框从来没有占位符**：`Themes/SearchBox.xaml` 里那个 `PART_Placeholder` 只有名字和位置，没有 `Text="{TemplateBinding Placeholder}"`。页面写 `Placeholder="搜索进程..."`，模板里永远是空串。这个 bug 从控件抽出来的那一版就在，两个版本没人发现，因为「看不见占位符」和「占位符是空的」在界面上长得一模一样。
+- **搜索框光标垂直偏下**：`PART_ContentHost` 自己写了 `VerticalAlignment="Center"`，TextBox 又按 `VerticalContentAlignment` 再居中一次，两次居中基准不同（一个按行高、一个按内容框），32 高的框里偏 1~2px 就很明显。去掉前者，只留后者（也是 WPF 原生模板的写法）。
+- **占位符在聚焦时消失**：改成只看「有没有内容」，空着就一直显示；元素顺序挪到输入框之前，光标画在提示文字之上，不会出现「文字盖住光标」。
+
+### 验收口径（本版无法在沙箱内验证的部分）
+
+- 关窗后内存：代码路径已收干净，但「≤10MB」这条要在真机看。工作集可以靠 `SetProcessWorkingSetSize` 压到个位数 MB；**私有提交降不到 10MB 以内**——.NET 运行时与已加载的 WPF 程序集在 .NET Core 上无法卸载（没有 AppDomain 了），这部分常驻约 80~90MB。任务管理器「内存」列看的是私有工作集，所以关窗后应当看到个位数 MB，而「提交大小」仍会是几十 MB。这是运行时特性，不是泄漏；迁到 WinUI 3 + AOT 之后才会真正变小。
+- 动画观感、高 DPI 渲染、搜索框光标位置：需要 Windows 真机。
+
+---
+
+## [Unreleased — v1.1.x 骨架] — v1.1.x 骨架（尚未改版本号，代码已合入）
 
 > 骨架阶段：数据结构、落盘、界面通路都已接通，**事件源还没接**，功能不算实装。
 

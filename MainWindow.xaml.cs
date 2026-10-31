@@ -44,6 +44,12 @@ namespace ZenForge
 
             UiTextOptions.Attach(this);
 
+            // 主题/强调色轮询跟着窗口走：CloseAndDestroy 里会把它停掉，
+            // 重新打开界面时必须重新挂起来 —— 否则第二次打开之后，
+            // 改系统主题界面不跟了，用户会以为「重启才好」。
+            // 这个方法是幂等的（内部先 Dispose 旧定时器）。
+            ThemeService.StartSystemMonitor();
+
             SourceInitialized += (_, _) =>
             {
                 WindowHelper.ApplyWindowAttributes(this);
@@ -322,6 +328,10 @@ namespace ZenForge
                 // 「仅留服务进程」省下的那部分内存一分都回收不了。
                 _router.Clear();
 
+                // 主题轮询先停：它属于宿主作用域，ClearAll 也会收掉它，
+                // 但显式停一次能保证「窗口没了就不再有人读注册表」这条读得出来。
+                ThemeService.StopSystemMonitor();
+
                 // 兜底：页面理论上都在 OnDeactivated 里 Dispose 了自己的定时器，
                 // 但「理论上」在内存问题上不值钱。窗口都要没了，全部收掉。
                 PageTimerManager.ClearAll();
@@ -331,8 +341,6 @@ namespace ZenForge
                 // 一路强引用把刚销毁的窗口又拽回来。Unloaded 大部分时候会触发，
                 // 但窗口 Close 的路径上不保证，所以显式断一次。
                 ToastService.Detach();
-
-                ThemeService.StopSystemMonitor();
             }
             catch (Exception ex)
             {

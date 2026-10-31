@@ -1,6 +1,20 @@
 # ZenForge 自动化开发进度（AUTOMATION_PROGRESS）
 
-> 执行时间：2026-10-31 02:25 – 03:5x（自动挂机）
+> 执行时间：2026-10-31 02:25 – 11:xx（自动挂机 + 白天封版）
+>
+> ## 第四轮（v1.2.0 封版）结果速览
+>
+> | Tag | 内容 | 编译 |
+> |---|---|---|
+> | `v1.2.0-can1` | 关窗即销毁（废弃秒开）+ 静态引用/定时器解绑 + 二次内存回收 | 0/0 |
+> | `v1.2.0-can2` | `OpenProcess` 最小权限 + 同类失败 60 秒节流（`LogThrottle`） | 0/0 |
+> | `v1.2.0-can3` | 调校页三卡标题中文化并统一 L2、SMU 改「已联通」、优先级档位汉化 | 0/0 |
+> | `v1.2.0-can4` | 搜索框：占位符绑定缺失 / 光标垂直偏移 / 聚焦即消失 | 0/0 |
+> | `v1.2.0-can5` | 抽离 `ZenForge.Core`（零 WPF 引用，`dotnet build` 单工程可验证） | 0/0 |
+> | `v1.2.0-can6` | 文档：CHANGELOG、封版交接文档、规范路线图、版本号 1.2.0 | 0/0 |
+>
+> 未验证项（沙箱为 Linux，无 Windows 运行时）：关窗后真实内存、动画观感、高 DPI 渲染、
+> 搜索框光标像素位置。代码路径与清理点已在 `docs/代码审查报告-v1.0.4.md` 与 CHANGELOG 中列明。
 > 工程路径：`/workspace/projects/ZenForge` ｜ 仓库：Motu-Z/ZenForge（main）
 > 编译口径：`dotnet build -c Release -p:EnableWindowsTargeting=true`，**全程 0 警告 0 错误**
 
