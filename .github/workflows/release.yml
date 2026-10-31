@@ -44,5 +44,10 @@ jobs:
         tag_name: ${{ github.event.inputs.tag_name || github.ref_name }} # 手动触发用 input，推送触发用 ref_name
         files: ./Zentwik-win-x64.zip
         generate_release_notes: true
+        # canary（can）构建必须标成预发布：GitHub 会把「最新版本」给非预发布项，
+        # 一旦 can 被当成正式版，所有走 /releases/latest 的下载入口都会拿到
+        # 一个尚未实机验证的构建。v2.0.0-can1 当初是手工勾的预发布，
+        # v2.0.0-can2 就漏成了正式版 —— 说明靠人记得勾不可靠，写进流程里。
+        prerelease: ${{ contains(github.ref_name, 'can') || contains(github.event.inputs.tag_name, 'can') }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
