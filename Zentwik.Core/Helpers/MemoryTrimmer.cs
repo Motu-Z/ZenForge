@@ -18,7 +18,7 @@ namespace Zentwik.Core.Helpers
     /// 只做 GC 不做最后一步，两条轻量路径在任务管理器里看起来会一模一样 —— 这正是
     /// 「仅清空页面」和「仅驻留服务」测得差不多数字的原因：两边都只丢了引用，没交还内存。
     /// </summary>
-    internal class MemoryTrimmer
+    internal partial class MemoryTrimmer
     {
         private readonly ILogService _log;
 
@@ -28,12 +28,12 @@ namespace Zentwik.Core.Helpers
             _log = log;
         }
 
-        [DllImport("kernel32.dll", SetLastError = true)]
+        [LibraryImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool SetProcessWorkingSetSize(IntPtr process, IntPtr min, IntPtr max);
+        private static partial bool SetProcessWorkingSetSize(IntPtr process, IntPtr min, IntPtr max);
 
-        [DllImport("kernel32.dll")]
-        private static extern IntPtr GetCurrentProcess();
+        [LibraryImport("kernel32.dll")]
+        private static partial IntPtr GetCurrentProcess();
 
         /// <summary>此刻的工作集与私有提交（字节）。取不到时返回 0。</summary>
         private (long WorkingSet, long Private) Snapshot()

@@ -42,18 +42,7 @@ namespace Zentwik.Core.DependencyInjection
 
                 // 未显式指定目录时落到 %AppData%\Zentwik\Logs
                 if (string.IsNullOrWhiteSpace(options.Directory))
-                {
-                    options = new LogOptions
-                    {
-                        Directory = provider.GetRequiredService<IAppPaths>().Logs,
-                        MaxEntries = options.MaxEntries,
-                        TrimBatch = options.TrimBatch,
-                        MaxMessageChars = options.MaxMessageChars,
-                        RetentionDays = options.RetentionDays,
-                        MaxPendingEntries = options.MaxPendingEntries,
-                        Verbose = options.Verbose
-                    };
-                }
+                    options.Directory = provider.GetRequiredService<IAppPaths>().Logs;
 
                 return new LogService(options, dispatcher);
             });

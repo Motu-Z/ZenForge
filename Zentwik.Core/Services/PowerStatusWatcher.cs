@@ -18,7 +18,7 @@ namespace Zentwik.Core.Services
     /// 那要引 System.Windows.Forms，为一个字段把整个 WinForms 拖进一个纯 WPF 工程
     /// 不值得 —— 它背后也只是 GetSystemPowerStatus，这里直接调同一个 API。
     /// </summary>
-    public class PowerStatusWatcher
+    public partial class PowerStatusWatcher
     {
         private readonly ILogService _log;
 
@@ -39,8 +39,9 @@ namespace Zentwik.Core.Services
             public uint BatteryFullLifeTime;
         }
 
-        [DllImport("kernel32.dll")]
-        private static extern bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS status);
+        [LibraryImport("kernel32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS status);
 
         private const byte AcLineOffline = 0;
         private const byte AcLineOnline = 1;

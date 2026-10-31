@@ -1,0 +1,71 @@
+name: AOT Probe
+
+# Native AOT 的回归门禁。
+#
+# 为什么单独一个工作流、而不是并进 release.yml：
+#   · Release 走的是 WPF 主工程，那一条链路本来就不做 AOT；
+#   · AOT 探针失败应该是一条独立的红灯，而不是让发版整体失败 ——
+#     发版失败会掩盖「到底是包没打出来，还是只掉了一条裁剪告警」。
+#
+# 为什么不放在本地构建：
+#   Windows 上 Native AOT 必须链到 Windows SDK 的 kernel32.lib / ucrt.lib。
+#   windows-latest 镜像自带 VS 2022 的 C++ 工作负载与 Windows SDK，
+#   本地装这两样要 2GB 以上系统级改动，不适合塞进项目脚本。
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches: [main]
+    paths:
+      - 'Zentwik.Core/**'
+      - 'build/Zentwik.AotProbe/**'
+      - '.github/workflows/aot-probe.yml'
+
+  pull_request:
+    paths:
+      - 'Zentwik.Core/**'
+      - 'build/Zentwik.AotProbe/**'
+
+jobs:
+  native-aot:
+    name: Build & run Core under Native AOT
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # -warnaserror：裁剪 / AOT 分析器的告警一律升级为错误。
+      # 这一条就是「IL2xxx 必须清零」的可执行版本，靠人盯日志迟早会漏。
+      - name: Publish (Native AOT, warnings as errors)
+        run: >
+          dotnet publish build/Zentwik.AotProbe
+          -c Release
+          -r win-x64
+          -p:PublishAot=true
+          -p:EnableTrimAnalyzer=true
+          -warnaserror
+          -o publish
+
+      # 探针自己会校验 JSON 往返、日志落盘、电源索引、进程快照封送与容器构建。
+      # 非 0 退出码说明某条路径在原生编译后失效。
+      - name: Run probe
+        run: ./publish/Zentwik.AotProbe.exe
+
+      - name: Report binary size
+        run: |
+          $exe = Get-Item ./publish/Zentwik.AotProbe.exe
+          Write-Host ("Native binary: {0:N2} MB" -f ($exe.Length / 1MB))
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zentwik-AotProbe-win-x64
+          path: publish/
+          retention-days: 14

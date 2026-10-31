@@ -47,7 +47,7 @@ namespace Zentwik.Core.Services
     /// 现在统一申请 SET_INFORMATION | QUERY_LIMITED_INFORMATION，
     /// 并在失败时把错误码原样带出去，而不是吞成一句「权限不足」。
     /// </summary>
-    public static class ProcessPriority
+    public static partial class ProcessPriority
     {
         // ---------------- 档位 ----------------
 
@@ -236,13 +236,16 @@ namespace Zentwik.Core.Services
 
         // ---------------- P/Invoke ----------------
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool SetPriorityClass(IntPtr hProcess, uint priorityClass);
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool SetPriorityClass(IntPtr hProcess, uint priorityClass);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern IntPtr OpenProcess(uint access, bool inheritHandle, int processId);
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        private static partial IntPtr OpenProcess(
+            uint access, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, int processId);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool CloseHandle(IntPtr handle);
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool CloseHandle(IntPtr handle);
     }
 }

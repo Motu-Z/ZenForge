@@ -30,14 +30,34 @@
     <AssemblyName>Zentwik.Core</AssemblyName>
     <LangVersion>latest</LangVersion>
 
-    <!-- 与主程序共用同一套版本号口径（见 Zentwik.Core.csproj 的注释） -->
-    <Version>1.2.1</Version>
-    <FileVersion>1.2.1.0</FileVersion>
-    <AssemblyVersion>1.2.1.0</AssemblyVersion>
+    <!-- 与主程序共用同一套版本号口径（见 Zentwik.csproj 的注释） -->
+    <Version>2.0.0-can1</Version>
+    <FileVersion>2.0.0.0</FileVersion>
+    <AssemblyVersion>2.0.0.0</AssemblyVersion>
 
     <SatelliteResourceLanguages>none</SatelliteResourceLanguages>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+
+    <!--
+      ============================================================
+      Native AOT / 裁剪
+      ============================================================
+
+      【IsAotCompatible 而不是 PublishAot】
+      PublishAot 只对可执行项目生效；项目类型是库时设了也只会被忽略，
+      但它会静默改变下游行为，看起来像配置生效了。库的正确开关是
+      IsAotCompatible —— 它会启用裁剪、AOT、单文件三个分析器，
+      并在构建期把「会在 AOT 下抛异常」的写法直接报成警告。
+
+      【AllowUnsafeBlocks 为什么必须开】
+      LibraryImport 的源生成器不接受 ByValTStr 字符串字段，也不接受
+      StringBuilder 参数。这两处在进程快照里都是高频路径，只能改成定长
+      char 缓冲区与 char* —— 两者都在 unsafe 上下文里。这不是「为了性能
+      放开指针」，是源生成封送的能力边界。
+    -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -48,6 +68,10 @@
       调用方程序集名，收益是公开面保持最小。
     -->
     <InternalsVisibleTo Include="Zentwik" />
+
+    <!-- AOT 探针需要访问 AppJsonContext（internal）与 MemoryTrimmer（internal）
+         才能把这两条路径也纳入原生编译验证。只在构建期存在，不随产品发布。 -->
+    <InternalsVisibleTo Include="Zentwik.AotProbe" />
   </ItemGroup>
 
   <ItemGroup>
@@ -84,6 +108,22 @@
       <HintPath>..\libs\ZenStates-Core\ZenStates-Core.dll</HintPath>
       <Private>true</Private>
     </Reference>
+
+    <!--
+      防止裁剪器把 SMU 通信库整体去掉。
+
+      【为什么这一条不能省】
+      ZenStates-Core 没有源码、没有裁剪标注，编译器无法从调用点推断
+      它的内部结构是否被用到。一旦 SDK 判定某个类型「未被引用」，
+      裁剪后运行时就只能在 new Cpu() 处拿到 TypeLoadException，
+      而发布过程本身不会报任何错 —— 这是最难排查的一类故障。
+
+      【它做不到什么】
+      这一条只保证程序集不被整份裁掉，管不了程序集内部的动态代码生成。
+      库里如果真的用了反射或 IL Emit，AOT 编译后照样会在运行时失败。
+      真正的验证只有一条：AOT 产物里跑通一次 SendMessageTest。
+    -->
+    <TrimmerRootAssembly Include="ZenStates-Core" />
   </ItemGroup>
 
   <ItemGroup>
@@ -94,9 +134,34 @@
          「文件名」自己 LoadLibrary("WinIo32.dll") 的 —— 它只认 exe 所在目录与
          PATH，找不到解包目录，等于白带。
          代价是发布产物从「一个 exe」变成「exe + 45KB 的 DLL」，但这比留一个
-         永远加载不上的降级路径要好。 -->
+         永远加载不上的降级路径要好。
+
+         CopyToPublishDirectory 与 CopyToOutputDirectory 两条都要写：
+         前者管 dotnet publish，后者管 dotnet build 后的就地调试，
+         只写一条会让其中一种场景缺文件。 -->
     <None Include="..\libs\ZenStates-Core\WinIo32.dll" Link="WinIo32.dll"
           CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest"
+          ExcludeFromSingleFile="true" />
+
+    <!--
+      驱动与固件类资源（.sys / .bin）的通配规则。
+
+      【当前基线里没有这两类文件，别以为漏了】
+      扫描过 libs\ZenStates-Core 与整个仓库：只有 WinIo32.dll 与
+      ZenStates-Core.dll 两个二进制。ZenStates-Core 内部硬编码的驱动路径是
+      C:\Windows\System32\drivers\inpoutx64.sys 与 PawnIO 的服务注册表项，
+      两者都由各自安装程序落到系统目录，不是随包发布的资源。
+      也就是说 .sys 从来不该出现在发布目录里 —— 把驱动塞进应用目录，
+      Windows 也不会从那里加载未签名的内核模块。
+
+      这条规则留着的用途是「将来替换 ZenStates-Core.dll 时，如果上游改成
+      自带驱动包，把文件丢进 libs\ZenStates-Core 就会自动随包输出」，
+      而不是现在有什么文件需要它。 -->
+    <None Include="..\libs\ZenStates-Core\**\*.sys;..\libs\ZenStates-Core\**\*.bin"
+          Link="%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest"
           ExcludeFromSingleFile="true" />
   </ItemGroup>
 

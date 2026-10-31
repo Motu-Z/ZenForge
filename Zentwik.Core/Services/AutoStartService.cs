@@ -35,7 +35,7 @@ namespace Zentwik.Core.Services
     ///   UserId 的 LogonTrigger。组主体代表「一组人」，登录事件无法映射到具体主体，
     ///   表现就是这个任务创建成功、状态正常、但每次开机都不触发，且没有任何报错。
     /// </summary>
-    public class AutoStartService
+    public partial class AutoStartService
     {
         private readonly ILogService _log;
 
@@ -83,8 +83,8 @@ namespace Zentwik.Core.Services
             return Encoding.UTF8;
         }
 
-        [DllImport("kernel32.dll")]
-        private static extern uint GetOEMCP();
+        [LibraryImport("kernel32.dll")]
+        private static partial uint GetOEMCP();
 
         /// <summary>计划任务当前是否已注册。</summary>
         public bool IsEnabled()

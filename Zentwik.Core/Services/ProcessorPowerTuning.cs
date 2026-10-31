@@ -43,7 +43,7 @@ namespace Zentwik.Core.Services
     ///   也就是「停放上限」。为什么不做成两条独立滑杆：Min &gt; Max 是非法状态，
     ///   Windows 遇到会静默钳制，用户看到自己刚拖的值跳回去，反而困惑。
     /// </summary>
-    public static class ProcessorPowerTuning
+    public static partial class ProcessorPowerTuning
     {
         // ---------------- 电源管理 GUID ----------------
 
@@ -64,29 +64,30 @@ namespace Zentwik.Core.Services
 
         // ---------------- P/Invoke ----------------
 
-        [DllImport("powrprof.dll", SetLastError = true)]
-        private static extern uint PowerGetActiveScheme(IntPtr userRootPowerKey, out IntPtr activePolicyGuid);
+        [LibraryImport("powrprof.dll", SetLastError = true)]
+        private static partial uint PowerGetActiveScheme(IntPtr userRootPowerKey, out IntPtr activePolicyGuid);
 
-        [DllImport("powrprof.dll", SetLastError = true)]
-        private static extern uint PowerReadACValueIndex(
+        [LibraryImport("powrprof.dll", SetLastError = true)]
+        private static partial uint PowerReadACValueIndex(
             IntPtr rootPowerKey, ref Guid schemeGuid, ref Guid subGroupGuid,
             ref Guid powerSettingGuid, out uint valueIndex);
 
-        [DllImport("powrprof.dll", SetLastError = true)]
-        private static extern uint PowerWriteACValueIndex(
+        [LibraryImport("powrprof.dll", SetLastError = true)]
+        private static partial uint PowerWriteACValueIndex(
             IntPtr rootPowerKey, ref Guid schemeGuid, ref Guid subGroupGuid,
             ref Guid powerSettingGuid, uint valueIndex);
 
-        [DllImport("powrprof.dll", SetLastError = true)]
-        private static extern uint PowerWriteDCValueIndex(
+        [LibraryImport("powrprof.dll", SetLastError = true)]
+        private static partial uint PowerWriteDCValueIndex(
             IntPtr rootPowerKey, ref Guid schemeGuid, ref Guid subGroupGuid,
             ref Guid powerSettingGuid, uint valueIndex);
 
-        [DllImport("powrprof.dll", SetLastError = true)]
-        private static extern uint PowerSetActiveScheme(IntPtr userRootPowerKey, ref Guid schemeGuid);
+        [LibraryImport("powrprof.dll", SetLastError = true)]
+        private static partial uint PowerSetActiveScheme(IntPtr userRootPowerKey, ref Guid schemeGuid);
 
-        [DllImport("kernel32.dll")]
-        private static extern IntPtr LocalFree(IntPtr handle);
+        /// <summary>释放 <see cref="PowerGetActiveScheme"/> 分配的方案 GUID。</summary>
+        [LibraryImport("kernel32.dll")]
+        private static partial IntPtr LocalFree(IntPtr handle);
 
         // ---------------- 升频模式 ----------------
 

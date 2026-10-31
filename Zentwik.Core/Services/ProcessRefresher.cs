@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Zentwik.Core.Helpers;
@@ -27,7 +26,7 @@ namespace Zentwik.Core.Services
     ///
     /// 生命周期：应用启动即开始周期采样，调度页打开后直接消费最新快照。
     /// </summary>
-    public class ProcessRefresher
+    public partial class ProcessRefresher
     {
         private readonly ILogService _log;
 
@@ -46,8 +45,16 @@ namespace Zentwik.Core.Services
         // 与 64 位进程里真实的 INVALID_HANDLE_VALUE（0xFFFFFFFFFFFFFFFF）比不上。
         private const long INVALID_HANDLE_VALUE = -1;
 
+        /// <summary>
+        /// Toolhelp 快照条目。
+        ///
+        /// <c>szExeFile</c> 用固定长度内联缓冲区而不是 <c>ByValTStr</c>：
+        /// 源生成的 P/Invoke 不支持字符串字段的按值封送，含 string 的结构体会被
+        /// 判为不可封送（SYSLIB1051）。定长 char 缓冲区是纯 blittable 的，
+        /// 既不需要运行时封送，也不会因裁剪掉封送桩而在 AOT 下失败。
+        /// </summary>
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        private struct PROCESSENTRY32
+        private unsafe struct PROCESSENTRY32
         {
             public uint dwSize;
             public uint cntUsage;
@@ -58,36 +65,56 @@ namespace Zentwik.Core.Services
             public uint th32ParentProcessID;
             public int pcPriClassBase;
             public uint dwFlags;
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
-            public string szExeFile;
+            public fixed char szExeFile[260];
         }
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        private static partial IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
 
-        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        private static extern bool Process32FirstW(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool Process32FirstW(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
 
-        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        private static extern bool Process32NextW(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool Process32NextW(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool CloseHandle(IntPtr hObject);
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool CloseHandle(IntPtr hObject);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        private static partial IntPtr OpenProcess(
+            uint dwDesiredAccess, [MarshalAs(UnmanagedType.Bool)] bool bInheritHandle, uint dwProcessId);
 
-        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        private static extern bool QueryFullProcessImageNameW(
-            IntPtr hProcess, uint dwFlags, StringBuilder lpExeName, ref uint lpdwSize);
+        /// <summary>
+        /// 取进程映像路径。缓冲区由调用方用 stackalloc 提供，
+        /// <paramref name="lpdwSize"/> 传入容量、回填实际字符数。
+        /// </summary>
+        [LibraryImport("kernel32.dll", SetLastError = true, EntryPoint = "QueryFullProcessImageNameW")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static unsafe partial bool QueryFullProcessImageNameW(
+            IntPtr hProcess, uint dwFlags, char* lpExeName, ref uint lpdwSize);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool GetProcessTimes(
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool GetProcessTimes(
             IntPtr hProcess,
             out long lpCreationTime,
             out long lpExitTime,
             out long lpKernelTime,
             out long lpUserTime);
+
+        /// <summary>读取定长缓冲区里的进程名（以第一个 NUL 为界，不越过 260 字符）。</summary>
+        private static unsafe string ReadExeName(ref PROCESSENTRY32 entry)
+        {
+            fixed (char* raw = entry.szExeFile)
+            {
+                ReadOnlySpan<char> span = new(raw, 260);
+                int end = span.IndexOf('\0');
+                return end < 0 ? new string(span) : new string(span[..end]);
+            }
+        }
 
         // ---------- 采样状态 ----------
 
@@ -607,7 +634,7 @@ namespace Zentwik.Core.Services
                 {
                     do
                     {
-                        string name = entry.szExeFile ?? string.Empty;
+                        string name = ReadExeName(ref entry);
                         if (string.IsNullOrWhiteSpace(name))
                             continue;
 
@@ -788,7 +815,7 @@ namespace Zentwik.Core.Services
         }
 
         /// <summary>取进程可执行文件完整路径（权限不足时返回空串）。</summary>
-        private string QueryImagePath(int pid)
+        private unsafe string QueryImagePath(int pid)
         {
             IntPtr handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)pid);
             if (handle == IntPtr.Zero)
@@ -796,10 +823,16 @@ namespace Zentwik.Core.Services
 
             try
             {
-                StringBuilder sb = new(1024);
-                uint size = (uint)sb.Capacity;
+                // stackalloc 而不是 StringBuilder：源生成的 P/Invoke 不支持 StringBuilder，
+                // 且这条路径在 Toolhelp 遍历里逐进程调用，栈分配免去每次一个托管缓冲区。
+                const int Capacity = 2048;
+                char* buffer = stackalloc char[Capacity];
+                uint size = Capacity;
 
-                return QueryFullProcessImageNameW(handle, 0, sb, ref size) ? sb.ToString() : string.Empty;
+                if (!QueryFullProcessImageNameW(handle, 0, buffer, ref size) || size == 0)
+                    return string.Empty;
+
+                return new string(buffer, 0, (int)size);
             }
             catch
             {

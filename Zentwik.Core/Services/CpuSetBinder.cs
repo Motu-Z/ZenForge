@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 
 namespace Zentwik.Core.Services
 {
@@ -41,7 +42,7 @@ namespace Zentwik.Core.Services
     ///   - 写目标进程的默认 CpuSet（SetProcessDefaultCpuSets）
     /// 不涉及任何 SMU / 电源 / VBIOS 逻辑。
     /// </summary>
-    public class CpuSetBinder : ICpuSetBinder
+    public partial class CpuSetBinder : ICpuSetBinder
     {
         private readonly ILogService _log;
         private readonly ISmuReader _smu;
@@ -108,25 +109,33 @@ namespace Zentwik.Core.Services
             public ulong Reserved;
         }
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool GetSystemCpuSetInformation(
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool GetSystemCpuSetInformation(
             IntPtr Information,
             uint BufferLength,
             out uint ReturnedLength,
             IntPtr Process,
             uint Flags);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool SetProcessDefaultCpuSets(
+        /// <summary>
+        /// 写入目标进程的默认 CPU Set 列表。
+        /// 数组长度由 <paramref name="CpuSetIdCount"/> 声明；传空数组 + 0 表示解除绑定。
+        /// </summary>
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool SetProcessDefaultCpuSets(
             IntPtr Process,
-            uint[] CpuSetIds,
+            [MarshalUsing(CountElementName = nameof(CpuSetIdCount))] uint[] CpuSetIds,
             uint CpuSetIdCount);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        private static partial IntPtr OpenProcess(
+            uint dwDesiredAccess, [MarshalAs(UnmanagedType.Bool)] bool bInheritHandle, int dwProcessId);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool CloseHandle(IntPtr hObject);
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool CloseHandle(IntPtr hObject);
 
         private const uint PROCESS_SET_INFORMATION = 0x0200;
         private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;

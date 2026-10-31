@@ -25,3 +25,8 @@ publish_out/
 # Python 缓存（xamlcheck.py 运行时生成）
 __pycache__/
 *.pyc
+
+# AOT 探针的发布产物
+build/**/publish/
+build/**/bin/
+build/**/obj/

@@ -57,6 +57,15 @@ namespace Zentwik.Core.Services
         /// </summary>
         private readonly AutoResetEvent _fileSignal = new(false);
 
+        /// <summary>
+        /// 保护「把一批条目真正写进文件」这一段。
+        ///
+        /// 没有它，<see cref="Flush"/> 的语义是假的：待写队列被写盘线程抢先取走时，
+        /// Flush 看到的队列是空的，立刻返回，而此时那一批还在另一个线程上没落盘。
+        /// 调用方（退出前、崩溃兜底）拿到的「已刷完」就不再成立。
+        /// </summary>
+        private readonly object _writeGate = new();
+
         private readonly ManualResetEvent _stopSignal = new(false);
 
         private readonly Thread _writer;
@@ -185,6 +194,12 @@ namespace Zentwik.Core.Services
             try
             {
                 FlushPendingFile();
+
+                // 队列可能刚被写盘线程取走（那一批已经不在队列里），
+                // 这时只刷队列等于什么都没做。等它把手上那批写完。
+                lock (_writeGate)
+                {
+                }
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException)
             {
@@ -490,36 +505,39 @@ namespace Zentwik.Core.Services
 
             try
             {
-                // 目录只建一次：每条日志 CreateDirectory 是纯浪费
-                if (!_directoryReady)
+                lock (_writeGate)
                 {
-                    Directory.CreateDirectory(LogDirectory);
-                    _directoryReady = true;
-                }
-
-                // 按天分组，同一天的条目拼成一个字符串、只开一次文件
-                foreach (IGrouping<string, LogEntry> group in batch.GroupBy(e => e.Time.ToString("yyyyMMdd", CultureInfo.InvariantCulture)))
-                {
-                    StringBuilder builder = new();
-
-                    foreach (LogEntry entry in group)
+                    // 目录只建一次：每条日志 CreateDirectory 是纯浪费
+                    if (!_directoryReady)
                     {
-                        builder.Append('[').Append(entry.Time.ToString("HH:mm:ss", CultureInfo.InvariantCulture)).Append("] [")
-                               .Append(entry.LevelText).Append("] ")
-                               .Append(entry.Message).Append(Environment.NewLine);
+                        Directory.CreateDirectory(LogDirectory);
+                        _directoryReady = true;
                     }
 
-                    // FileShare.ReadWrite | FileShare.Delete：允许清空日志的后台任务与
-                    // 资源管理器在我们写着的时候读、删。AppendAllText 默认只给 Read，
-                    // 一旦用户点「清空日志」，那个文件就再也删不掉了。
-                    using FileStream stream = new(
-                        Path.Combine(LogDirectory, $"{LogPrefix}{group.Key}.log"),
-                        FileMode.Append,
-                        FileAccess.Write,
-                        FileShare.ReadWrite | FileShare.Delete);
+                    // 按天分组，同一天的条目拼成一个字符串、只开一次文件
+                    foreach (IGrouping<string, LogEntry> group in batch.GroupBy(e => e.Time.ToString("yyyyMMdd", CultureInfo.InvariantCulture)))
+                    {
+                        StringBuilder builder = new();
 
-                    using StreamWriter writer = new(stream, new UTF8Encoding(false));
-                    writer.Write(builder.ToString());
+                        foreach (LogEntry entry in group)
+                        {
+                            builder.Append('[').Append(entry.Time.ToString("HH:mm:ss", CultureInfo.InvariantCulture)).Append("] [")
+                                   .Append(entry.LevelText).Append("] ")
+                                   .Append(entry.Message).Append(Environment.NewLine);
+                        }
+
+                        // FileShare.ReadWrite | FileShare.Delete：允许清空日志的后台任务与
+                        // 资源管理器在我们写着的时候读、删。AppendAllText 默认只给 Read，
+                        // 一旦用户点「清空日志」，那个文件就再也删不掉了。
+                        using FileStream stream = new(
+                            Path.Combine(LogDirectory, $"{LogPrefix}{group.Key}.log"),
+                            FileMode.Append,
+                            FileAccess.Write,
+                            FileShare.ReadWrite | FileShare.Delete);
+
+                        using StreamWriter writer = new(stream, new UTF8Encoding(false));
+                        writer.Write(builder.ToString());
+                    }
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
