@@ -29,9 +29,14 @@ namespace ZenForge.Controls
     /// 两者相对同一个左缘内缩同样的距离，占位文字的第一个字
     /// 与光标起点必然重合，不存在「差几像素」的空间。
     ///
-    /// 【占位符必须靠代码控制可见性，不能靠 IsHitTestVisible 骗自己】
-    /// 一有焦点就 Collapsed。空框聚焦时光标会正好落在第一个字的位置，
-    /// 占位符若还在，视觉上就是「光标插在占位文字中间」—— 用户会去删它。
+    /// 【占位符的显隐口径（v1.2.0 改）】
+    /// 以前是「空 **且** 无焦点」才显示，结果用户点进搜索框就再也看不到提示文字，
+    /// 于是反馈「搜索框没有占位符」。现在的口径是**只看有没有内容**：
+    /// 空着就一直显示，一旦输入就消失 —— 与浏览器 / 系统搜索框一致。
+    ///
+    /// 光标会不会和占位文字打架？模板里占位符排在输入框**之前**，
+    /// 也就是画在下层，光标画在上层。空框聚焦时看到的是「光标停在提示文字开头」，
+    /// 而不是「提示文字盖住光标」。
     /// </summary>
     public class SearchBox : Control
     {
@@ -184,22 +189,20 @@ namespace ZenForge.Controls
         }
 
         /// <summary>
-        /// 占位符：空 + 无焦点才显示。
+        /// 占位符：只有「没有内容」才显示，不看焦点。
         ///
-        /// 不判断焦点只判断空，空框一点进去光标就插在占位文字里；
-        /// 判断焦点用 IsKeyboardFocusWithin 而不是 IsFocused：
-        /// 点击时焦点先落在 TextBox 上，IsFocused 与 IsKeyboardFocusWithin 同真，
-        /// 但输入法组字等场景下两者会有差，前者更贴近「用户正在这里打字」。
+        /// 判据取 _input.Text 而不是控件的 Text 属性：Text 走双向同步，
+        /// 极端情况下（绑定延迟一帧）会比输入框慢半拍，占位符就会在已有文字时
+        /// 还多留一帧，看起来像闪了一下。
         /// </summary>
         private void UpdatePlaceholder()
         {
             if (_placeholder == null || _input == null)
                 return;
 
-            bool empty = string.IsNullOrEmpty(_input.Text);
-            bool focused = _input.IsKeyboardFocusWithin;
-
-            _placeholder.Visibility = (empty && !focused) ? Visibility.Visible : Visibility.Collapsed;
+            _placeholder.Visibility = string.IsNullOrEmpty(_input.Text)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
         }
 
         /// <summary>聚焦时放大镜换成强调色，作为「输入目标在这里」的轻提示。</summary>

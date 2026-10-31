@@ -87,6 +87,29 @@
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                   Data="M 5.5,1 A 4.5,4.5 0 1 1 5.49,1 M 9,9 L 12,12"/>
 
+                            <!-- 占位符：左内缩与输入框的 Padding.Left 同为 30，
+                                 相对同一个左缘，所以占位文字的第一个字与光标起点重合。
+
+                                 【v1.2.0 的两个修正】
+                                 1. 必须声明 Text="{TemplateBinding Placeholder}"。
+                                    以前这里只给了名字和位置，没绑内容 —— 页面写
+                                    Placeholder="搜索进程..."，模板里的 TextBlock 永远
+                                    是空串，于是「搜索框没有占位符」这个现象持续了两个版本。
+                                    TemplateBinding 是单向往模板里推，Placeholder 改了会自动跟上，
+                                    所以这里是唯一一处赋值，代码里不再另写一份（两份必然走散）。
+                                 2. 挪到 TextBox **之前**。占位符在 XAML 里排后面 = 画在上层，
+                                    会把光标盖住；挪到前面以后，光标画在占位文字之上，
+                                    看起来就是「光标停在提示文字开头」，与浏览器一致。 -->
+                            <TextBlock x:Name="PART_Placeholder"
+                                       Margin="30,0,10,0"
+                                       VerticalAlignment="Center"
+                                       HorizontalAlignment="Left"
+                                       IsHitTestVisible="False"
+                                       FontSize="13"
+                                       Text="{TemplateBinding Placeholder}"
+                                       Foreground="{DynamicResource Text.MetaBrush}"
+                                       Visibility="Collapsed"/>
+
                             <!-- 输入框：透明底、无边框，Padding 左 30 让开放大镜。
                                  它自己的模板里没有任何可见元素（背景/边框全透明），
                                  只留 PART_ContentHost —— 内容起点完全由 Padding 决定。 -->
@@ -110,10 +133,19 @@
                                 <TextBox.Template>
                                     <ControlTemplate TargetType="TextBox">
                                         <!-- Margin 取 Padding：光标起点 = 左内缩 30。
-                                             这是整个搜索框里唯一决定「文字从哪开始」的地方。 -->
+                                             这是整个搜索框里唯一决定「文字从哪开始」的地方。
+
+                                             【v1.2.0：去掉了 VerticalAlignment="Center"】
+                                             这是光标「垂直偏下」的根因。ScrollViewer 自己居中
+                                             = 先按内容高度量出一个盒子再摆到中间，而 TextBox
+                                             还按 VerticalContentAlignment 再对内容做一次对齐，
+                                             两次居中的基准不同（一个按行高、一个按内容框），
+                                             1~2px 的偏差在 32 高的框里肉眼可见。
+                                             现在只留一处：外面给 VerticalContentAlignment=Center，
+                                             让 TextBox 自己居中，宿主铺满 Padding 以内的区域。
+                                             这也是 WPF 原生 TextBox 模板的写法。 -->
                                         <ScrollViewer x:Name="PART_ContentHost"
                                                       Margin="{TemplateBinding Padding}"
-                                                      VerticalAlignment="Center"
                                                       Focusable="False"
                                                       HorizontalScrollBarVisibility="Hidden"
                                                       VerticalScrollBarVisibility="Hidden"/>
@@ -121,16 +153,6 @@
                                 </TextBox.Template>
                             </TextBox>
 
-                            <!-- 占位符：左内缩与输入框的 Padding.Left 同为 30，
-                                 相对同一个左缘，所以占位文字的第一个字与光标起点重合。 -->
-                            <TextBlock x:Name="PART_Placeholder"
-                                       Margin="30,0,10,0"
-                                       VerticalAlignment="Center"
-                                       HorizontalAlignment="Left"
-                                       IsHitTestVisible="False"
-                                       FontSize="12"
-                                       Foreground="{DynamicResource Text.MetaBrush}"
-                                       Visibility="Collapsed"/>
                         </Grid>
                     </Border>
 
