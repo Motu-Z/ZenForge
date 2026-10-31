@@ -4,7 +4,7 @@
 
 ---
 
-## [2.0.0-can3] — 启动崩溃修复
+## [2.0.0-can3]
 
 ### Fixed (修复)
 
@@ -17,7 +17,7 @@
 
 ---
 
-## [2.0.0-can2] — WinUI 3 外壳骨架
+## [2.0.0-can2]
 
 ### Added (新增)
 
@@ -35,7 +35,7 @@
 
 ---
 
-## [2.0.0-can1] — P/Invoke 迁移与 AOT 跑通
+## [2.0.0-can1]
 
 ### Changed (修改)
 
@@ -51,16 +51,13 @@
 
 ---
 
-## [1.2.1] — 更名 Zenwik · SMU 通道升到 1.93.1（本地 DLL）
-
-> 无界面逻辑改动，仅涉及产品身份、命名空间、配置目录与 SMU 依赖来源变更。
-
+## [1.2.1]
 ### Changed (修改)
 
 - **产品更名 `ZenForge` → `Zenwik`**：工程、程序集名、`RootNamespace`、命名空间、窗口标题、关于页、托盘提示、日志、计划任务名、互斥体名、单文件产物名与图标全部同步。
 - **Core 命名空间下沉**：`Zenwik.Services` → `Zenwik.Core.Services`，`Zenwik.Helpers` → `Zenwik.Core.Helpers`；WPF 层在 `Zenwik.csproj` 中声明全局 `using`。
 - **配置目录迁移**：`%AppData%\ZenForge` → `%AppData%\Zenwik`，附一次性迁移。
-- **SMU 通道改为本地 DLL**：从 `LLT.ZenStates-Core` 1.92.4（NuGet）改为 `ZenStates-Core` 1.93.1（本地 DLL），HintPath 取 `net8.0-windows` 资产。
+- **SMU 通道改为本地 DLL**：从 `LLT.ZenStates-Core` 1.92.4（NuGet）改为 `ZenStates-Core` 1.93.1（自编译 DLL），HintPath 取 `net8.0-windows` 资产。
 - **`System.ServiceProcess.ServiceController` 改为显式包引用**：避免换成本地 DLL 后 `SmuReader` 编译失败。
 
 ### Added (新增)
@@ -83,9 +80,7 @@
 
 ---
 
-## [1.2.0] — WPF 封版
-
-> WPF 线最后一个版本，只做“修干净 + 拆干净”；不引入 DI 容器与 EventBus。
+## [1.2.0]
 
 ### Changed (修改)
 
@@ -113,9 +108,7 @@
 
 ---
 
-## [Unreleased — v1.1.x 骨架] — 骨架（未改版本号，代码已合入）
-
-> 数据结构、落盘、界面通路与事件源已接通；部分功能仍待实装。
+## [1.1.x]
 
 ### Added (新增)
 
@@ -145,136 +138,7 @@
 
 ---
 
-## [1.2.1] — 更名 Zenwik · SMU 通道升到 1.93
-
-> 没有一行界面逻辑改动，全部是「身份」与「依赖来源」的变更：
-> 产品改名、命名空间下沉、配置目录迁移、SMU 库从 NuGet 换成手工编译的本地 DLL。
-
-### Changed (修改)
-
-- **产品正式更名 `ZenForge` → `Zenwik`**，范围到边到角：
-  `Zenwik.slnx` / `Zenwik.csproj` / `Zenwik.Core.csproj`、程序集名与 `RootNamespace`、
-  全部命名空间、窗口标题、关于页、托盘提示、日志与计划任务名、互斥体名、
-  单文件产物名（`Zenwik.exe`）、图标 `Assets/Zenwik.ico`。
-- **Core 的命名空间下沉一层**：`Zenwik.Services` → `Zenwik.Core.Services`，
-  `Zenwik.Helpers` → `Zenwik.Core.Helpers`。
-  以前两层共用同一套命名空间，靠「同命名空间直接可见」拿到 `LogService`——那是巧合不是设计。
-  下沉之后边界在代码里可见，WPF 层对 Core 的依赖改成在 `Zenwik.csproj` 里声明两条全局 `using`：
-  这个依赖是全局的（每个页面都写日志），不是需要按文件斟酌的可选项，逐文件补 `using` 只是噪音。
-- **配置目录 `%AppData%\ZenForge` → `%AppData%\Zenwik`**，并附**一次性迁移**（见下）。
-- **SMU 通道从 `LLT.ZenStates-Core` 1.92.4（NuGet）改为 `ZenStates-Core` 1.93.1（本地 DLL 引用）**。
-  HintPath 取包内 `net8.0-windows` 资产——三份资产里唯一带 Windows 专属 API 的那份。
-- **`System.ServiceProcess.ServiceController` 改为显式包引用**：以前是靠 `LLT.ZenStates-Core` 传递进来的，
-  换成本地 DLL 后传递链断开，`SmuReader` 里的 `ServiceController` 会直接编译失败。
-
-### Added (新增)
-
-- **`AppPaths`（Core）**：产品路径的唯一出口。改名前 `%AppData%\ZenForge` 这个字面量在 9 个文件里各写了一遍，
-  改名时漏一处就会出现「设置能存、方案读不出来」这种不报错的错乱。现在只有它知道目录名。
-- **配置目录一次性迁移**：首次启动若 `%AppData%\ZenForge` 存在而 `%AppData%\Zenwik` 不存在，
-  整目录 `Move` 过去；`Move` 失败（跨卷 / 被占用）退化为递归复制；复制也失败就保留旧目录不动。
-  用户升级后不该丢掉自己的方案、绑核规则与调校值。
-- **`docs/WPF封版与WinUI3重构交接文档.md` 定稿 v1.0.1**：补上你拍板的 10 条决策、更名影响面、
-  本地 DLL 引用的口径与 AOT 迁移时的注意事项。
-
-### 兼容性说明（升级前必读）
-
-- **配置不会丢**：`profiles.json` / `bindings.json` / `tuning.json` / `masks.json` / `ui.json` / `scenarios.json`
-  随目录整体迁移，文件名不变。
-- **开机自启会失效一次**：计划任务名从 `ZenForgeAutoStart` 改为 `ZenwikAutoStart`，
-  旧任务不会被自动删除。升级后到「行为」页把自启关一次再打开即可；
-  旧的 `ZenForgeAutoStart` 任务需要手动删（`taskschd.msc` 里按名字找）。
-- **单实例互斥体改名**：`Local\ZenForge.SingleInstance` → `Local\Zenwik.SingleInstance`。
-  若升级时旧版本还在托盘里，两版会同时存在——先退出旧版再启动新版。
-- **发布产物变成两个文件**：`Zenwik.exe` + `WinIo32.dll`。后者是 `ZenStates-Core` 在 PawnIO 缺位时
-  回退端口访问用的原生库，它是按文件名自己 `LoadLibrary` 的，塞进单文件包里会解到 `%TEMP%`
-  而找不到，所以显式排除在单文件之外。
-
-### 验收口径
-
-- Linux 上 `dotnet build Zenwik.slnx -c Release` 与 `dotnet publish -r win-x64` 均 **0 警告 0 错误**，
-  产物含 `Zenwik.exe` + `WinIo32.dll`。
-- **1.93.1 的写入行为需要真机复验**：`Cpu` 构造函数已从无参改为必传 `CoreOptions`（本版传 `CoreOptions.Current`），
-  `SendTestMessage` 新增两个可选参数（老写法仍可用）；拓扑字段与 `SetPsmMarginSingleCore` /
-  `GetPsmMarginSingleCore` / `MakeCoreMask` / `GetFMax` / `SetFMax` 签名未变。
-  真机上要确认：CO 逐核写入后回读一致、FMax 写入后回读在容差内、SMU 版本号正常显示。
-
----
-
-## [1.2.0] — WPF 封版
-
-> WPF 线的最后一个版本。此后 UI 层迁 WinUI 3 + Native AOT，本版本只做「修干净 + 拆干净」。
-> 不引入 DI 容器与 EventBus —— 即将被重写的 UI 层不该再多一层要拆的抽象。
-
-### Changed (修改)
-
-- **点 × 不再隐藏窗口，直接销毁**（`MainWindow.OnClosing`）。v1.0.x 的「秒开」优化为了让第二次打开快几百毫秒，把整棵 WPF 可视树留在内存里，实测 74MB（早期版本 3~8MB）。对一个后台绑核工具来说这笔账不划算。现在关闭 = 拆窗口，下次双击由 `ShowOrCreateMainWindow` 全新实例化。
-- **补齐窗口销毁时的三处强引用**——这是「窗口关了内存不降」的真正原因，都在静态字段上：
-  1. `Application.MainWindow` 是强引用，`Close()` 不会替你清，不清就一直挂到下次 SetMainWindow；
-  2. `ToastService.Host` 静态指向可视树里的 `ToastHost`，视觉父级链一路指回 Window；
-  3. `PageTimerManager` 的静态表里若漏了一个定时器，它的回调委托就把整个页面钉在内存里。
-  现在分别用「置空 MainWindow / `Detach()` / `ClearAll()`」收掉，并在销毁后做两次内存回收（Idle 一次，3 秒静息后一次）。
-- **`ThemeService` 轮询跟随窗口生命周期**：以前窗口销毁时停掉就再也没起来，第二次打开后改系统主题界面不跟了。现在 `MainWindow` 构造时重新挂（方法本身幂等）。
-- **「后台轻量模式」改名「最小化后释放界面」**，语义收窄到只作用于最小化 —— 关闭已经一律销毁，这个开关再决定「关掉要不要销毁」就是死开关。
-
-### Added (新增)
-
-- **`Zenwik.Core` 类库**：SMU 读写、电源策略、日志、进程监听、方案与场景规则全部搬进去，`Zenwik.slnx` 管两个工程。
-  **红线由编译器守**：Core 不设 `UseWPF` / `UseWindowsForms`，代码里出现任何 `System.Windows.*` 当场编译失败。实测产物引用表里没有 `PresentationFramework` / `PresentationCore` / `WindowsBase` / `System.Windows.Forms` / `System.Drawing`。
-  命名空间刻意保持 `Zenwik.Services` / `Zenwik.Helpers` 不变：这次是把文件搬进独立程序集（隔离依赖），不是改名，全局改一遍命名空间只会让 diff 淹没真正要看的东西。
-- **`LogThrottle`**：同 key（进程名 + 错误码）60 秒内只放行一条，下次放行时补报「另有 N 条相同错误已抑制」。受保护进程（错误 5）不再刷屏，但也不静音 —— 把这类错误降成 Debug 等于把「绑不上」藏起来。
-- **`PriorityLabelConverter`**：优先级下拉与表格列显示中文（高 / 高于标准 / 标准 / 低于标准 / 低），数据层仍是 `High` / `Normal` 常量 —— 那些字符串存在 binding.json 里，改成中文等于让旧配置全部失效。
-
-### Fixed (修复)
-
-- **搜索框从来没有占位符**：`Themes/SearchBox.xaml` 里那个 `PART_Placeholder` 只有名字和位置，没有 `Text="{TemplateBinding Placeholder}"`。页面写 `Placeholder="搜索进程..."`，模板里永远是空串。这个 bug 从控件抽出来的那一版就在，两个版本没人发现，因为「看不见占位符」和「占位符是空的」在界面上长得一模一样。
-- **搜索框光标垂直偏下**：`PART_ContentHost` 自己写了 `VerticalAlignment="Center"`，TextBox 又按 `VerticalContentAlignment` 再居中一次，两次居中基准不同（一个按行高、一个按内容框），32 高的框里偏 1~2px 就很明显。去掉前者，只留后者（也是 WPF 原生模板的写法）。
-- **占位符在聚焦时消失**：改成只看「有没有内容」，空着就一直显示；元素顺序挪到输入框之前，光标画在提示文字之上，不会出现「文字盖住光标」。
-
-### 验收口径（本版无法在沙箱内验证的部分）
-
-- 关窗后内存：代码路径已收干净，但「≤10MB」这条要在真机看。工作集可以靠 `SetProcessWorkingSetSize` 压到个位数 MB；**私有提交降不到 10MB 以内**——.NET 运行时与已加载的 WPF 程序集在 .NET Core 上无法卸载（没有 AppDomain 了），这部分常驻约 80~90MB。任务管理器「内存」列看的是私有工作集，所以关窗后应当看到个位数 MB，而「提交大小」仍会是几十 MB。这是运行时特性，不是泄漏；迁到 WinUI 3 + AOT 之后才会真正变小。
-- 动画观感、高 DPI 渲染、搜索框光标位置：需要 Windows 真机。
-
----
-
-## [Unreleased — v1.1.x 骨架] — v1.1.x 骨架（尚未改版本号，代码已合入）
-
-> 骨架阶段：数据结构、落盘、界面通路都已接通，**事件源还没接**，功能不算实装。
-
-### Added (新增)
-- **`ProfileService`（多方案保存切换）**：方案 = 一份完整快照（CO / FMax + 绑核规则 + 优先级），切换时一次性写回三个 store 再让现有服务下发。刻意**不做**三处：电源策略 / 升频模式 / 核心停放不进快照（那三项的「读回来做快照」语义未定，现在定死会逼着 v1.1.x 去改写已稳定的两个类）；删除方案不回滚硬件（那是「清除全部数据」的职责）；FMax 出厂基线不进快照（它是硬件属性，不是方案属性）。界面侧：保存自动命名「方案 N」、应用、删除，生效中的那套在名称左侧带一个强调色圆点。
-- **`ScenarioService`（场景自动切换）**：触发源只列「能靠一个事件判定、判定成本≈0」的三类（进程运行 / 电池供电 / 交流供电），CPU 占用、温度这类需要常驻采样的量刻意不列 —— 为一个「负载高就换方案」的功能赔上常驻采样，与后台零占用的硬约束冲突。多条规则同时命中时按 `Priority` 仲裁（插着电打游戏时两条都命中，没有仲裁就会取决于用户哪条先建）。外部只有 `Notify` 一个入口，传的是「此刻全部成立的触发」而不是单个事件 —— 只看「A 退出了」会误判成「没有进程命中」。
-- **配置页接上数据源**：版式一行未动，只把两张卡的列表、开关、三个动作接到服务上。规则库双列继续灰着 —— 摆两个能点但没反应的「新建」，等于骗用户功能已就绪。
-
-### 已实装（本轮）：事件源接入
-
-- **`ProcessWatcher.ProcessSetChanged` + `ReapplyNow()`**：前者在进程创建/退出时广播「进程集合变了」（不带具体进程 —— 订阅方要的是全量事实，不是一条条事件）；后者解决 **「切了方案但已经在跑的进程没跟上」** —— WMI 事件只覆盖之后启动的进程，切换后不重扫，用户看到的就是「设置都变了，但那个游戏还绑在旧核心上」，要等下次重启才生效。重扫只做**覆盖**不做**解绑**：不再命中规则的进程保持上一次绑核，恢复默认要显式写回系统默认 CPU Set，而那个「默认」在不同拓扑下取值不同，没有实测依据前不猜。
-  降级轮询模式下**只在存活 PID 集合真的变了时**才广播：那一轮每 3 秒跑一次，无条件广播会让订阅方跟着每 3 秒取一次全量名单（几百次 `OpenProcess`，比轮询本身还贵）；`SetEquals` 是 O(n) 整数比较，便宜三个数量级。
-- **`PowerStatusWatcher`（新）**：供电状态监听。`SystemEvents.PowerModeChanged` 为主，**30 秒轮询兜底** —— 前者依赖消息泵（静默模式不一定有），且部分 OEM 的电源管理压根不广播 `StatusChange`，只有轮询能看到。用 P/Invoke `GetSystemPowerStatus` 而不是 `System.Windows.Forms.SystemInformation`，不为一个字段把 WinForms 拖进纯 WPF 工程。读不到状态时**当插着电**：误判成电池会让用户看到「我没拔电源怎么自己变了」，反过来只是「拔了没切」，后者好解释。
-- **`ScenarioMonitor`（新）**：把上面两个源接到 `ScenarioService.Notify` 上的编排层。三条约束：① **不启用就零占用**（无订阅、无活动定时器，`Stop` 真的 Dispose 掉 Timer 而不是只置标志位）；② **按需订阅**（只有进程类规则才挂进程事件，只配了一条电源规则就不该为用不上的输入付采集代价）；③ **防抖在调用侧**（800ms 合并窗口，对应游戏拉起子进程的典型跨度；防抖不放进服务内部 —— 延时取多长只有调用方知道）。
-- **`ProfileService.Apply` 接上重扫**：写回三个 store 之后调 `ProcessWatcher.ReapplyNow()`。
-- **`-selftest` 启动参数**：跑一遍底层自检（仲裁 / 监听范围一致性 / 快照深拷贝 / 生效标记唯一），结果写日志。**不下发任何硬件**（不写 SMU、不改绑核）—— 为跑一次自检把用户的负压值改掉不划算。
-
-### Fixed（本轮修掉的缺陷）
-
-- **场景切换短路比错了对象**：原来比的是 `LastAppliedProfileId`（「上次场景自己切到了哪」），而用户在中间可能手动切过 —— 现场是：插电切到「性能」，用户手动切到「静音」，再拔插电源，场景一看 target 和上次一样就跳过，用户的手动选择被无声保留。改比 `ProfileService.ActiveId`，两种来源的切换都算数。
-- **`SmoothSortPanel` 四处**（详见 `docs/代码审查报告-v1.0.4.md`）：滚动抑制可能永久失效（`Loaded` 时找不到 `ScrollViewer` 就不再重试，而滚动抑制正是它存在的唯一理由）；位移上限写死 480px，大窗口下小于一屏会让功能时灵时不灵；`ScrollViewer` 强引用面板未解绑；`RequestSmooth` 只清第一个面板，而页面有两个列表。
-- **`LogService.Clear()` 清空竞态**：队列与代号的推进押后在 `UiContext.Post` 里，而 Post 是异步的 —— 后台删文件的任务可能比推进代号先跑完，写盘线程趁窗口把旧日志写回刚删的文件，用户点「清空」看到的是旧日志原封不动回来。现提到调用方线程同步完成。
-- **全局异常限流表无上限**：`_signatureTotal` 有 256 条清空的兜底，`_signatureDialogCount` 没有，而签名（类型 + 最内层消息）理论无界。两处统一用 `MaxTrackedSignatures`。
-
-### v1.1.x 仍待实装
-
-1. **场景规则编辑器**：触发源 + 参数 + 目标方案的选择界面（本轮不碰 UI）。
-2. **切换失败回滚**：调校部分下发失败时是否回退上一套，取决于「部分写成功」的回滚顺序（先 FMax 后 CO）有没有实测依据，不猜。
-3. **重扫的解绑语义**：不再命中规则的进程目前保持上一次绑核（见上）。
-4. **真机验收**：平滑动画观感、高 DPI 实际渲染效果 —— 本轮无 Windows 运行环境，未做视觉验收。
-
----
-
 ## [1.0.4]
-
-> 表现打磨：v1.0.3 修完崩溃与泄露之后，这一版处理「看着别扭」的三件事。
 
 ### Added (新增)
 - **进程列表重排过渡**：占用列每 2 秒刷新一次，行位置随数值变化 —— 原来是瞬切，用户盯着的那一行会在两次刷新之间突然跳到别处。新增 `SmoothSortPanel`（继承 `VirtualizingStackPanel`，虚拟化与 Recycling 一律照旧）：先让基类按新顺序摆好，再把每行的渲染位置拉回它上一次所在的位置，然后用 200ms 缓动归零。布局值始终是新值，眼睛看到的是旧位置 → 新位置的过程。两个例外不做过渡：滚动期间（否则行会追着滚动条跑）和容器被复用给别的行时（虚拟化 Recycling 会让「上一行」的位置挂到新数据上）。
@@ -288,8 +152,6 @@
 ---
 
 ## [1.0.3]
-
-> 原计划给 1.0.3 的「表现打磨」整体延后到 1.0.4；这一版只做修与规范对齐。
 
 ### Fixed (修复)
 - **后台占用降不下来（真凶是忙等自旋，不是定时器）**：进程采样的唤醒事件原本是 `ManualResetEventSlim`，只 `Set` 从不 `Reset` —— 第一次打开进程页后信号永久置位，于是采样线程在「没人看」分支里的 `WaitAny` 立刻返回、继续、再返回……变成一个占满核心的自旋。切走页面、收进托盘都停不住：停掉的是引用计数，信号还一直置着。改用 `AutoResetEvent`（一次 `Set` 只唤醒一个等待者），并在无人观察时同时等「立即采样」信号，避免请求被丢弃、降级补扫白等一个超时。
