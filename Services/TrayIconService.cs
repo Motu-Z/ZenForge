@@ -3,9 +3,9 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using ZenForge.Helpers;
+using Zenwik.Helpers;
 
-namespace ZenForge.Services
+namespace Zenwik.Services
 {
     /// <summary>
     /// 托盘图标：进程活着就有一个图标，关窗口只是把界面收起来，不等于退出。
@@ -64,7 +64,7 @@ namespace ZenForge.Services
                 _icon = new System.Windows.Forms.NotifyIcon
                 {
                     Icon = icon,
-                    Text = "ZenForge",
+                    Text = "Zenwik",
                     Visible = true
                 };
 
@@ -142,8 +142,8 @@ namespace ZenForge.Services
             try
             {
                 _icon.Text = running
-                    ? "ZenForge · 后台绑核运行中"
-                    : "ZenForge · 后台绑核已暂停";
+                    ? "Zenwik · 后台绑核运行中"
+                    : "Zenwik · 后台绑核已暂停";
             }
             catch
             {
@@ -188,7 +188,7 @@ namespace ZenForge.Services
             }
 
             Shutdown();
-            LogService.Info("托盘图标已隐藏（后台仍常驻，双击 ZenForge.exe 打开界面）");
+            LogService.Info("托盘图标已隐藏（后台仍常驻，双击 Zenwik.exe 打开界面）");
         }
 
         /// <summary>
@@ -212,7 +212,7 @@ namespace ZenForge.Services
                 if (_icon == null || !_icon.Visible)
                     return false;
 
-                _icon.BalloonTipTitle = string.IsNullOrWhiteSpace(title) ? "ZenForge" : title;
+                _icon.BalloonTipTitle = string.IsNullOrWhiteSpace(title) ? "Zenwik" : title;
                 // 正文只放一行话；把 detail 塞进气泡会让它被系统截断成一句半截话。
                 // detail 已经进了日志，需要细节的用户会去日志页看。
                 _icon.BalloonTipText = string.IsNullOrWhiteSpace(text) ? "操作失败，详见日志" : text;
@@ -443,7 +443,7 @@ namespace ZenForge.Services
             try
             {
                 System.Windows.Resources.StreamResourceInfo? info = Application.GetResourceStream(
-                    new Uri("pack://application:,,,/Assets/ZenForge.ico", UriKind.Absolute));
+                    new Uri("pack://application:,,,/Assets/Zenwik.ico", UriKind.Absolute));
 
                 if (info != null)
                     return new System.Drawing.Icon(info.Stream, 16, 16);

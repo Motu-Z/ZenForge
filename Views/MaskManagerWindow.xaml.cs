@@ -5,10 +5,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using ZenForge.Helpers;
-using ZenForge.Services;
+using Zenwik.Helpers;
+using Zenwik.Services;
 
-namespace ZenForge.Views
+namespace Zenwik.Views
 {
     /// <summary>
     /// 自定义掩码管理窗口：左侧列表 + 右侧核心勾选。

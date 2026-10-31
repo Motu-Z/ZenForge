@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace ZenForge
+namespace Zenwik
 {
     /// <summary>
     /// WPF 宿主。全项目只有这里允许在「进程入口」这一层出现 App / Application。
@@ -34,11 +34,11 @@ namespace ZenForge
         {
             App.IsHeadlessUpgrade = true;
 
-            Services.LogService.Info("升级 2/6：创建 Application 实例");
+            Zenwik.Core.Services.LogService.Info("升级 2/6：创建 Application 实例");
 
             App app = new();
 
-            Services.LogService.Info("升级 3/6：加载 App.xaml 资源字典");
+            Zenwik.Core.Services.LogService.Info("升级 3/6：加载 App.xaml 资源字典");
             app.InitializeComponent();
 
             return app.Run();

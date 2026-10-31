@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 
-namespace ZenForge.Helpers
+namespace Zenwik.Helpers
 {
     /// <summary>
     /// 窗口外观辅助：Windows 11 圆角 + 深色标题栏（DWM 属性，失败时静默忽略）。

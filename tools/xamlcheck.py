@@ -6,7 +6,7 @@ NS_X = '{http://schemas.microsoft.com/winfx/2006/xaml}'
 
 def tag(el):
     # 自定义命名空间（xmlns:ctl="clr-namespace:..."）解析出来是
-    # "{clr-namespace:ZenForge.Controls}SearchBox" —— 必须连花括号一起剥掉，
+    # "{clr-namespace:Zenwik.Controls}SearchBox" —— 必须连花括号一起剥掉，
     # 否则前面的 "xxx}" 会留在结果里，名称比对永远不命中。
     return re.sub(r'^\{[^}]*\}', '', el.tag).split(':')[-1]
 

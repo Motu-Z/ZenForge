@@ -2,19 +2,19 @@ using System;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
-using ZenForge.Helpers;
+using Zenwik.Helpers;
 
-namespace ZenForge.Views
+namespace Zenwik.Views
 {
     /// <summary>
     /// 轻量级深色弹窗，用来替代无法改色的系统 MessageBox。
     ///
     /// 用法（与 MessageBox 接近，可原位替换）：
     ///   DarkDialog.Show("写入成功");
-    ///   DarkDialog.Show("写入成功", "ZenForge · FMax");
-    ///   DarkDialog.ShowWarning("参数越界", "ZenForge");
-    ///   DarkDialog.ShowError("回读不一致", "ZenForge · 写入失败");
-    ///   if (DarkDialog.Confirm("确定要写入吗？", "ZenForge")) { ... }
+    ///   DarkDialog.Show("写入成功", "Zenwik · FMax");
+    ///   DarkDialog.ShowWarning("参数越界", "Zenwik");
+    ///   DarkDialog.ShowError("回读不一致", "Zenwik · 写入失败");
+    ///   if (DarkDialog.Confirm("确定要写入吗？", "Zenwik")) { ... }
     ///
     /// 线程安全：可从任意线程调用，内部自动封送到 UI 线程。
     /// </summary>
@@ -78,23 +78,23 @@ namespace ZenForge.Views
         // ==================== 静态入口 ====================
 
         /// <summary>信息提示（青色 i 图标 + 单个“确定”）。</summary>
-        public static void Show(string message, string title = "ZenForge")
+        public static void Show(string message, string title = "Zenwik")
             => ShowCore(message, title, DialogKind.Info);
 
         /// <summary>成功提示（绿色对勾）。</summary>
-        public static void ShowSuccess(string message, string title = "ZenForge")
+        public static void ShowSuccess(string message, string title = "Zenwik")
             => ShowCore(message, title, DialogKind.Success);
 
         /// <summary>警告提示（橙色感叹号）。</summary>
-        public static void ShowWarning(string message, string title = "ZenForge")
+        public static void ShowWarning(string message, string title = "Zenwik")
             => ShowCore(message, title, DialogKind.Warning);
 
         /// <summary>错误提示（红色叉）。</summary>
-        public static void ShowError(string message, string title = "ZenForge")
+        public static void ShowError(string message, string title = "Zenwik")
             => ShowCore(message, title, DialogKind.Error);
 
         /// <summary>确认框，返回 true = 用户点了“确定”。</summary>
-        public static bool Confirm(string message, string title = "ZenForge")
+        public static bool Confirm(string message, string title = "Zenwik")
         {
             bool result = false;
             Invoke(() =>
@@ -130,7 +130,7 @@ namespace ZenForge.Views
         {
             DarkDialog dialog = new();
 
-            dialog.TitleTextBlock.Text = string.IsNullOrWhiteSpace(title) ? "ZenForge" : title;
+            dialog.TitleTextBlock.Text = string.IsNullOrWhiteSpace(title) ? "Zenwik" : title;
 
             // 短文本会被 SizeToContent 压成一条细缝，给个空格保住行高
             dialog.MessageTextBlock.Text = string.IsNullOrEmpty(message) ? " " : message;

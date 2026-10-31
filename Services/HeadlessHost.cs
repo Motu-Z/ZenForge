@@ -2,9 +2,9 @@ using System;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
-using ZenForge.Helpers;
+using Zenwik.Helpers;
 
-namespace ZenForge.Services
+namespace Zenwik.Services
 {
     /// <summary>
     /// 纯后台宿主（-silent）。
@@ -28,13 +28,13 @@ namespace ZenForge.Services
             // 已有实例：静默启动不该打断用户，也不该把界面弹出来
             if (SingleInstance.TrySignalExisting(signalMain: false))
             {
-                LogService.Info("已有 ZenForge 实例在运行，静默实例退出");
+                LogService.Info("已有 Zenwik 实例在运行，静默实例退出");
                 return 0;
             }
 
             if (!SingleInstance.TryAcquire())
             {
-                LogService.Info("静默模式：已有 ZenForge 实例在运行，本实例退出");
+                LogService.Info("静默模式：已有 Zenwik 实例在运行，本实例退出");
                 return 0;
             }
 
@@ -141,7 +141,7 @@ namespace ZenForge.Services
 
                     LogService.Info(UiSettingsStore.Settings.ShowTrayIcon
                         ? "静默模式：已进入后台常驻（原生托盘，未加载 WPF）"
-                        : "静默模式：已进入后台常驻（无托盘，双击 ZenForge.exe 打开界面）");
+                        : "静默模式：已进入后台常驻（无托盘，双击 Zenwik.exe 打开界面）");
 
                     tray.RunMessageLoop();
                 }

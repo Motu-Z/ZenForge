@@ -1,7 +1,7 @@
 using System.Windows;
 using System.Windows.Media;
 
-namespace ZenForge.Helpers
+namespace Zenwik.Helpers
 {
     /// <summary>
     /// 按当前 DPI 选择文本格式化模式（Helper 层：纯静态工具，不持有状态）。

@@ -5,9 +5,9 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
-using ZenForge.Services;
+using Zenwik.Services;
 
-namespace ZenForge.Controls
+namespace Zenwik.Controls
 {
     /// <summary>提示类型。决定左侧色条与图标形状，颜色全部取自语义色资源。</summary>
     public enum ToastKind

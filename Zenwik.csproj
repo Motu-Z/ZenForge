@@ -1,0 +1,119 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>Zenwik</RootNamespace>
+    <AssemblyName>Zenwik</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>none</SatelliteResourceLanguages>
+    <!-- ==================== 版本号 ====================
+         Version 面向用户。默认不带后缀，后缀只在有必要时才加：
+
+             无后缀         正式版。日常默认，不代表「绝对稳定」。
+             -rc1 / -rc2    预览版：功能更新但没改完，或可能不完全可用。
+             -can1 / -can2  测试版：仅当改动巨大、完全无法预计可用程度时才用。
+
+         不放 -fix：修 Bug 就是普通迭代，版本号往前走一个修订号即可
+         （0.8.6 出问题就发 0.8.7），不需要单独的后缀来标记。
+
+         FileVersion / AssemblyVersion 只能是四段数字，第四段记录
+         「同一主.次.修订下第几次发版」，从 0 起算，每发一次 +1：
+
+             Version              FileVersion / AssemblyVersion
+             0.9.0-can1           0.9.0.0
+             0.9.0-rc1            0.9.0.1
+             0.9.0-rc2            0.9.0.2
+             0.9.0                0.9.0.3
+
+         第四段跟发版次序走，不与后缀数字对齐。
+         改 Version 时这两行必须一起改，别让资源管理器里的数字和 Release 标题对不上。 -->
+    <Version>1.2.1</Version>
+    <FileVersion>1.2.1.0</FileVersion>
+    <AssemblyVersion>1.2.1.0</AssemblyVersion>
+    <Product>Zenwik</Product>
+
+    <!-- 仓库纳入 git 之后，SDK 默认往 InformationalVersion 追加 "+<commit>"。
+         属性面板里那一串 hash 对用户没有意义，关掉。 -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+
+    <!-- 自定义入口点：让 -silent 走一条完全不加载 WPF 的纯后台路径。
+         仍由 App.xaml 的 ApplicationDefinition 生成 App.g.cs（资源字典/BAML 全在里面），
+         只是 csc 会用 -main:Zenwik.Program 指定真正的入口，自动生成的 Main 被忽略。
+         绝不能把 App.xaml 改成 Page —— 那会丢掉整套资源字典。 -->
+    <StartupObject>Zenwik.Program</StartupObject>
+
+    <!-- 程序图标：exe、任务栏、托盘图标共用同一份，告别 .NET 默认灰图标 -->
+    <ApplicationIcon>Assets/Zenwik.ico</ApplicationIcon>
+
+    <!-- 单文件发布：用户拿到的就是一个 exe，不用管旁边躺着几个 dll。
+         框架依赖（不自带运行时）—— 自包含会把体积抬到 70MB 以上，
+         而 .NET 10 桌面运行时本来就该装一次。
+         IncludeNativeLibrariesForSelfExtract 把原生库也塞进去，否则解压出来
+         的目录里还会漏 dll；.NET 10 起默认在内存里加载，不落盘。 -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <SelfContained>false</SelfContained>
+
+    <!-- 发布版不带符号表。旧值 embedded 会随程序集一起装进单文件，
+         白白多几 MB，用户也用不到 PDB。本地 debug 构建不受影响。 -->
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Zenwik.Core 就放在本目录下（Zenwik.Core/），SDK 的默认 glob 会把它
+         一起算进来，导致同一份 .cs 被编译两次（CS0101 重复定义）。
+         这里显式摘掉整个子目录 —— 它有自己的 csproj，由 ProjectReference 引。 -->
+    <Compile Remove="Zenwik.Core/**" />
+    <Page Remove="Zenwik.Core/**" />
+    <Resource Remove="Zenwik.Core/**" />
+    <None Remove="Zenwik.Core/**" />
+    <EmbeddedResource Remove="Zenwik.Core/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 纯业务逻辑（SMU / 电源策略 / 日志 / 进程监听）。
+         红线：该工程不引用任何 WPF 类型，详见 Zenwik.Core.csproj 的注释。 -->
+    <ProjectReference Include="Zenwik.Core/Zenwik.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Core 的命名空间在改名时下沉了一层（Zenwik.Services → Zenwik.Core.Services）。
+      以前 WPF 层和 Core 层共用 ZenForge.Services / ZenForge.Helpers 两个命名空间，
+      于是「同命名空间直接可见」，几十个文件靠这个隐式关系拿到 LogService；
+      分层之后这些引用全部失效。
+
+      两条路：给每个文件补一行 using，或者在这里声明一次。
+      选后者 —— WPF 层对 Core 的依赖是全局的、无条件的（每个页面都在写日志），
+      不是需要按文件斟酌的可选依赖。补 using 只会让 60 个文件各多一行噪音。
+      已验证两侧无同名类型，不会产生歧义。 -->
+    <Using Include="Zenwik.Core.Helpers" />
+    <Using Include="Zenwik.Core.Services" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 托盘图标要用 System.Windows.Forms.NotifyIcon。
+         刻意不开 UseWindowsForms：那个属性会让 SDK 注入 System.Windows.Forms /
+         System.Drawing 的全局 using，而本项目到处裸写着 Application、Brush、
+         Color、Point、Size —— 一注入就是满屏歧义错误。
+         只加 FrameworkReference 不注入任何 using，代码里写全名即可。 -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
+
+    <Resource Include="Assets/Zenwik.ico" />
+  </ItemGroup>
+
+  <!-- 诊断版开关：发布时加 -p:VerboseLog=true 即编译出默认开启详细日志的版本。
+       常规模块不受影响（VERBOSE_LOG 未定义 → LogService.Verbose 默认 false）。 -->
+  <PropertyGroup Condition="'$(VerboseLog)' == 'true'">
+    <DefineConstants>$(DefineConstants);VERBOSE_LOG</DefineConstants>
+  </PropertyGroup>
+
+  <!-- 原生 SMU 依赖已随代码迁到 Zenwik.Core（libs/ZenStates-Core 的本地 DLL 引用）。
+       程序集引用对引用方是传递的，App 侧照旧能用 SmuSnapshot 等类型，
+       不需要在这里再写一遍 —— 写两遍只会出现两个 HintPath，迟早对不上。 -->
+
+</Project>

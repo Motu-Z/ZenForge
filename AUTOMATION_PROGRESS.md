@@ -1,4 +1,4 @@
-# ZenForge 自动化开发进度（AUTOMATION_PROGRESS）
+# Zenwik 自动化开发进度（AUTOMATION_PROGRESS）
 
 > 执行时间：2026-10-31 02:25 – 11:xx（自动挂机 + 白天封版）
 >
@@ -10,12 +10,12 @@
 > | `v1.2.0-can2` | `OpenProcess` 最小权限 + 同类失败 60 秒节流（`LogThrottle`） | 0/0 |
 > | `v1.2.0-can3` | 调校页三卡标题中文化并统一 L2、SMU 改「已联通」、优先级档位汉化 | 0/0 |
 > | `v1.2.0-can4` | 搜索框：占位符绑定缺失 / 光标垂直偏移 / 聚焦即消失 | 0/0 |
-> | `v1.2.0-can5` | 抽离 `ZenForge.Core`（零 WPF 引用，`dotnet build` 单工程可验证） | 0/0 |
+> | `v1.2.0-can5` | 抽离 `Zenwik.Core`（零 WPF 引用，`dotnet build` 单工程可验证） | 0/0 |
 > | `v1.2.0-can6` | 文档：CHANGELOG、封版交接文档、规范路线图、版本号 1.2.0 | 0/0 |
 >
 > 未验证项（沙箱为 Linux，无 Windows 运行时）：关窗后真实内存、动画观感、高 DPI 渲染、
 > 搜索框光标像素位置。代码路径与清理点已在 `docs/代码审查报告-v1.0.4.md` 与 CHANGELOG 中列明。
-> 工程路径：`/workspace/projects/ZenForge` ｜ 仓库：Motu-Z/ZenForge（main）
+> 工程路径：`/workspace/projects/Zenwik` ｜ 仓库：Motu-Z/Zenwik（main）
 > 编译口径：`dotnet build -c Release -p:EnableWindowsTargeting=true`，**全程 0 警告 0 错误**
 
 ---
@@ -123,3 +123,50 @@
 2. 加 `-selftest` 启动一次，日志里看「场景自动切换 · 底层自检」段落是否全通过；
 3. 平滑动画与高 DPI：需要真机看（Linux 沙箱无法验收）；
 4. 场景自动切换：配一条「运行某进程 → 某方案」规则，启动该进程看日志是否切了、且现存进程是否重扫。
+
+---
+
+# 轮次归档：v1.2.1 · 更名 Zenwik + SMU 换 1.93.1 本地 DLL
+
+> 2026-10-31 11:47 起。依据用户对交接文档 10 个问题的拍板执行。
+
+## 1. 执行结果
+
+| # | 任务 | 结果 |
+|---|---|---|
+| 1 | `ZenForge` → `Zenwik` 全量更名 | ✅ 解决方案 / 工程 / 程序集 / 命名空间 / `%AppData%` / UI 文案 / 图标 / GitHub 仓库 |
+| 2 | Core 命名空间下沉 `Zenwik.Core.*` | ✅ WPF 层依赖改为 `Zenwik.csproj` 里两条全局 `using`（两侧无同名类型，无歧义） |
+| 3 | 移除 `LLT.ZenStates-Core`，改本地 DLL | ✅ `libs/ZenStates-Core/`（`net8.0-windows` 资产），适配 `Cpu` 构造变化 |
+| 4 | 0 警告 0 错误 | ✅ `dotnet build Zenwik.slnx -c Release`：0 / 0 |
+| 5 | 交接文档定稿 v1.0.1 | ✅ §9 改为决策记录；新增本地 DLL 与 AOT 注意事项 |
+| 6 | 打 Tag 推送 | ✅ `v1.2.1` |
+
+## 2. 1.93.1 的破坏性变化（已用反射逐个比对 API）
+
+用 `MetadataLoadContext` 把 1.92.4 → 1.93.1 的公开面拉出来逐项比：
+
+| 项 | 变化 | 处理 |
+|---|---|---|
+| `Cpu..ctor` | 无参 → `Cpu(CoreOptions options)` | 改 `new Cpu(CoreOptions.Current)`（两处：`RetryAvailabilityProbe` / `TryCreate`） |
+| `SendTestMessage` | `()` → `(uint arg = 0, Mailbox mbox = null)` | 两参数均可选，老写法零改动 |
+| `smu.SMU_TYPE` / `smu.Version` / `smu.Rsmu.SMU_MSG_*` | 未变 | — |
+| 拓扑 `info.topology.*` | 未变（`coresPerCcx` 仍在） | — |
+| `GetPsmMarginSingleCore` / `SetPsmMarginSingleCore` / `MakeCoreMask` / `GetFMax` / `SetFMax` | 未变 | — |
+| 传递依赖 | NuGet 时代由包带入 `System.ServiceProcess.ServiceController` | **显式声明**，否则编译失败 |
+| 原生依赖 | `WinIo32.dll` 按文件名 `LoadLibrary` | `ExcludeFromSingleFile=true`，随 exe 落地 |
+
+## 3. 本轮踩到的坑（给下一任省时间）
+
+1. **批量改名的连带伤害**：`"ZenForge"` 这个**目录名字符串**在 9 个文件里各写了一遍，
+   统一替换后变成 `"Zenwik.Core"`（把命名空间前缀写进了路径）。已用 `AppPaths` 收口，
+   顺带把这类重复彻底消掉。
+2. **同命名空间隐式可见**：Core 下沉一层后，几十个 WPF 文件失去对 `LogService` 的隐式访问。
+   逐文件补 `using` 会让 60 个文件各多一行噪音 —— 改为项目级两条全局 `using`。
+3. **`Services.LogService` 这类相对限定名**：位于 `namespace Zenwik` 内时解析到 `Zenwik.Services`，
+   必须写全 `Zenwik.Core.Services.LogService`。编译器会直接报 CS0234，好定位。
+
+## 4. 待真机确认
+
+- CO 逐核写入 + 回读一致、FMax 写入 + 回读容差、SMU 版本号显示（1.93.1 通道）；
+- 升级后配置是否从 `%AppData%\ZenForge` 成功搬到 `%AppData%\Zenwik`；
+- 旧的 `ZenForgeAutoStart` 计划任务是否需要手动删（不会自动清理）。

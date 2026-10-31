@@ -1,11 +1,10 @@
-# WPF 封版与 WinUI 3 重构交接文档
+# Zenwik：WPF 封版与 WinUI 3 重构交接文档
 
-> **状态：草稿 v0.9（待确认）** ｜ 生成时间：2026-10-31 ｜ 对应代码版本：`v1.2.0`
-> 工程路径：`/workspace/projects/ZenForge`（`ZenForge.slnx` 管两个工程）
+> **状态：v1.0.1 定稿** ｜ 更新：2026-10-31 ｜ 对应代码版本：`v1.2.1`（Tag `v1.2.1`）
+> 解决方案：`Zenwik.slnx`（管 `Zenwik` 与 `Zenwik.Core` 两个工程）
 >
-> 本文档由代码实际结构反向整理，**没有一处是凭印象写的**：类名、职责、P/Invoke 目标库、落盘路径
-> 都能在仓库里对上。文末 §9 列出 10 个我无法从代码判断、只能由你决定的问题；
-> 你回复后我会把答案合并进来出 v1.0 定稿。
+> v0.9 里悬着的 10 个问题已全部拍板，§9 改成**决策记录**（结论 + 实施落点 + 影响面）。
+> 本文档由代码实际结构反向整理：类名、职责、P/Invoke 目标库、落盘路径都能在仓库里对上。
 
 ---
 
@@ -15,13 +14,15 @@
 |---|---|---|
 | §1 | 封版基线：版本、Tag、构建与验证口径 | 你 / 接手的人 |
 | §2 | 架构总览：两个工程、依赖方向、红线怎么守 | 接手的人 |
-| §3 | `ZenForge.Core` 类清单（纯业务逻辑，可直接搬） | WinUI 3 开发者 |
+| §3 | `Zenwik.Core` 类清单（纯业务逻辑，可直接搬） | WinUI 3 开发者 |
 | §4 | WPF 层类清单 + **迁移时必须重写的部分** | WinUI 3 开发者 |
 | §5 | 数据落盘与系统状态（文件 / 注册表 / 驱动） | 运维 / 排错 |
-| §6 | WinUI 3 迁移注意事项：P/Invoke、NuGet、AOT、XAML 差异、托盘、单实例 | 架构决策 |
+| §6 | WinUI 3 迁移注意事项：P/Invoke、依赖、AOT、XAML 差异、托盘、单实例 | 架构决策 |
 | §7 | 建议的迁移顺序（按风险从低到高） | 排期 |
 | §8 | 已知风险与「不要照搬」的坑 | 所有人 |
-| §9 | 待你确认的 10 个问题 | 你 |
+| §9 | 决策记录（10 条已拍板事项） | 你 / 接手的人 |
+| 附录 A | v1.2.1 改动清单 | 查变更 |
+| 附录 B | 一条命令验证红线 | CI |
 
 ---
 
@@ -29,25 +30,28 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 | `1.2.0`（`Version` / `FileVersion` / `AssemblyVersion` 三处同步，两个工程一致） |
-| Tag | `v1.2.0`（WPF 线终点，不创建 GitHub Release） |
-| 目标框架 | `net10.0-windows`（App 带 `UseWPF`；Core 不带） |
-| 构建 | `dotnet build ZenForge.slnx -c Release -p:EnableWindowsTargeting=true` |
+| 版本 | `1.2.1`（`Version` / `FileVersion` / `AssemblyVersion` 三处同步，两个工程一致） |
+| Tag | `v1.2.1` |
+| 目标框架 | `net10.0-windows`（`Zenwik` 带 `UseWPF`；`Zenwik.Core` 不带） |
+| 构建 | `dotnet build Zenwik.slnx -c Release -p:EnableWindowsTargeting=true` |
 | 结果 | **0 警告 0 错误**（两个工程） |
+| 发布 | `dotnet publish Zenwik.csproj -c Release -r win-x64` → `Zenwik.exe` + `WinIo32.dll` |
 | 发布形态 | 单文件、框架依赖（`SelfContained=false`）、Release 不带 PDB |
 
 > 构建命令里的 `EnableWindowsTargeting=true` 是给 Linux CI 用的；Windows 上不需要。
+>
+> 本地检出目录名可能仍叫 `ZenForge`，与工程名无关 —— 别被路径误导，认 `Zenwik.slnx`。
 
 ---
 
 ## 2. 架构总览
 
 ```
-ZenForge.slnx
-├── ZenForge.Core/          ← 纯业务逻辑（无 WPF）
+Zenwik.slnx
+├── Zenwik.Core/            ← 纯业务逻辑（无 WPF），命名空间 Zenwik.Core.*
 │    ├── Services/          SMU、电源策略、日志、进程监听、方案/场景
-│    └── Helpers/           JSON 落盘、四份配置 Store、内存回收
-└── ZenForge/               ← WPF 外壳（本版封版，迁移时整体重写）
+│    └── Helpers/           JSON 落盘、五份配置 Store、路径出口、内存回收
+└── Zenwik/                 ← WPF 外壳（本版封版，迁移时整体重写）
      ├── App.xaml(.cs)      启动路径、单实例、提权、全局异常
      ├── MainWindow         导航壳、关窗去向、生命周期
      ├── Views/             7 个页面 + 2 个独立窗口
@@ -56,25 +60,43 @@ ZenForge.slnx
      └── Services/          只服务 WPF 的东西（托盘、Toast、定时器、唤醒）
 ```
 
-**依赖方向只有一条**：`ZenForge` → `ZenForge.Core`。Core 不知道 App 存在（唯一例外是 `InternalsVisibleTo("ZenForge")`，为了让 `internal` 的工具类可用，不构成反向依赖）。
+**依赖方向只有一条**：`Zenwik` → `Zenwik.Core`。Core 不知道 App 存在（唯一例外是
+`InternalsVisibleTo("Zenwik")`，为了让 `internal` 工具类可用，不构成反向依赖）。
 
-**红线怎么守**：Core 的 csproj 不写 `UseWPF` / `UseWindowsForms`。没有这两个属性，SDK 不会引入 `PresentationFramework` / `WindowsBase` / `System.Drawing`，代码里出现 `System.Windows.*` 会**编译失败**。这不是靠自觉，是靠编译器。
+**命名空间边界**：v1.2.1 起 Core 下沉一层（`Zenwik.Core.Services` / `Zenwik.Core.Helpers`），
+与 WPF 层的 `Zenwik.Services` / `Zenwik.Helpers` 不再混居。WPF 层对 Core 的依赖在
+`Zenwik.csproj` 里声明为两条全局 `using` —— 这是一条**全局无条件**的依赖（每个页面都在写日志），
+不是按文件斟酌的可选项。
 
-> 实测校验（已跑过）：`ZenForge.Core.dll` 的引用表里没有 `PresentationFramework` / `PresentationCore` / `WindowsBase` / `System.Windows.Forms` / `System.Drawing`。
+**红线怎么守**：Core 的 csproj 不写 `UseWPF` / `UseWindowsForms`。没有这两个属性，SDK 不会引入
+`PresentationFramework` / `WindowsBase` / `System.Drawing`，代码里出现 `System.Windows.*` 会**编译失败**。
+这不是靠自觉，是靠编译器。
+
+> 实测校验（已跑过）：`Zenwik.Core.dll` 的引用表里没有 `PresentationFramework` / `PresentationCore` /
+> `WindowsBase` / `System.Windows.Forms` / `System.Drawing`。
 
 ---
 
-## 3. `ZenForge.Core` 类清单（迁移时可直接复用）
+## 3. `Zenwik.Core` 类清单（迁移时可直接复用）
 
 ### 3.1 SMU / 硬件
 
 | 类 | 职责 | 备注 |
 |---|---|---|
-| `SmuReader` | SMU 只读探测与写入封装（CO 逐核负压 / FMax），写完立即回读校验 | 依赖 `LLT.ZenStates-Core` + PawnIO 驱动 + 管理员权限；**单实例互斥**在类内 |
+| `SmuReader` | SMU 只读探测与写入封装（CO 逐核负压 / FMax），写完立即回读校验 | 依赖 `ZenStates-Core` 1.93.1（本地 DLL）+ PawnIO 驱动 + 管理员权限；**单实例互斥**在类内 |
 | `SmuDiagnostics` | 只读 + 回滚式自检，产出 txt 报告 | 供「通用页 → SMU 自检」调用 |
 | `TuningApplyService` | 把 `tuning.json` 里的配置下发到 SMU，返回 `TuningApplyOutcome` | 启动时后台套用也走它 |
 | `CpuSetBinder` | 基于 CPU Sets 的进程绑核（`SetProcessDefaultCpuSets`） | 只申请 `PROCESS_SET_LIMITED_INFORMATION`；`CpuSetBindResult.ErrorCode` 带出 Win32 码 |
 | `ProcessPriority` | 进程优先级下发 + 档位映射 / 中文显示名 | `DisplayOf()` 是显示层唯一入口 |
+
+**SMU 通道的关键约束**（1.93.1 起，详见 §6.2 与 `Zenwik.Core.csproj` 的注释）：
+
+- `Cpu` **没有无参构造**，必须传 `CoreOptions`；本实现传 `CoreOptions.Current`（库内的进程级单例配置）。
+- `SendTestMessage(uint arg = 0, Mailbox mbox = null)` 两个参数都可选，`SendTestMessage()` 老写法仍有效。
+- 拓扑（`info.topology.*`）、消息号（`smu.Rsmu.SMU_MSG_*`）、`SetPsmMarginSingleCore` /
+  `GetPsmMarginSingleCore` / `MakeCoreMask` / `GetFMax` / `SetFMax` **签名未变**。
+- `Cpu.Dispose()` 依然不能调：它内部会 `Opcode.Close()`，而 `Opcode` 是进程级静态资源，
+  销毁任一个实例会让**所有** `Cpu` 的 CPUID / SMU 能力失效。`SmuReader.Dispose()` 保持空实现。
 
 ### 3.2 电源与系统策略
 
@@ -83,7 +105,7 @@ ZenForge.slnx
 | `ProcessorPowerPolicy` | Windows 电源计划里的四个索引（电源策略档位 / 升频模式 / 核心停放 / EPP），**不是** SMU 层 PBO |
 | `ProcessorPowerTuning` | 升频模式（`PERFBOOSTMODE`）读写与档位表 `BoostOptions` |
 | `PowerStatusWatcher` | 供电状态监听：`SystemEvents.PowerModeChanged` 为主 + 30 秒轮询兜底（P/Invoke `GetSystemPowerStatus`） |
-| `AutoStartService` | 开机自启（注册表 Run 项） |
+| `AutoStartService` | 开机自启（计划任务 `ZenwikAutoStart` + `-silent`） |
 
 ### 3.3 日志
 
@@ -92,7 +114,8 @@ ZenForge.slnx
 | `LogService` | 内存环形日志（上限 320 条 / 单条 2000 字符）+ 批量落盘队列（上限 800）+ `EntryAdded` 事件 |
 | `LogThrottle` | 同 key 60 秒节流，补报「另有 N 条已抑制」 |
 
-> `LogService.UiContext` 是 `SynchronizationContext`，**不是** WPF 类型 —— 迁 WinUI 3 时把 `DispatcherQueue.AsSynchronizationContext()` 传进来即可，代码不用改。
+> `LogService.UiContext` 是 `SynchronizationContext`，**不是** WPF 类型 —— 迁 WinUI 3 时把
+> `DispatcherQueue.AsSynchronizationContext()` 传进来即可，代码不用改。
 
 ### 3.4 进程监听
 
@@ -116,7 +139,8 @@ ZenForge.slnx
 
 | 类 | 职责 | 落盘 |
 |---|---|---|
-| `UiSettingsStore` | 主题、强调色、托盘、后台服务开关等 | `%AppData%\ZenForge\ui.json` |
+| `AppPaths` | **产品路径唯一出口**：根目录、`Logs`、`File(name)`、`Dir(name)`，并负责旧目录一次性迁移 | — |
+| `UiSettingsStore` | 主题、强调色、托盘、后台服务开关等 | `%AppData%\Zenwik\ui.json` |
 | `TuningStore` | CO 逐核 + FMax | `tuning.json` |
 | `BindingStore` | 绑核规则（进程名 → CCD / 掩码 / 优先级） | `bindings.json` |
 | `MaskStore` | 自定义核心掩码 | `masks.json` |
@@ -125,6 +149,9 @@ ZenForge.slnx
 | `JsonFile` | 统一的 JSON 读写（缩进、损坏兜底） | — |
 | `MaskFormatter` / `MaskNamePolicy` | 掩码 ↔ 区间文本、掩码命名规则 | — |
 | `MemoryTrimmer` | GC + LOH 压缩 + `SetProcessWorkingSetSize`（交还工作集） | — |
+
+> 所有落盘路径都从 `AppPaths` 取，**没有第二处硬编码目录名**。改名前那个字面量在 9 个文件里各写了一遍，
+> 漏改一处就会得到「设置能存、方案读不出来」这种不报错的错乱状态。
 
 ---
 
@@ -143,21 +170,21 @@ ZenForge.slnx
 | `Controls/ToastHost` | 轻提示层 | 需改用 `TeachingTip` / `InfoBar` 或自绘 |
 | `Helpers/ThemeService`、`ColorHsl`、`WindowHelper`、`UiTextOptions` | 主题换肤、DWM 属性、文本渲染模式 | 全部依赖 WPF 资源/视觉树/`TextOptions` |
 
-> `UiTextOptions` 在 WinUI 3 里**没有对应物**：WinUI 用 DirectWrite，不存在 `TextFormattingMode` / `TextHintingMode`。这一层整体删除，不要试图移植。
+> `UiTextOptions` 在 WinUI 3 里**没有对应物**：WinUI 用 DirectWrite，不存在 `TextFormattingMode` /
+> `TextHintingMode`。这一层整体删除，不要试图移植。
 
 ### 4.2 保留但需替换实现（逻辑可复用）
 
 | 位置 | WPF 实现 | WinUI 3 要换成 |
 |---|---|---|
-| `Services/TrayIconService` | `System.Windows.Forms.NotifyIcon` + WPF `ContextMenu` | Win32 `Shell_NotifyIcon` + 自绘菜单（见 §6.4） |
-| `Services/NativeTrayIcon` | 原生托盘图标封装 | 同上，可直接复用 P/Invoke 部分 |
+| `Services/TrayIconService` | `System.Windows.Forms.NotifyIcon` + WPF `ContextMenu` | Win32 `Shell_NotifyIcon` + 自绘菜单（见 §6.4）；`NativeTrayIcon` 的 P/Invoke 可直接复用 |
 | `Services/PageTimerManager` | `DispatcherTimer` | `DispatcherQueueTimer` |
 | `Services/ToastService` | 静态宿主引用 | 保留门面，宿主换成新控件 |
 | `Services/SingleInstance` | `Mutex` + 命名事件 + `FindWindow` | `AppInstance.FindOrRegisterForKey` + 重定向（见 §6.5） |
 | `Services/WakeWindow` | 隐藏窗口 + `PostMessage` 唤醒 | 同上，由 `AppInstance` 接管 |
 | `Services/ErrorNotifyService` | 按「窗口可见」选 Toast / 托盘气泡 | 保留判定，通道换掉 |
 | `Services/FactoryResetService` | 清配置 + 解绑 + 卸载驱动 | 逻辑基本可复用，只换提示通道 |
-| `Services/HeadlessHost` / `SilentModeRunner` | `-silent` 无界面常驻 | 见 §9 问题 8 |
+| `Services/HeadlessHost` / `SilentModeRunner` | `-silent` 无界面常驻 | 见 §9 决策 8 |
 | `App.xaml.cs` | 启动路径、提权、全局异常、`ExitApplication` | 需按 WinUI 3 的 `App` + `AppWindow` 重写 |
 
 ---
@@ -166,12 +193,15 @@ ZenForge.slnx
 
 | 类型 | 位置 | 说明 |
 |---|---|---|
-| 配置 | `%AppData%\ZenForge\*.json` | 6 个文件，见 §3.6；迁移时**必须沿用同一路径**，否则用户配置全丢 |
-| 日志 | 同一目录下的日期分文件 | 由 `LogService` 维护，含 Debug 级完整文本 |
-| 自启 | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` | `AutoStartService` |
+| 配置 | `%AppData%\Zenwik\*.json` | 6 个文件，见 §3.6；迁移 WinUI 3 时**必须沿用同一路径**，否则用户配置全丢 |
+| 旧配置 | `%AppData%\ZenForge\` | 仅在升级后首次启动时被搬走（`Move`，失败退化为复制）；搬完后该目录不再存在 |
+| 日志 | `%AppData%\Zenwik\Logs\` | 日期分文件，由 `LogService` 维护，含 Debug 级完整文本 |
+| SMU 诊断 | `%AppData%\Zenwik\Diagnostics\` | `SmuDiagnostics` 产出的 txt 报告 |
+| 自启 | 计划任务 `ZenwikAutoStart` | `AutoStartService`；旧的 `ZenForgeAutoStart` 不会自动删除 |
 | 电源方案 | 通过 `powrprof.dll` 读写当前方案的隐藏索引 | 不新建电源方案，只改索引值 |
-| SMU | PawnIO 驱动（随 ZenStates-Core 安装） | 需管理员权限；写入前的防砖保护在「高级」页 |
-| 单实例 | 全局 `Mutex` + 命名事件 | 迁移后由 `AppInstance` 取代 |
+| SMU | PawnIO 驱动（管理员权限） | 驱动侧模块由 `ZenStates-Core` 内置资源加载 |
+| 单实例 | `Local\Zenwik.SingleInstance` + 命名事件 | 迁移后由 `AppInstance` 取代 |
+| 绑核互斥 | `Global\Zenwik.ProcessWatcher.Singleton` | 防止两处同时写绑核 |
 
 ---
 
@@ -184,25 +214,38 @@ ZenForge.slnx
 | 库 | 次数 | 用途 |
 |---|---|---|
 | `kernel32.dll` | 22 | `OpenProcess` / `CloseHandle` / `SetProcessDefaultCpuSets` / `GetSystemCpuSetInformation` / `SetProcessWorkingSetSize` / Toolhelp 快照 |
-| `user32.dll` | 31 | 窗口样式、`FindWindow`、`PostMessage`、`SetWindowPos`、前台激活 |
+| `user32.dll` | 31 | 窗口样式、`FindWindow`、`PostMessage`、`SetWindowPos`、前台激活、`Shell_NotifyIcon` |
 | `powrprof.dll` | 11 | `PowerReadACValueIndex` / `PowerWriteACValueIndex` 等电源索引读写 |
 | `dwmapi.dll` | 1 | 深色标题栏（`DWMWA_USE_IMMERSIVE_DARK_MODE`） |
 | `shell32.dll` | 1 | 打开所在目录 |
 
 AOT 相关：
 - `[DllImport]` 在 AOT 下可用，但**推荐换 `[LibraryImport]`**（源生成器，避免运行时封送）。
-- 换 `LibraryImport` 时注意三处会编译报错的地方：`bool` 返回值要写 `[return: MarshalAs(UnmanagedType.Bool)]`；`uint[]` 参数（`SetProcessDefaultCpuSets`）需要显式 `[MarshalUsing]` 或改 `unsafe` 指针；`Pack=4` 的结构体要保留 `StructLayout`。
+- 换 `LibraryImport` 时注意三处会编译报错的地方：`bool` 返回值要写
+  `[return: MarshalAs(UnmanagedType.Bool)]`；`uint[]` 参数（`SetProcessDefaultCpuSets`）需要显式
+  `[MarshalUsing]` 或改 `unsafe` 指针；`Pack=4` 的结构体要保留 `StructLayout`。
 - 如果为了省事开了 `<DisableRuntimeMarshalling>`，上面这些 `bool` / 数组封送会**在运行期**炸，不是编译期。
 
-### 6.2 第三方 NuGet 与 AOT
+### 6.2 第三方依赖与 AOT
 
-| 包 | 现状 | AOT 风险 |
+| 依赖 | 版本与形态 | AOT 风险 |
 |---|---|---|
-| `LLT.ZenStates-Core` 1.92.4 | 只有 `net9.0` 资产，被 `net10.0` 引用 | **必须实测**。它封装了 PawnIO 驱动通信，如果内部用了反射/动态加载，AOT 下会被裁掉。先跑 `dotnet publish -p:PublishAot=true` 看 `IL2xxx` 警告 |
-| `System.Management` 9.0.0 | WMI 事件订阅（进程创建/退出） | **高风险**。它建立在 COM 互操作 + `ManagementObject` 反射之上，AOT 下大概率不可用。见 §9 问题 4 |
-| `Microsoft.Win32.SystemEvents` 9.0.0 | 电源模式通知 | 中等。它需要一个消息泵与隐藏窗口，AOT 下可用但行为依赖线程模型；已有 30 秒轮询兜底，实在不行砍掉事件通道 |
+| `ZenStates-Core` | **1.93.1，本地 DLL 引用**（`libs/ZenStates-Core/ZenStates-Core.dll`，取自包内 `net8.0-windows` 资产） | **必须实测**。它封装 PawnIO 驱动通信与 SMU 邮箱，内部有反射与 `Assembly` 资源加载（PawnIO 内核模块以嵌入资源 `ZenStates.Core.Resources.PawnIo.*.bin` 形式存在，靠 `LoadModuleFromResource` 加载）。AOT 裁剪会把这类资源与反射路径一起带走 |
+| `System.Management` | 9.0.0（NuGet） | **高风险**。COM 互操作 + `ManagementObject` 反射，AOT 下大概率不可用；决策见 §9 决策 4 |
+| `Microsoft.Win32.SystemEvents` | 9.0.0（NuGet） | 中等。需要消息泵与隐藏窗口，AOT 下可用但依赖线程模型；已有 30 秒轮询兜底 |
+| `System.ServiceProcess.ServiceController` | 9.0.0（NuGet，v1.2.1 起显式声明） | 低。只用于 `SmuReader` 唤醒 PawnIO 服务 |
 
-> 判断标准不要用「编译过没过」，要用 `dotnet publish -c Release -p:PublishAot=true -p:EnableTrimAnalyzer=true` 的 **IL2xxx / IL3xxx 警告清单**。
+> **本地 DLL 引用带来的两个连带责任**（改成 `Reference` 后 NuGet 的传递依赖不再生效）：
+> 1. `System.ServiceProcess.ServiceController` 必须自己声明，否则 `using System.ServiceProcess` 编译失败；
+> 2. `WinIo32.dll` 必须随 exe 落地（见下）。
+>
+> **发布形态**：`WinIo32.dll` 用 `<ExcludeFromSingleFile>true</ExcludeFromSingleFile>` 排除在单文件之外，
+> 因此产物是 `Zenwik.exe` + `WinIo32.dll` 两个文件。原因：`ZenStates-Core` 是按**文件名**自己
+> `LoadLibrary("WinIo32.dll")` 的，它只认 exe 所在目录与 `PATH`；塞进单文件包会被解到
+> `%TEMP%\.net\...`，运行期找不到。它是 PawnIO 缺位时回退端口访问的兜底。
+
+> 判断标准不要用「编译过没过」，要用
+> `dotnet publish -c Release -p:PublishAot=true -p:EnableTrimAnalyzer=true` 的 **IL2xxx / IL3xxx 警告清单**。
 
 ### 6.3 XAML 与线程模型
 
@@ -219,23 +262,30 @@ AOT 相关：
 
 WinUI 3 **没有** `NotifyIcon`。三条路：
 
-1. **自己 P/Invoke `Shell_NotifyIcon`**（推荐）：只需要图标 + 4 个菜单项（打开界面 / 暂停绑核 / 退出），量小、零依赖、AOT 安全，代价是要自己处理 `WM_TASKBARCREATED`（资源管理器重启）。
+1. **自己 P/Invoke `Shell_NotifyIcon`**（已定方案，见 §9 决策 5）：只需图标 + 4 个菜单项
+   （打开界面 / 暂停绑核 / 退出），量小、零依赖、AOT 安全；代价是要自己处理 `WM_TASKBARCREATED`
+   （资源管理器重启）。`Services/NativeTrayIcon` 里已有一份可复用实现。
 2. `H.NotifyIcon.WinUI`：省事，但要确认它的 AOT/裁剪兼容性，且多一个第三方依赖。
 3. 不做托盘：与「后台常驻」定位冲突，不建议。
 
 ### 6.5 单实例与唤醒
 
-WPF 版是 `Mutex` + 命名事件 + `FindWindow` 三段式（`SingleInstance` + `WakeWindow`）。WinUI 3 应换 `Microsoft.Windows.AppLifecycle.AppInstance`：
+WPF 版是 `Mutex` + 命名事件 + `FindWindow` 三段式（`SingleInstance` + `WakeWindow`）。
+WinUI 3 换 `Microsoft.Windows.AppLifecycle.AppInstance`（已定，见 §9 决策 6）：
 
-- `FindOrRegisterForKey("ZenForge")` 判重；
+- `FindOrRegisterForKey("Zenwik")` 判重；
 - 重复实例用 `RedirectActivationToAsync` 把激活转给主实例，**不用**再找窗口句柄；
-- 好处：多实例、协议激活（`zenforge://`）以后都好加；代价：双击 exe 的唤醒路径变了，`-silent` 那条路要重新设计（见 §9 问题 6/8）。
+- 好处：多实例、协议激活（`zenwik://`）以后都好加；代价：双击 exe 的唤醒路径变了，
+  `-silent` 那条路要重新设计（见 §9 决策 8）。
 
 ### 6.6 发布形态
 
-- WPF 用不了 Native AOT（`UseWPF` 与 `PublishAot` 互斥）。这正是迁 WinUI 3 的核心理由，但也意味着 **AOT 是否真的可行要在 WinUI 3 上从零验证**。
-- 建议先做「非 AOT 的 WinUI 3 可运行版」，功能对齐后再开 `PublishAot` —— 一次性两个变量（UI 框架 + AOT）同时动，出问题分不清是谁的。
-- 未打包（unpackaged）+ 自包含 是最省事的组合：`WindowsAppSDKSelfContained=true` + `SelfContained=true` + `PublishSingleFile`。打包（MSIX）会带来签名与更新链路，本阶段不必。
+- WPF 用不了 Native AOT（`UseWPF` 与 `PublishAot` 互斥）。这正是迁 WinUI 3 的核心理由，
+  但也意味着 **AOT 是否真的可行要在 WinUI 3 上从零验证**。
+- 建议先做「非 AOT 的 WinUI 3 可运行版」，功能对齐后再开 `PublishAot` ——
+  一次性两个变量（UI 框架 + AOT）同时动，出问题分不清是谁的。
+- 未打包（unpackaged）+ 自包含 是最省事的组合：`WindowsAppSDKSelfContained=true` +
+  `SelfContained=true` + `PublishSingleFile`。打包（MSIX）会带来签名与更新链路，本阶段不必。
 
 ---
 
@@ -243,7 +293,7 @@ WPF 版是 `Mutex` + 命名事件 + `FindWindow` 三段式（`SingleInstance` + 
 
 | 步 | 内容 | 验收 |
 |---|---|---|
-| 1 | 新建 WinUI 3 空壳，引用 `ZenForge.Core`，能读到 `ui.json` 并显示 CPU 名 | Core 原封不动能跑 |
+| 1 | 新建 WinUI 3 空壳，引用 `Zenwik.Core`，能读到 `ui.json` 并显示 CPU 名 | Core 原封不动能跑 |
 | 2 | 调校页（只读）：SMU 快照 → 界面 | 数字与 WPF 版一致 |
 | 3 | 调校页（写）：CO / FMax 下发 + 回读校验 | 写入后回读一致 |
 | 4 | 进程页：`ProcessRefresher` + `ItemsRepeater` | 300 进程下列表可滚动、不卡 |
@@ -255,52 +305,61 @@ WPF 版是 `Mutex` + 命名事件 + `FindWindow` 三段式（`SingleInstance` + 
 
 ## 8. 已知风险与「不要照搬」的坑
 
-1. **不要照搬 `SmoothSortPanel`**。它的做法是「布局值用新的、渲染位置从旧值补间」，依赖 WPF 的 `RenderTransform` 与 `VirtualizingStackPanel` 的 `Arrange` 时机。WinUI 3 的 `ItemsRepeater` 布局模型完全不同，硬搬会得到「行乱飞」。
-2. **不要照搬 `Themes/Controls.xaml`**。1500 行模板里大量依赖 WPF 的 `Trigger` / `TemplateBinding` / `PART_*` 约定，逐条翻译的成本高于重写。
-3. **`Application.MainWindow` 那类静态强引用陷阱在 WinUI 3 里同样存在**（`App.MainWindow` / 静态 `Window` 字段）。关窗即销毁这条纪律要带过去。
-4. **WMI 是最大的不确定项**。如果 AOT 下 `System.Management` 不可用，替代方案是「降级轮询」（代码里已经有这条路径，3 秒一轮），代价是新进程绑核延迟最多 3 秒。
-5. **`-silent` 无界面模式**是 v1.1 场景自动切换的主战场。WinUI 3 下若不能在没有 XAML 的情况下跑（`App` 必须初始化 XAML 框架），要把「后台调度」拆成独立进程或独立入口 —— 这是架构级决定，见 §9 问题 8。
+1. **不要照搬 `SmoothSortPanel`**。它的做法是「布局值用新的、渲染位置从旧值补间」，依赖 WPF 的
+   `RenderTransform` 与 `VirtualizingStackPanel` 的 `Arrange` 时机。WinUI 3 的 `ItemsRepeater`
+   布局模型完全不同，硬搬会得到「行乱飞」。
+2. **不要照搬 `Themes/Controls.xaml`**。1500 行模板里大量依赖 WPF 的 `Trigger` / `TemplateBinding` /
+   `PART_*` 约定，逐条翻译的成本高于重写。
+3. **`Application.MainWindow` 那类静态强引用陷阱在 WinUI 3 里同样存在**（`App.MainWindow` /
+   静态 `Window` 字段）。关窗即销毁这条纪律要带过去。
+4. **`System.Management` 是最大的不确定项**。AOT 下不可用时的替代方案是「降级轮询」
+   （代码里已有这条路径，3 秒一轮），代价是新进程绑核延迟最多 3 秒。
+5. **`-silent` 无界面模式**是场景自动切换的主战场。WinUI 3 下若不能在没有 XAML 的情况下跑
+   （`App` 必须先初始化 XAML 框架），要把「后台调度」拆成独立进程或独立入口。
+6. **`ZenStates-Core` 的 PawnIO 模块是嵌入资源**，AOT 裁剪要显式保留：
+   `<TrimmerRootAssembly Include="ZenStates-Core" />` 或 `DynamicDependency`，
+   否则运行时会报「PawnIO module not found」—— 这句话看上去像驱动没装，极易误判。
 
 ---
 
-## 9. 待确认的 10 个问题
+## 9. 决策记录（10 条已拍板）
 
-> 每条都给了「我现在的假设」和「你若改成另一种，我改哪里」。你只需要回「几号：选择」，或直接说结论。
-
-| # | 问题 | 我现在的假设 | 若改变的影响 |
+| # | 事项 | 结论 | 实施落点 / 影响面 |
 |---|---|---|---|
-| 1 | `ZenForge.Core` 的命名空间要不要一并改成 `ZenForge.Core.*`？ | **不改**，保留 `ZenForge.Services` / `ZenForge.Helpers` | 改的话是全局 `using` 重写，纯体力活，但能让程序集边界在代码里一眼可见 |
-| 2 | WPF 封版后，Core 是否允许继续加功能（还是完全冻结，只修 bug）？ | **允许加**，但不动 WPF 层 | 若冻结，`v1.1.x` 待办（场景规则编辑器等）只能等 WinUI 3 |
-| 3 | SMU 通道是否仍用 `LLT.ZenStates-Core`（PawnIO 驱动）？ | **继续用**，不换自研封装 | 自研要重做驱动通信与防砖保护，工作量以周计 |
-| 4 | Native AOT 下若 `System.Management` 不可用，接受「砍 WMI 事件、改 3 秒轮询」吗？ | **接受**（已有降级路径） | 不接受就得换 ETW（需管理员）或 MI .NET，两者都要重写监听层 |
-| 5 | 托盘图标必须保留吗？ | **保留**，自写 `Shell_NotifyIcon` | 不保留则「后台常驻」没有入口，只能靠双击 exe |
-| 6 | 单实例/唤醒改用 Windows App SDK 的 `AppInstance`？ | **改**，并顺手支持 `zenforge://` 激活 | 不改就得在 WinUI 3 里继续 `FindWindow`，脆弱且要多一个隐藏窗口 |
-| 7 | 强调色是否继续「跟随系统强调色」并自绘调色板？ | **继续跟随**（`ColorHsl` 的算法搬过去） | 若改成 WinUI 内置主题色，`ColorHsl` 可删，但界面会失去现在的配色一致性 |
-| 8 | `-silent`（无界面常驻）是否必须保留？ | **保留**，做成独立入口/独立进程 | 这是最大的一条：若不保留，场景自动切换就必须依赖界面进程活着 |
-| 9 | 平滑排序动画参数（200ms 缓动、单屏位移上限）沿用吗？ | **沿用**，做成可调常量 | 换实现时参数要重新调，建议先固定再用真机微调 |
-| 10 | 界面术语表是否按本版口径固定（`核心电压偏移` / `最高加速频率` / `电源策略控制` / `SMU 已联通`；`CCD`、`FMax`、`CO` 保留英文）？ | **按此固定** | 若要统一术语（例如 `FMax` 也译成中文），我改 UI 文案与日志 |
+| 1 | 命名空间 | **改**。产品名 `Zenwik`，工程/程序集 `Zenwik` + `Zenwik.Core`，命名空间 `Zenwik.*` 与 `Zenwik.Core.*`，配置目录 `%AppData%\Zenwik`，界面标题与关于页统一显示 `Zenwik` | 已全量执行（v1.2.1）。Core 命名空间下沉一层；`AppPaths` 收口路径；`InternalsVisibleTo("Zenwik")`；GitHub 仓库同步更名为 `Motu-Z/Zenwik` |
+| 2 | Core 是否允许加功能 | **允许**。WPF 线封版，Core 可继续写不依赖 UI 的逻辑 | `v1.1.x` 的后端待办（场景规则编辑器、更多触发源）在 Core 侧先行，WinUI 3 直接消费 |
+| 3 | SMU 通道 | **升级到 1.93.1，改为本地 DLL 引用**。移除 `LLT.ZenStates-Core` 包，改 `libs/ZenStates-Core/` 的 `Reference` + `HintPath`（取 `net8.0-windows` 资产） | 已执行。`Cpu` 无参构造改 `Cpu(CoreOptions.Current)`；传递依赖断链，`System.ServiceProcess.ServiceController` 显式声明；`WinIo32.dll` 随 exe 落地 |
+| 4 | AOT 下砍 WMI | **接受**，保留 3 秒轮询降级路径 | `ProcessWatcher` 的降级路径已在（WMI 不可用 → 3 秒轮询，且集合比对后才广播）。WinUI 3 版直接不引用 `System.Management` |
+| 5 | 托盘 | **保留**，自写 `Shell_NotifyIcon` | §6.4 方案 1；`NativeTrayIcon` 的 P/Invoke 部分直接搬，菜单换自绘或 `MenuFlyout` |
+| 6 | 单实例 | **换** `AppInstance` | §6.5；`FindOrRegisterForKey("Zenwik")` + `RedirectActivationToAsync`，`WakeWindow` 与命名事件整条链路删除 |
+| 7 | 强调色 | **继续跟随系统**并自绘 | `ColorHsl` 的 HSL 推导算法搬过去；WinUI 3 侧读 `UISettings.GetColorValue(UserPrimaryColor)`，不套内置主题色板 |
+| 8 | `-silent` 无界面常驻 | **保留**。优先尝试隐藏 `AppWindow`；不行则做成独立后台进程 | 先试「不创建 `Window`、只跑后台调度」的 `App` 实例（WinAppSDK 必须先初始化，但没有窗口也能跑调度）；退路是 `Zenwik.exe --worker` 独立进程 + 轻量 IPC。现在的 `Program.Main` 分流结构照搬即可 |
+| 9 | 平滑排序 | **沿用**，做成常量 | 参数集中到一处常量（200ms 缓动、单屏位移上限按视口比例），换 `ItemsRepeater` 实现时先固定再用真机微调 |
+| 10 | 术语表 | **按此固定**：`核心电压偏移` / `最高加速频率` / `电源策略控制` / `SMU 已联通`；`CCD`、`FMax`、`CO`、`PID`、`CPU`、`GPU`、`API` 保留英文 | 新增文案照此执行；日志与界面同口径，不再出现 `Normal` / `High` / `RealTime` 这类原文 |
 
 ---
 
-## 附录 A：本版（v1.2.0）改动清单
+## 附录 A：v1.2.1 改动清单
 
-详见 `CHANGELOG.md` 的 `[1.2.0]` 段。摘要：
-
-1. 关窗即销毁（废弃秒开），补齐三处静态强引用与定时器解绑；
-2. `OpenProcess` 改最小必要权限 + 同类失败 60 秒日志节流；
-3. 调校页三卡标题中文化并统一 L2；SMU 状态改为「已联通」；
-4. 搜索框：占位符绑定缺失、光标垂直偏移、聚焦即消失；
-5. 优先级档位汉化（数据显示分离：`binding.json` 仍是英文常量）；
-6. 抽离 `ZenForge.Core`（零 WPF 引用，编译器守红线）。
+1. 产品更名 `ZenForge` → `Zenwik`（解决方案 / 工程 / 程序集 / 命名空间 / 配置目录 / UI 文案 / 图标 / GitHub 仓库）；
+2. Core 命名空间下沉为 `Zenwik.Core.*`，WPF 层依赖改为两条全局 `using`；
+3. `AppPaths` 收口全部落盘路径，附旧目录一次性迁移（`Move` → 复制 → 保留原样 三级退化）；
+4. SMU 通道换 `ZenStates-Core` 1.93.1 本地 DLL（`net8.0-windows` 资产），适配 `Cpu` 构造变化；
+5. `System.ServiceProcess.ServiceController` 显式包引用；`WinIo32.dll` 排除单文件、随 exe 落地；
+6. 版本号三处同步至 `1.2.1`，本交接文档定稿 v1.0.1。
 
 ## 附录 B：一条命令验证红线
 
 ```bash
 # 1) Core 单独编译（出现任何 System.Windows 类型就会在这里失败）
-dotnet build ZenForge.Core/ZenForge.Core.csproj -c Release
+dotnet build Zenwik.Core/Zenwik.Core.csproj -c Release -p:EnableWindowsTargeting=true
 
 # 2) 产物引用表里不应出现 WPF 程序集
-strings ZenForge.Core/bin/Release/net10.0-windows/ZenForge.Core.dll \
+strings Zenwik.Core/bin/Release/net10.0-windows/Zenwik.Core.dll \
   | grep -E "^(PresentationFramework|PresentationCore|WindowsBase|System.Windows.Forms|System.Drawing)$"
 # 无输出 = 通过
+
+# 3) 发布产物应当是两个文件
+dotnet publish Zenwik.csproj -c Release -r win-x64 -o out/ && ls out/
+# Zenwik.exe  WinIo32.dll
 ```

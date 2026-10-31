@@ -1,4 +1,4 @@
-<UserControl x:Class="ZenForge.Views.GeneralPage"
+<UserControl x:Class="Zenwik.Views.GeneralPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       Focusable="False"
@@ -193,14 +193,14 @@
                  读起来是「一页说明」而不是「一张待填的表单」。 -->
             <Border Style="{StaticResource CardBorderStyle}" Padding="32,24">
                 <StackPanel HorizontalAlignment="Center">
-                    <TextBlock Text="ZenForge"
+                    <TextBlock Text="Zenwik"
                                FontSize="16"
                                FontWeight="SemiBold"
                                HorizontalAlignment="Center"
                                Foreground="{DynamicResource Text.Primary}"/>
 
                     <TextBlock HorizontalAlignment="Center" Margin="0,8,0,0">
-                        <Hyperlink NavigateUri="https://github.com/Motu-Z/ZenForge"
+                        <Hyperlink NavigateUri="https://github.com/Motu-Z/Zenwik"
                                    RequestNavigate="GitHubLink_RequestNavigate"
                                    Foreground="{DynamicResource AccentBrush}"
                                    FocusVisualStyle="{x:Null}">

@@ -6,9 +6,9 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using ZenForge.Helpers;
+using Zenwik.Helpers;
 
-namespace ZenForge.Services
+namespace Zenwik.Services
 {
     /// <summary>
     /// 一次恢复出厂的结果。逐项列出每个步骤做了什么、哪一步失败，
@@ -597,7 +597,6 @@ namespace ZenForge.Services
 
         // ==================================================================
 
-        private static string AppDataDir =>
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZenForge");
+        private static string AppDataDir => AppPaths.Root;
     }
 }

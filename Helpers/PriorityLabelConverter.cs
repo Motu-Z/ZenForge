@@ -1,9 +1,9 @@
 using System;
 using System.Globalization;
 using System.Windows.Data;
-using ZenForge.Services;
+using Zenwik.Services;
 
-namespace ZenForge.Helpers
+namespace Zenwik.Helpers
 {
     /// <summary>
     /// 优先级档位 → 中文显示名。

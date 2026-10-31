@@ -1,4 +1,4 @@
-# ZenForge
+# Zenwik
 
 AMD Ryzen 处理器轻量化本地调校工具。可调整核心电压（Curve Optimizer）、频率上限（FMax）与功耗墙（PPT / TDC / EDC / 温度墙），并基于 CPU Sets 自行绑定应用进程所用核心。
 
@@ -6,7 +6,13 @@ AMD Ryzen 处理器轻量化本地调校工具。可调整核心电压（Curve O
 
 ## 开始
 
-双击 `ZenForge.exe`，同意 UAC 提权。本工具绿色无毒，若杀软误报请自行加白。
+双击 `Zenwik.exe`，同意 UAC 提权。本工具绿色无毒，若杀软误报请自行加白。
+
+发布包是两个文件：`Zenwik.exe` 与 `WinIo32.dll`，**必须放在同一目录**。
+后者是 SMU 库在 PawnIO 缺位时回退端口访问用的原生组件，它按文件名自己加载，塞不进单文件包里。
+
+从旧版（`ZenForge`）升级：配置文件会自动从 `%APPDATA%\ZenForge\` 迁到 `%APPDATA%\Zenwik\`；
+开机自启的计划任务改名为 `ZenwikAutoStart`，旧任务请到「任务计划程序」里手动删掉。
 
 ## 界面
 
@@ -29,7 +35,7 @@ AMD Ryzen 处理器轻量化本地调校工具。可调整核心电压（Curve O
 
 ## 排障
 
-数据目录为 ``%APPDATA%\ZenForge\``，删除后即重置。
+数据目录为 ``%APPDATA%\Zenwik\``，删除后即重置。
 
 调校参数删除后不会自动恢复默认值，请写回默认值后再退出。
 

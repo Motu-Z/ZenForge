@@ -3,10 +3,10 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
-using ZenForge.Helpers;
-using ZenForge.Services;
+using Zenwik.Helpers;
+using Zenwik.Services;
 
-namespace ZenForge.Views
+namespace Zenwik.Views
 {
     /// <summary>
     /// 行为页：启动 / 后台 / 通知。
@@ -67,7 +67,7 @@ namespace ZenForge.Views
         /// 异步校准「开机静默自启」的真实状态。
         ///
         /// 为什么不能只信 ui.json：用户可能在「任务计划程序」里手动删掉了
-        /// ZenForgeAutoStart，或换机器后配置被拷贝过来。必须以计划任务的
+        /// ZenwikAutoStart，或换机器后配置被拷贝过来。必须以计划任务的
         /// 实际存在性为准，否则界面会谎报「已开启」。
         /// </summary>
         private async void CalibrateAutoStart()
@@ -312,7 +312,7 @@ namespace ZenForge.Views
 
         /// <summary>
         /// 显示托盘图标。只影响图标本身：关掉之后进程仍由「开启后台服务」决定留不留，
-        /// 留着的时候没有托盘入口 —— 靠双击 ZenForge.exe 唤回界面。
+        /// 留着的时候没有托盘入口 —— 靠双击 Zenwik.exe 唤回界面。
         /// </summary>
         private void ShowTrayToggle_Click(object sender, RoutedEventArgs e)
         {
@@ -328,7 +328,7 @@ namespace ZenForge.Views
 
             LogService.Info(visible
                 ? "托盘图标：已显示"
-                : "托盘图标：已隐藏（后台服务仍在运行；双击 ZenForge.exe 唤出界面）");
+                : "托盘图标：已隐藏（后台服务仍在运行；双击 Zenwik.exe 唤出界面）");
         }
 
         // ==================== 通知 ====================

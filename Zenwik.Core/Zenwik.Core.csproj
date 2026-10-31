@@ -1,0 +1,120 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    ============================================================
+    Zenwik.Core —— 纯业务逻辑，零 WPF 依赖
+    ============================================================
+
+    【这条红线怎么保证】
+    1. 不写 UseWPF / UseWindowsForms。没有这两个属性，SDK 不会引入
+       PresentationFramework / WindowsBase / System.Drawing，代码里只要出现
+       System.Windows.* 就直接编译失败 —— 红线是编译器守的，不是靠自觉。
+    2. TargetFramework 用 net10.0-windows 而不是 net10.0：P/Invoke 与注册表
+       在哪个 TFM 都能跑，但 System.Management（WMI）与 registry API 的可用性
+       标注在 windows TFM 上，换成跨平台 TFM 会引入一堆 CA1416 平台警告。
+       注意：net10.0-windows **不含** WPF，只有 UseWPF=true 才会把 WPF 装进来。
+    3. 想验证这条红线，敲一行就够：
+           dotnet build Zenwik.Core -c Release
+       只要有人往这里塞了一个 System.Windows 类型，这一步会当场红。
+
+    【为什么 DI 容器不在这里（也不在 App 里）】
+    v1.2.0 起 WPF 线进入封版状态，后续迁 WinUI 3。此时引入容器或 EventBus，
+    等于让即将被重写的 UI 层多一层需要拆的抽象 —— 这一轮刻意保持静态类 +
+    显式传参，迁移时逐类搬过去即可。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Zenwik.Core</RootNamespace>
+    <AssemblyName>Zenwik.Core</AssemblyName>
+    <LangVersion>latest</LangVersion>
+
+    <!-- 与主程序共用同一套版本号口径（见 Zenwik.Core.csproj 的注释） -->
+    <Version>1.2.1</Version>
+    <FileVersion>1.2.1.0</FileVersion>
+    <AssemblyVersion>1.2.1.0</AssemblyVersion>
+
+    <SatelliteResourceLanguages>none</SatelliteResourceLanguages>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      让主程序能访问 internal 成员（MaskNamePolicy / MemoryTrimmer 这类）。
+      不给它们加 public：这些是「只给本产品用」的实现细节，一旦公开就成了
+      WinUI 3 迁移时不敢动的对外契约。InternalsVisibleTo 的代价是 Core 知道
+      调用方程序集名，收益是公开面保持最小。
+    -->
+    <InternalsVisibleTo Include="Zenwik" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      ============================================================
+      SMU 读写：ZenStates-Core 1.93.1（本地 DLL 引用，不走 NuGet）
+      ============================================================
+
+      【为什么不走包】
+      1.93.1 是上游最新源码手工编译出来的，NuGet 上还没有对应版本；
+      而这条通道直接决定 CO / FMax 能不能写进 SMU，版本必须锁死在
+      一个我们验证过的具体二进制上，不能让还原时被浮动的包版本带走。
+
+      【HintPath 的由来】
+      解压包里有三份资产：net20 / netstandard2.1 / net8.0-windows。
+      这里取 net8.0-windows —— 它是唯一一份带 Windows 专属 API
+      （注册表、ServiceController、Security.AccessControl）的构建，
+      netstandard2.1 那份会在运行时抛 PlatformNotSupported。
+      本工程是 net10.0-windows，向下兼容 net8.0 资产。
+
+      【1.92.4 → 1.93.1 的破坏性变化（已在 SmuReader 适配）】
+      · Cpu 不再有无参构造，必须传 CoreOptions：new Cpu(CoreOptions.Current)
+      · SendTestMessage(uint arg = 0, Mailbox mbox = null) 两个参数都可选，
+        cpu.SendTestMessage() 的老写法仍然有效
+      · 拓扑字段、smu.Rsmu.SMU_MSG_* 消息号、SetPsmMarginSingleCore /
+        GetPsmMarginSingleCore / MakeCoreMask / GetFMax / SetFMax 全部未变
+
+      【WinIo32.dll 为什么要一起带】
+      1.93.1 的 IODriver 在 PawnIO 缺位时会回退到 WinIo/inpOut 端口访问，
+      它是按文件名 LoadLibrary 的。驱动就绪时用不到它，但缺了会在
+      「没装 PawnIO 的机器」上把错误信息变成一句含糊的 FileNotFound。
+      45KB 换一条可读的降级路径，值。 -->
+    <Reference Include="ZenStates-Core">
+      <HintPath>..\libs\ZenStates-Core\ZenStates-Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 原生依赖与主程序同目录落地（ProjectReference 的 content 会传递到 App 输出）。
+
+         ExcludeFromSingleFile 是必需的：不写这一条，单文件发布会把这个原生 DLL
+         一并塞进 exe，运行时解到 %TEMP%\.net\... 里，而 ZenStates-Core 是按
+         「文件名」自己 LoadLibrary("WinIo32.dll") 的 —— 它只认 exe 所在目录与
+         PATH，找不到解包目录，等于白带。
+         代价是发布产物从「一个 exe」变成「exe + 45KB 的 DLL」，但这比留一个
+         永远加载不上的降级路径要好。 -->
+    <None Include="..\libs\ZenStates-Core\WinIo32.dll" Link="WinIo32.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          ExcludeFromSingleFile="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WMI 进程事件（__InstanceCreationEvent / __InstanceDeletionEvent）。
+         ZenStates-Core 1.93.1 自身也引用 System.Management（4.0.0.0 引用、
+         9.0.0 程序集可向上兼容），所以这个包不能删。 -->
+    <PackageReference Include="System.Management" Version="9.0.0" />
+
+    <!-- Microsoft.Win32.SystemEvents：PowerStatusWatcher 的电源模式通知。
+         这个包在 windows 桌面 TFM 下由 WindowsDesktop 框架自带，Core 不引用
+         WindowsDesktop，所以要显式声明。 -->
+    <PackageReference Include="Microsoft.Win32.SystemEvents" Version="9.0.0" />
+
+    <!-- System.ServiceProcess.ServiceController：SmuReader 里唤醒 PawnIO 服务用。
+         以前是 LLT.ZenStates-Core 包传递带进来的，改成 DLL 引用后传递链断了，
+         必须显式声明，否则 using System.ServiceProcess 直接编译失败。 -->
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.0" />
+  </ItemGroup>
+
+</Project>

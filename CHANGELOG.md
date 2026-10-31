@@ -1,6 +1,62 @@
 # 更新日志 (CHANGELOG)
 
-本文件记录 ZenForge 的重要更改。版本号遵循 **主版本号.次版本号.修订号** 格式。测试版和预览版更新日志已合并至正式版，部分早期版本的详细记录因归档问题未能保留，以下为可追溯的核心变更记录。
+本文件记录 Zenwik 的重要更改。版本号遵循 **主版本号.次版本号.修订号** 格式。测试版和预览版更新日志已合并至正式版，部分早期版本的详细记录因归档问题未能保留，以下为可追溯的核心变更记录。
+
+---
+
+## [1.2.1] — 更名 Zenwik · SMU 通道升到 1.93.1（本地 DLL）
+
+> 没有一行界面逻辑改动，全部是「身份」与「依赖来源」的变更：
+> 产品改名、命名空间下沉、配置目录迁移、SMU 库从 NuGet 换成手工编译的本地 DLL。
+
+### Changed (修改)
+
+- **产品正式更名 `ZenForge` → `Zenwik`**，范围到边到角：
+  `Zenwik.slnx` / `Zenwik.csproj` / `Zenwik.Core.csproj`、程序集名与 `RootNamespace`、
+  全部命名空间、窗口标题、关于页、托盘提示、日志与计划任务名、互斥体名、
+  单文件产物名（`Zenwik.exe`）、图标 `Assets/Zenwik.ico`。
+- **Core 的命名空间下沉一层**：`Zenwik.Services` → `Zenwik.Core.Services`，
+  `Zenwik.Helpers` → `Zenwik.Core.Helpers`。
+  以前两层共用同一套命名空间，靠「同命名空间直接可见」拿到 `LogService`——那是巧合不是设计。
+  下沉之后边界在代码里可见，WPF 层对 Core 的依赖改成在 `Zenwik.csproj` 里声明两条全局 `using`：
+  这个依赖是全局的（每个页面都写日志），不是需要按文件斟酌的可选项，逐文件补 `using` 只是噪音。
+- **配置目录 `%AppData%\ZenForge` → `%AppData%\Zenwik`**，并附**一次性迁移**（见下）。
+- **SMU 通道从 `LLT.ZenStates-Core` 1.92.4（NuGet）改为 `ZenStates-Core` 1.93.1（本地 DLL 引用）**。
+  HintPath 取包内 `net8.0-windows` 资产——三份资产里唯一带 Windows 专属 API 的那份。
+- **`System.ServiceProcess.ServiceController` 改为显式包引用**：以前是靠 `LLT.ZenStates-Core` 传递进来的，
+  换成本地 DLL 后传递链断开，`SmuReader` 里的 `ServiceController` 会直接编译失败。
+
+### Added (新增)
+
+- **`AppPaths`（Core）**：产品路径的唯一出口。改名前 `%AppData%\ZenForge` 这个字面量在 9 个文件里各写了一遍，
+  改名时漏一处就会出现「设置能存、方案读不出来」这种不报错的错乱。现在只有它知道目录名。
+- **配置目录一次性迁移**：首次启动若 `%AppData%\ZenForge` 存在而 `%AppData%\Zenwik` 不存在，
+  整目录 `Move` 过去；`Move` 失败（跨卷 / 被占用）退化为递归复制；复制也失败就保留旧目录不动。
+  用户升级后不该丢掉自己的方案、绑核规则与调校值。
+- **`docs/WPF封版与WinUI3重构交接文档.md` 定稿 v1.0.1**：补上你拍板的 10 条决策、更名影响面、
+  本地 DLL 引用的口径与 AOT 迁移时的注意事项。
+
+### 兼容性说明（升级前必读）
+
+- **配置不会丢**：`profiles.json` / `bindings.json` / `tuning.json` / `masks.json` / `ui.json` / `scenarios.json`
+  随目录整体迁移，文件名不变。
+- **开机自启会失效一次**：计划任务名从 `ZenForgeAutoStart` 改为 `ZenwikAutoStart`，
+  旧任务不会被自动删除。升级后到「行为」页把自启关一次再打开即可；
+  旧的 `ZenForgeAutoStart` 任务需要手动删（`taskschd.msc` 里按名字找）。
+- **单实例互斥体改名**：`Local\ZenForge.SingleInstance` → `Local\Zenwik.SingleInstance`。
+  若升级时旧版本还在托盘里，两版会同时存在——先退出旧版再启动新版。
+- **发布产物变成两个文件**：`Zenwik.exe` + `WinIo32.dll`。后者是 `ZenStates-Core` 在 PawnIO 缺位时
+  回退端口访问用的原生库，它是按文件名自己 `LoadLibrary` 的，塞进单文件包里会解到 `%TEMP%`
+  而找不到，所以显式排除在单文件之外。
+
+### 验收口径
+
+- Linux 上 `dotnet build Zenwik.slnx -c Release` 与 `dotnet publish -r win-x64` 均 **0 警告 0 错误**，
+  产物含 `Zenwik.exe` + `WinIo32.dll`。
+- **1.93.1 的写入行为需要真机复验**：`Cpu` 构造函数已从无参改为必传 `CoreOptions`（本版传 `CoreOptions.Current`），
+  `SendTestMessage` 新增两个可选参数（老写法仍可用）；拓扑字段与 `SetPsmMarginSingleCore` /
+  `GetPsmMarginSingleCore` / `MakeCoreMask` / `GetFMax` / `SetFMax` 签名未变。
+  真机上要确认：CO 逐核写入后回读一致、FMax 写入后回读在容差内、SMU 版本号正常显示。
 
 ---
 
@@ -22,9 +78,9 @@
 
 ### Added (新增)
 
-- **`ZenForge.Core` 类库**：SMU 读写、电源策略、日志、进程监听、方案与场景规则全部搬进去，`ZenForge.slnx` 管两个工程。
+- **`Zenwik.Core` 类库**：SMU 读写、电源策略、日志、进程监听、方案与场景规则全部搬进去，`Zenwik.slnx` 管两个工程。
   **红线由编译器守**：Core 不设 `UseWPF` / `UseWindowsForms`，代码里出现任何 `System.Windows.*` 当场编译失败。实测产物引用表里没有 `PresentationFramework` / `PresentationCore` / `WindowsBase` / `System.Windows.Forms` / `System.Drawing`。
-  命名空间刻意保持 `ZenForge.Services` / `ZenForge.Helpers` 不变：这次是把文件搬进独立程序集（隔离依赖），不是改名，全局改一遍命名空间只会让 diff 淹没真正要看的东西。
+  命名空间刻意保持 `Zenwik.Services` / `Zenwik.Helpers` 不变：这次是把文件搬进独立程序集（隔离依赖），不是改名，全局改一遍命名空间只会让 diff 淹没真正要看的东西。
 - **`LogThrottle`**：同 key（进程名 + 错误码）60 秒内只放行一条，下次放行时补报「另有 N 条相同错误已抑制」。受保护进程（错误 5）不再刷屏，但也不静音 —— 把这类错误降成 Debug 等于把「绑不上」藏起来。
 - **`PriorityLabelConverter`**：优先级下拉与表格列显示中文（高 / 高于标准 / 标准 / 低于标准 / 低），数据层仍是 `High` / `Normal` 常量 —— 那些字符串存在 binding.json 里，改成中文等于让旧配置全部失效。
 

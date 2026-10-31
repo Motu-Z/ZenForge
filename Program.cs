@@ -1,7 +1,7 @@
 using System;
-using ZenForge.Services;
+using Zenwik.Services;
 
-namespace ZenForge
+namespace Zenwik
 {
     /// <summary>
     /// 进程入口，取代 App.xaml 自动生成的 Main。

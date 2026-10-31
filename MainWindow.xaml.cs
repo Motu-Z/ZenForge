@@ -7,11 +7,11 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Threading.Tasks;
 using System.Windows.Threading;
-using ZenForge.Helpers;
-using ZenForge.Services;
-using ZenForge.Views;
+using Zenwik.Helpers;
+using Zenwik.Services;
+using Zenwik.Views;
 
-namespace ZenForge
+namespace Zenwik
 {
     /// <summary>
     /// 主窗口：导航壳 + 关窗去向判定。

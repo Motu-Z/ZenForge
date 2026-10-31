@@ -1,8 +1,8 @@
-<UserControl x:Class="ZenForge.Views.LogPage"
+<UserControl x:Class="Zenwik.Views.LogPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      xmlns:local="clr-namespace:ZenForge.Views"
-      xmlns:ctl="clr-namespace:ZenForge.Controls"
+      xmlns:local="clr-namespace:Zenwik.Views"
+      xmlns:ctl="clr-namespace:Zenwik.Controls"
       Focusable="False"
       FocusVisualStyle="{x:Null}">
 

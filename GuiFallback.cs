@@ -1,9 +1,9 @@
 using System.Runtime.CompilerServices;
 using System.Threading;
-using ZenForge.Helpers;
-using ZenForge.Services;
+using Zenwik.Helpers;
+using Zenwik.Services;
 
-namespace ZenForge
+namespace Zenwik
 {
     /// <summary>
     /// 升级失败后的回退宿主。
