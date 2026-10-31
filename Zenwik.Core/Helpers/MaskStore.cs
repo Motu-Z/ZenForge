@@ -24,7 +24,7 @@ namespace Zenwik.Core.Helpers
     }
 
     /// <summary>
-    /// 自定义掩码持久化：保存到 %APPDATA%\Zenwik.Core\masks.json。
+    /// 自定义掩码持久化：保存到 %APPDATA%\Zenwik\masks.json。
     /// 重启软件时由 <see cref="Load"/> 自动加载，下拉框与绑核规则都引用这里的配置。
     /// </summary>
     public static class MaskStore

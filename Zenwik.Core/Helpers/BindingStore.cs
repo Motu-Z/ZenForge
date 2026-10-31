@@ -82,7 +82,7 @@ namespace Zenwik.Core.Helpers
     }
 
     /// <summary>
-    /// 绑核规则持久化：保存到 %APPDATA%\Zenwik.Core\bindings.json。
+    /// 绑核规则持久化：保存到 %APPDATA%\Zenwik\bindings.json。
     /// 键为进程名（不再用路径），值为目标 CCD 或自定义掩码引用。
     /// </summary>
     public static class BindingStore

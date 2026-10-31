@@ -60,9 +60,9 @@ namespace Zenwik.Core.Services
         private const int FallbackIntervalMs = 3000;
 
         /// <summary>
-        /// 全局互斥体名：保证同一台机器上只有一个 Zenwik.Core 进程在跑绑核监听。
+        /// 全局互斥体名：保证同一台机器上只有一个 Zenwik 进程在跑绑核监听。
         /// </summary>
-        private const string MutexName = @"Global\Zenwik.Core.ProcessWatcher.Singleton";
+        private const string MutexName = @"Global\Zenwik.ProcessWatcher.Singleton";
 
         private static Mutex? _mutex;
 
@@ -103,7 +103,7 @@ namespace Zenwik.Core.Services
                 if (!TryAcquireMutex())
                 {
                     LogService.Warn(
-                        "已有另一个 Zenwik.Core 实例在运行进程绑核监听，本实例跳过（避免重复绑定）");
+                        "已有另一个 Zenwik 实例在运行进程绑核监听，本实例跳过（避免重复绑定）");
                     return;
                 }
 

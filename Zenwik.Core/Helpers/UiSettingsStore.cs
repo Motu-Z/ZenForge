@@ -6,7 +6,7 @@ using System.Text.Json.Serialization;
 namespace Zenwik.Core.Helpers
 {
     /// <summary>
-    /// 界面设置（主题 / 强调色），持久化到 %APPDATA%\Zenwik.Core\ui.json
+    /// 界面设置（主题 / 强调色），持久化到 %APPDATA%\Zenwik\ui.json
     /// </summary>
     public sealed class UiSettings
     {
@@ -32,7 +32,7 @@ namespace Zenwik.Core.Helpers
         // 启动与后台
 
         /// <summary>
-        /// 开机静默自启：是否已注册 Windows 计划任务 Zenwik.CoreAutoStart。
+        /// 开机静默自启：是否已注册 Windows 计划任务 ZenwikAutoStart。
         /// 真实状态以计划任务是否存在为准，本字段仅作缓存与界面回显。
         /// </summary>
         public bool AutoStart { get; set; }

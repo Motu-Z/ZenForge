@@ -26,7 +26,7 @@ namespace Zenwik.Core.Services
             void Line(string text = "") => sb.AppendLine(text);
 
             Line("================================================================");
-            Line("  Zenwik.Core SMU 自检报告");
+            Line("  Zenwik SMU 自检报告");
             Line($"  生成时间：{DateTime.Now:yyyy-MM-dd HH:mm:ss}");
             Line("================================================================");
             Line();
@@ -75,8 +75,8 @@ namespace Zenwik.Core.Services
         {
             void Line(string text = "") => sb.AppendLine(text);
 
-            // ---------- 2. Zenwik.Core 看到的核心拓扑 ----------
-            Line("[2] Zenwik.Core 侧拓扑（决定 CO 掩码怎么拆）");
+            // ---------- 2. Zenwik 看到的核心拓扑 ----------
+            Line("[2] Zenwik 侧拓扑（决定 CO 掩码怎么拆）");
             try
             {
                 Line($"    逻辑处理器数（CpuSetBinder）：{CpuSetBinder.LogicalProcessorCount}");
@@ -287,7 +287,7 @@ namespace Zenwik.Core.Services
                     {
                         Line("    !! 读到 0 —— 这台机器的 FMax 读取通道很可能不可用。");
                         Line("       这种情况下「写入后回读 0」不能判定为写入失败，");
-                        Line("       而是根本无法验证。Zenwik.Core 已按此区分处理。");
+                        Line("       而是根本无法验证。Zenwik 已按此区分处理。");
                     }
                 }
             }

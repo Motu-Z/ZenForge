@@ -5,7 +5,7 @@ using Zenwik.Core.Services;
 namespace Zenwik.Core.Helpers
 {
     /// <summary>
-    /// 调校配置（Curve Optimizer 每核负压 + FMax），持久化到 %APPDATA%\Zenwik.Core\tuning.json。
+    /// 调校配置（Curve Optimizer 每核负压 + FMax），持久化到 %APPDATA%\Zenwik\tuning.json。
     /// 仅保存“已成功下发并回读校验通过”的设定，供开机静默自启重新应用。
     /// </summary>
     public sealed class TuningProfile

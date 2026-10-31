@@ -102,7 +102,7 @@ namespace Zenwik.Core.Services
             string? exePath = ResolveExecutablePath();
             if (string.IsNullOrEmpty(exePath))
             {
-                LogService.Error("创建计划任务失败：无法定位 Zenwik.Core.exe 路径");
+                LogService.Error("创建计划任务失败：无法定位 Zenwik.exe 路径");
                 return false;
             }
 
@@ -201,7 +201,7 @@ namespace Zenwik.Core.Services
         /// <summary>
         /// 构造任务定义 XML。
         /// </summary>
-        /// <param name="exePath">Zenwik.Core.exe 完整路径。</param>
+        /// <param name="exePath">Zenwik.exe 完整路径。</param>
         /// <param name="arguments">启动参数（-silent）。</param>
         /// <param name="userId">当前用户 SID 或 DOMAIN\User；触发器和主体必须用同一份。</param>
         private static string BuildTaskXml(string exePath, string arguments, string userId)
