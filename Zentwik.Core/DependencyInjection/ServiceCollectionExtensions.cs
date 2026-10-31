@@ -33,9 +33,18 @@ namespace Zentwik.Core.DependencyInjection
             ArgumentNullException.ThrowIfNull(services);
 
             // ---------- 基础设施 ----------
-            services.TryAddSingleton<IAppPaths, AppPaths>();
+            // 先登记具体类型，再把接口映射到同一个实例。
+            //
+            // 【为什么必须两个都登记，不能只写 TryAddSingleton<IAppPaths, AppPaths>()】
+            // 那种写法只登记接口，具体类型不在容器里。WPF 过渡桥（Svc.Paths）与
+            // HeadlessHost 都是按具体类型取的，取不到就抛
+            // InvalidOperationException: No service for type ... —— 而且是在
+            // App.OnStartup 里抛，表现为「双击秒崩、没有窗口、事件查看器只有
+            // 0xe0434352」。v2.0.0-can2 的启动崩溃就是这么来的。
+            services.TryAddSingleton<AppPaths>();
+            services.TryAddSingleton<IAppPaths>(provider => provider.GetRequiredService<AppPaths>());
 
-            services.TryAddSingleton<ILogService>(provider =>
+            services.TryAddSingleton<LogService>(provider =>
             {
                 LogOptions options = new();
                 configureLog?.Invoke(options);
@@ -46,6 +55,7 @@ namespace Zentwik.Core.DependencyInjection
 
                 return new LogService(options, dispatcher);
             });
+            services.TryAddSingleton<ILogService>(provider => provider.GetRequiredService<LogService>());
 
             if (dispatcher is not null)
                 services.TryAddSingleton(dispatcher);

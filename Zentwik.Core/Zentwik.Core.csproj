@@ -31,7 +31,7 @@
     <LangVersion>latest</LangVersion>
 
     <!-- 与主程序共用同一套版本号口径（见 Zentwik.csproj 的注释） -->
-    <Version>2.0.0-can2</Version>
+    <Version>2.0.0-can3</Version>
     <FileVersion>2.0.0.0</FileVersion>
     <AssemblyVersion>2.0.0.0</AssemblyVersion>
 

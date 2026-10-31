@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Zentwik.App.Services;
+using Zentwik.Core.Helpers;
 using Zentwik.Core.Services;
 
 namespace Zentwik.App;
@@ -21,32 +22,44 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        // 容器先建：异常兜底与日志在界面存在之前就要可用。
-        IServiceProvider services = AppHost.Build();
-        ILogService log = services.GetRequiredService<ILogService>();
+        bool silent = IsSilent(args);
 
-        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
-            log.Error($"进程未处理异常（即将终止）：{e.ExceptionObject}");
-
-        if (IsSilent(args))
-            return RunHeadless(services, log);
-
-        // CsWinRT 的 COM 封送基础设施必须在 Application.Start 之前初始化。
-        // 少了这一句，第一个 WinRT 调用会以 InvalidCastException 的形式炸在
-        // 与真实原因完全无关的地方。
-        WinRT.ComWrappersSupport.InitializeComWrappers();
-
-        Application.Start(static _ =>
+        try
         {
-            DispatcherQueue queue = DispatcherQueue.GetForCurrentThread();
-            SynchronizationContext.SetSynchronizationContext(new DispatcherQueueSynchronizationContext(queue));
+            // 容器先建：异常兜底与日志在界面存在之前就要可用。
+            IServiceProvider services = AppHost.Build();
+            ILogService log = services.GetRequiredService<ILogService>();
 
-            // App 自己由 XAML 框架接管生命周期：这里只负责实例化，
-            // 之后的消息循环由 Application.Start 维持。
-            new App();
-        });
+            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+                log.Error($"进程未处理异常（即将终止）：{e.ExceptionObject}");
 
-        return 0;
+            if (silent)
+                return RunHeadless(services, log);
+
+            // CsWinRT 的 COM 封送基础设施必须在 Application.Start 之前初始化。
+            // 少了这一句，第一个 WinRT 调用会以 InvalidCastException 的形式炸在
+            // 与真实原因完全无关的地方。
+            WinRT.ComWrappersSupport.InitializeComWrappers();
+
+            Application.Start(static _ =>
+            {
+                DispatcherQueue queue = DispatcherQueue.GetForCurrentThread();
+                SynchronizationContext.SetSynchronizationContext(new DispatcherQueueSynchronizationContext(queue));
+
+                // App 自己由 XAML 框架接管生命周期：这里只负责实例化，
+                // 之后的消息循环由 Application.Start 维持。
+                new App();
+            });
+
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            // WinUI 的启动失败尤其安静：窗口没建起来就没有任何宿主 UI 能承载错误，
+            // 事件查看器只留下 0xe0434352。先落盘，再原样抛出。
+            StartupCrashReporter.Report(ex, interactive: !silent);
+            throw;
+        }
     }
 
     /// <summary>

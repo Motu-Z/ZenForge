@@ -1,4 +1,5 @@
 using System;
+using Zentwik.Core.Helpers;
 using Zentwik.Services;
 
 namespace Zentwik
@@ -24,29 +25,41 @@ namespace Zentwik
         [STAThread]
         private static int Main(string[] args)
         {
-            // 容器必须最先建起来：下面的异常兜底一旦触发就要写日志，
-            // 而 Svc 只是个转发器，没有容器就是空引用。
-            // 此时界面尚未创建，注入的是待挂载的调度器（见 Composition.Dispatcher）。
-            Svc.Initialize(Composition.Build());
+            bool silent = IsSilentLaunch(args);
 
-            // 进程级兜底。这两道在任何宿主模式下都该存在 —— 0.8.0 的闪退之所以
-            // 难定位，就是因为异常穿过 Application.Run 后没人接，日志里只剩
-            // 一句「后台常驻失败」，断点在哪全靠猜。
-            //
-            // 这里只能用不依赖 WPF 的类型（AppDomain / TaskScheduler），
-            // 否则纯后台路径的前提当场失效。
-            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
-                Svc.Log.Error($"进程未处理异常（即将终止）：{e.ExceptionObject}");
-
-            TaskScheduler.UnobservedTaskException += (_, e) =>
+            try
             {
-                Svc.Log.Error($"未观察的任务异常：{e.Exception}");
-                e.SetObserved();
-            };
+                // 容器必须最先建起来：下面的异常兜底一旦触发就要写日志，
+                // 而 Svc 只是个转发器，没有容器就是空引用。
+                // 此时界面尚未创建，注入的是待挂载的调度器（见 Composition.Dispatcher）。
+                Svc.Initialize(Composition.Build());
 
-            return IsSilentLaunch(args)
-                ? HeadlessHost.Run(args)
-                : GuiHost.Start();
+                // 进程级兜底。这两道在任何宿主模式下都该存在 —— 0.8.0 的闪退之所以
+                // 难定位，就是因为异常穿过 Application.Run 后没人接，日志里只剩
+                // 一句「后台常驻失败」，断点在哪全靠猜。
+                //
+                // 这里只能用不依赖 WPF 的类型（AppDomain / TaskScheduler），
+                // 否则纯后台路径的前提当场失效。
+                AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+                    Svc.Log.Error($"进程未处理异常（即将终止）：{e.ExceptionObject}");
+
+                TaskScheduler.UnobservedTaskException += (_, e) =>
+                {
+                    Svc.Log.Error($"未观察的任务异常：{e.Exception}");
+                    e.SetObserved();
+                };
+
+                return silent ? HeadlessHost.Run(args) : GuiHost.Start();
+            }
+            catch (Exception ex)
+            {
+                // 启动期崩溃在这之前是「双击没反应」：没有窗口、没有日志、
+                // 事件查看器只给一句 0xe0434352。这里兜住全部启动失败路径，
+                // 先落盘再重新抛出 —— 堆栈与退出码都保持原样，方便对照 WER。
+                StartupCrashReporter.Report(ex, interactive: !silent);
+
+                throw;
+            }
         }
 
         /// <summary>

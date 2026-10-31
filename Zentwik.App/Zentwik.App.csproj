@@ -65,7 +65,7 @@
          PublishTrimmed=true 在这里的收益远小于它带来的「某个页面白屏」风险。 -->
     <PublishTrimmed>false</PublishTrimmed>
 
-    <Version>2.0.0-can2</Version>
+    <Version>2.0.0-can3</Version>
     <FileVersion>2.0.0.0</FileVersion>
     <AssemblyVersion>2.0.0.0</AssemblyVersion>
   </PropertyGroup>

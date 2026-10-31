@@ -43,11 +43,16 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
 
         AppWindow.Title = "Zentwik";
-        AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
 
-        // 标题栏画在自己内容里，系统按钮仍由 AppWindow 管。
+        // 顺序是硬约束，不能调换：
+        //   PreferredHeightOption 只在「内容已延伸到标题栏区域」时才有意义，
+        //   在 ExtendsContentIntoTitleBar 之前设会抛 COMException 0x8007139F
+        //   （组或资源的状态不是执行请求操作的正确状态）——异常发生在
+        //   MainWindow 构造函数里，表现为窗口还没出现进程就没了，
+        //   事件查看器只会给出 Microsoft.UI.Xaml.dll + 0xc000027b。
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
+        AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
 
         ApplyBackdrop();
         ApplyCaptionColors();

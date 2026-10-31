@@ -2,6 +2,7 @@ using System;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Zentwik.App.Services;
+using Zentwik.Core.Helpers;
 using Zentwik.Core.Services;
 using Zentwik.Core.Threading;
 
@@ -43,6 +44,11 @@ public partial class App : Application
 
     private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
     {
+        // WinUI 的 XAML 失败会以 stowed exception（0xc000027b）终止进程，
+        // 事件查看器里只有一句「Microsoft.UI.Xaml.dll 出错」，没有堆栈。
+        // 这条通道是唯一能在崩溃前把真实异常写下来的地方。
+        StartupCrashReporter.Report(e.Exception, interactive: false);
+
         if (AppHost.Services.GetService(typeof(ILogService)) is ILogService log)
             log.Error($"UI 线程未处理异常：{e.Exception}");
 
