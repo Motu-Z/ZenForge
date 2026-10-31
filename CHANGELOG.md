@@ -1,10 +1,104 @@
 # 更新日志 (CHANGELOG)
 
-本文件记录 Zenwik 的重要更改。版本号遵循 **主版本号.次版本号.修订号** 格式。测试版和预览版更新日志已合并至正式版，部分早期版本的详细记录因归档问题未能保留，以下为可追溯的核心变更记录。
+本文件记录 Zenwik（原 ZenForge） 的重要更改。版本号遵循 **主版本号.次版本号.修订号**。测试版与预览版记录已合并至正式版，部分早期详细记录因归档问题未保留。
 
 ---
 
 ## [1.2.1] — 更名 Zenwik · SMU 通道升到 1.93.1（本地 DLL）
+
+> 无界面逻辑改动，仅涉及产品身份、命名空间、配置目录与 SMU 依赖来源变更。
+
+### Changed (修改)
+
+- **产品更名 `ZenForge` → `Zenwik`**：工程、程序集名、`RootNamespace`、命名空间、窗口标题、关于页、托盘提示、日志、计划任务名、互斥体名、单文件产物名与图标全部同步。
+- **Core 命名空间下沉**：`Zenwik.Services` → `Zenwik.Core.Services`，`Zenwik.Helpers` → `Zenwik.Core.Helpers`；WPF 层在 `Zenwik.csproj` 中声明全局 `using`。
+- **配置目录迁移**：`%AppData%\ZenForge` → `%AppData%\Zenwik`，附一次性迁移。
+- **SMU 通道改为本地 DLL**：从 `LLT.ZenStates-Core` 1.92.4（NuGet）改为 `ZenStates-Core` 1.93.1（本地 DLL），HintPath 取 `net8.0-windows` 资产。
+- **`System.ServiceProcess.ServiceController` 改为显式包引用**：避免换成本地 DLL 后 `SmuReader` 编译失败。
+
+### Added (新增)
+
+- **`AppPaths`（Core）**：统一产品路径出口，避免目录名散落多处。
+- **配置目录一次性迁移**：优先整目录 `Move`；失败则递归复制；再失败保留旧目录不动。
+- **交接文档定稿 v1.0.1**：补充更名影响面、本地 DLL 引用口径与 AOT 迁移注意事项。
+
+### 兼容性说明
+
+- **配置不会丢**：`profiles.json` / `bindings.json` / `tuning.json` / `masks.json` / `ui.json` / `scenarios.json` 随目录迁移，文件名不变。
+- **开机自启会失效一次**：计划任务名由 `ZenForgeAutoStart` 改为 `ZenwikAutoStart`；升级后到「行为」页关闭再开启自启，并手动删除旧任务。
+- **单实例互斥体改名**：`Local\ZenForge.SingleInstance` → `Local\Zenwik.SingleInstance`；升级时先退出旧版。
+- **发布产物为两个文件**：`Zenwik.exe` + `WinIo32.dll`；后者需显式排除在单文件外。
+
+### 验收口径
+
+- Linux 上 `dotnet build Zenwik.slnx -c Release` 与 `dotnet publish -r win-x64` 均 0 警告 0 错误，产物含 `Zenwik.exe` + `WinIo32.dll`。
+- **1.93.1 写入行为需真机复验**：`Cpu` 构造传 `CoreOptions.Current`；确认 CO 逐核写入回读一致、FMax 回读在容差内、SMU 版本号正常显示。
+
+---
+
+## [1.2.0] — WPF 封版
+
+> WPF 线最后一个版本，只做“修干净 + 拆干净”；不引入 DI 容器与 EventBus。
+
+### Changed (修改)
+
+- **点 × 直接销毁窗口**：不再隐藏窗口，关闭即拆 WPF 可视树，下次由 `ShowOrCreateMainWindow` 全新实例化。
+- **补齐窗口销毁时的三处强引用**：置空 `Application.MainWindow`、`ToastService.Host.Detach()`、`PageTimerManager.ClearAll()`；销毁后做两次内存回收。
+- **`ThemeService` 轮询跟随窗口生命周期**：`MainWindow` 构造时重新挂载，方法幂等。
+- **「后台轻量模式」改名「最小化后释放界面」**：语义收窄到只作用于最小化。
+
+### Added (新增)
+
+- **`Zenwik.Core` 类库**：SMU 读写、电源策略、日志、进程监听、方案与场景规则迁入；Core 不设 `UseWPF` / `UseWindowsForms`，由编译器守住边界。
+- **`LogThrottle`**：同 key 60 秒内只放行一条，并补报被抑制数量。
+- **`PriorityLabelConverter`**：优先级下拉与表格显示中文，数据层仍保留英文常量。
+
+### Fixed (修复)
+
+- **搜索框占位符从未生效**：模板补上 `Text="{TemplateBinding Placeholder}"`。
+- **搜索框光标垂直偏下**：去掉 `PART_ContentHost` 的重复居中。
+- **占位符聚焦时消失**：改为仅按“是否有内容”显示，并置于输入框之前。
+
+### 验收口径
+
+- 关窗后任务管理器“内存”列应见个位数 MB；私有提交仍几十 MB 属 .NET/WPF 运行时特性，不是泄漏。
+- 动画观感、高 DPI 渲染、搜索框光标位置需 Windows 真机验收。
+
+---
+
+## [Unreleased — v1.1.x 骨架] — 骨架（未改版本号，代码已合入）
+
+> 数据结构、落盘、界面通路与事件源已接通；部分功能仍待实装。
+
+### Added (新增)
+
+- **`ProfileService`（多方案保存切换）**：方案为完整快照（CO / FMax + 绑核规则 + 优先级），切换时写回三个 store 并下发。不包含电源策略、升频模式、核心停放；删除方案不回滚硬件；FMax 出厂基线不入快照。UI 支持保存、应用、删除与生效标记。
+- **`ScenarioService`（场景自动切换）**：支持进程运行、电池供电、交流供电三类触发；多规则同时命中按 `Priority` 仲裁；`Notify` 传“此刻全部成立的触发”。
+- **配置页接上数据源**：列表、开关、动作接服务；规则库双列继续灰置。
+
+### 已实装
+
+- **`ProcessWatcher.ProcessSetChanged` + `ReapplyNow()`**：进程创建/退出时广播集合变化；方案切换后重扫覆盖已运行进程，不做解绑；降级轮询仅在存活 PID 集合变化时广播。
+- **`PowerStatusWatcher`**：`PowerModeChanged` 为主，30 秒轮询兜底；使用 `GetSystemPowerStatus`；读不到状态时按插电处理。
+- **`ScenarioMonitor`**：不启用零占用、按需订阅、调用侧 800ms 防抖。
+- **`ProfileService.Apply` 接重扫**；新增 `-selftest`，只跑底层自检，不下发硬件。
+
+### Fixed (修复)
+
+- 场景切换短路改比 `ProfileService.ActiveId`，避免用户手动切换被场景逻辑无声覆盖。
+- `SmoothSortPanel` 四处修复：滚动抑制重试、位移上限、`ScrollViewer` 解绑、双列表清理。
+- `LogService.Clear()` 清空竞态修复；全局异常限流表统一上限。
+
+### 仍待实装
+
+1. 场景规则编辑器。
+2. 切换失败回滚。
+3. 重扫的解绑语义。
+4. 真机验收平滑动画、高 DPI 渲染。
+
+---
+
+## [1.2.1] — 更名 Zenwik · SMU 通道升到 1.93
 
 > 没有一行界面逻辑改动，全部是「身份」与「依赖来源」的变更：
 > 产品改名、命名空间下沉、配置目录迁移、SMU 库从 NuGet 换成手工编译的本地 DLL。
