@@ -39,6 +39,14 @@ public sealed partial class TuningViewModel : ObservableObject
     private const int FMaxMax = 5400;
 
     /// <summary>
+    /// 滑杆停手多久之后自动提交电源策略（毫秒）。
+    /// 取值与原 View 层计时器一致：拖动滑块时每一帧都会触发 ValueChanged，
+    /// 而写一次电源策略要动多个注册表索引、再重新激活一次方案 ——
+    /// 逐帧提交会让整机在拖动全程持续掉频。
+    /// </summary>
+    private const int PowerApplyDebounceMs = 700;
+
+    /// <summary>
     /// Windows 电源计划的四个档位。刻意写死顺序而不用 <c>Enum.GetValues</c>：
     /// 后者在 Native AOT 下要靠运行时枚举元数据，写死一个数组既零反射也不会因为
     /// 有人往枚举中间插值而让界面选项顺序错位。
@@ -55,6 +63,7 @@ public sealed partial class TuningViewModel : ObservableObject
     private readonly ITuningStore _tuning;
     private readonly ProfileService _profiles;
     private readonly ILogService _log;
+    private readonly IUiDispatcher _dispatcher;
 
     private int _coreCount;
     private uint _hardwareFMax;
@@ -64,6 +73,24 @@ public sealed partial class TuningViewModel : ObservableObject
 
     /// <summary>本轮读到的出厂 FMax 基线（内存态，随下一次落盘持久化）。</summary>
     private uint _fMaxBaseline;
+
+    /// <summary>
+    /// 初始化回填是否已结束。回填会把 ParkingValue 从默认值改写成硬件真实值，
+    /// 那不是用户操作 —— 此时放开自动提交等于「一启动就写一次电源策略」。
+    /// </summary>
+    private bool _powerReady;
+
+    /// <summary>
+    /// 本机是否正在提交 / 回读电源策略。用于阻断自激环：
+    /// 提交 → 回读 → ParkingValue 变化 → 滑块事件 → 再次提交 → …
+    /// </summary>
+    private bool _powerApplying;
+
+    /// <summary>
+    /// 防抖代次。每次滑杆变更递增，挂起中的提交据此判定是否作废：
+    /// 只有最后一次（用户停手）能真正执行。
+    /// </summary>
+    private int _powerApplyGeneration;
 
     public TuningViewModel(ISmuReader smu, ITuningStore tuning, ProfileService profiles, ILogService log, IUiDispatcher dispatcher)
     {
@@ -75,8 +102,9 @@ public sealed partial class TuningViewModel : ObservableObject
         _profiles = profiles;
         ArgumentNullException.ThrowIfNull(log);
         _log = log;
-        // 本页所有回调都从中断点回到 UI 线程，dispatcher 只用于契约校验与将来的后台事件。
+        // 电源防抖的续体要回到 UI 线程才能改绑定属性，调度器是唯一的跨线程通道。
         ArgumentNullException.ThrowIfNull(dispatcher);
+        _dispatcher = dispatcher;
 
         foreach ((ProcessorPowerTuning.BoostMode _, string label, string _) in ProcessorPowerTuning.BoostOptions)
             BoostOptions.Add(label);
@@ -187,6 +215,14 @@ public sealed partial class TuningViewModel : ObservableObject
 
     public int FMaxMaximum => FMaxMax;
 
+    /// <summary>
+    /// FMax 读取通道是否受支持（契约 2.2 硬闸门）。
+    /// 快照读取成功后按 <c>snapshot.FMaxMHz &gt; 0</c> 赋值；
+    /// 读取失败保持上次结果不变 —— 一次通信抖动不该把 FMax 输入整个灰掉。
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IsFMaxSupported { get; set; }
+
     // ==================== 电源策略 ====================
 
     [ObservableProperty]
@@ -252,6 +288,14 @@ public sealed partial class TuningViewModel : ObservableObject
 
     [ObservableProperty]
     public partial string ParkingHint { get; set; } = "未读取";
+
+    /// <summary>
+    /// 核心停放是否受支持（契约 2.3 硬闸门）。
+    /// 电源策略读取成功后按 <c>TryReadCoreParking</c> 的 parkOk 赋值；
+    /// <see cref="PowerAvailable"/> 为 false 时必为 false。
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IsCoreParkingSupported { get; set; }
 
     // ==================== 脏数据状态（浮动保存条 / 预设星号联动） ====================
 
@@ -588,17 +632,30 @@ public sealed partial class TuningViewModel : ObservableObject
         }
     }
 
-    /// <summary>应用电源策略：升频模式 + 核心停放。两者独立，各自校验并单独报告。</summary>
+    /// <summary>
+    /// 应用电源策略：升频模式 + 核心停放。两者独立，各自校验并单独报告。
+    ///
+    /// 【自激环守卫】
+    /// 提交会回读硬件，回读会改写 ParkingValue，滑块随之触发变更事件 ——
+    /// 没有 <see cref="_powerApplying"/> 这道守卫就会「提交 → 回读 → 再提交」无限循环。
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanRun))]
     private async Task ApplyPowerAsync()
     {
+        if (_powerApplying)
+            return;
+
         if (!PowerAvailable)
         {
             SetStatus(UiSeverity.Warning, "当前方案不支持", "当前电源方案没有升频模式 / 核心停放索引。");
             return;
         }
 
+        // 本次提交作废此前挂起的防抖提交：用户已经通过下拉或滑杆确认了新的意图。
+        _powerApplyGeneration++;
+
         SetBusy(true, "正在写入电源策略…");
+        _powerApplying = true;
         try
         {
             List<string> done = new();
@@ -640,8 +697,46 @@ public sealed partial class TuningViewModel : ObservableObject
         }
         finally
         {
+            _powerApplying = false;
             SetBusy(false);
         }
+    }
+
+    /// <summary>
+    /// 停放滑杆变更：停手 <see cref="PowerApplyDebounceMs"/> 毫秒后自动提交电源策略。
+    ///
+    /// 【为什么防抖收敛在 ViewModel】
+    /// 防抖与「谁来提交」必须同层：View 只负责把「用户改动了滑杆」这个事实报上来，
+    /// 计时、作废、代次判定全由 ViewModel 负责。View 与 ViewModel 各持一套计时器时，
+    /// 两边的计时器会互相触发对方的提交路径，代次判定也就无从谈起。
+    ///
+    /// 下拉框换项走立即提交（<see cref="ApplyPowerCommand"/>），不经过这条路径 ——
+    /// 下拉是一次性选择，没有「拖到一半」的中间态，不需要防抖。
+    /// </summary>
+    public void SchedulePowerApply()
+    {
+        // 回填期间与本机提交期间都不接受自动提交：前者不是用户操作，后者会自激。
+        if (!_powerReady || _powerApplying)
+            return;
+
+        // 代次递增：先前挂起的提交立即作废，只有最后一次（用户停手）能真正执行。
+        int generation = ++_powerApplyGeneration;
+        _ = DebouncedApplyAsync(generation);
+    }
+
+    private async Task DebouncedApplyAsync(int generation)
+    {
+        await Task.Delay(PowerApplyDebounceMs);
+
+        // 代次已变 = 期间又有新变更，这次挂起的提交作废。
+        if (generation != _powerApplyGeneration)
+            return;
+
+        // 统一回 UI 线程再改绑定属性：这条路径允许从任意线程进入。
+        if (_dispatcher.IsCurrentThread)
+            await ApplyPowerAsync();
+        else
+            _dispatcher.Post(() => _ = ApplyPowerAsync());
     }
 
     // ==================== 内部 ====================
@@ -659,6 +754,12 @@ public sealed partial class TuningViewModel : ObservableObject
         {
             _log.Error($"调校页初始化失败：{ex.Message}");
             SetStatus(UiSeverity.Error, "初始化失败", ex.Message);
+        }
+        finally
+        {
+            // 回填结束才放开自动提交：回填本身会改写 ParkingValue，
+            // 那不是用户操作，放行等于启动即写一次电源策略。
+            _powerReady = true;
         }
     }
 
@@ -759,12 +860,19 @@ public sealed partial class TuningViewModel : ObservableObject
         if (!boostOk && !parkOk)
         {
             PowerAvailable = false;
+            // 契约 2.3：整体不可用时停放闸门必为 false。
+            IsCoreParkingSupported = false;
             BoostHint = boostError;
             ParkingHint = parkError;
             return;
         }
 
         PowerAvailable = true;
+
+        // 硬闸门：升频可用但停放索引不存在时，停放那一行必须被前端禁用 / 隐藏。
+        // parkOk 为 false 是「读到了不支持这个索引」这一确定结论，与读取异常不同：
+        // 读取异常会在到达这一行之前抛出，属性自然保持上次的值不变。
+        IsCoreParkingSupported = parkOk;
 
         if (boostOk)
         {
@@ -798,6 +906,10 @@ public sealed partial class TuningViewModel : ObservableObject
 
         SmuAvailable = snapshot.Success;
         SmuStateText = snapshot.Success ? "SMU 就绪" : (snapshot.Error ?? "SMU 不可用");
+
+        // 硬闸门只在快照读成功时更新：读取失败保持上次结果不变。
+        if (snapshot.Success)
+            IsFMaxSupported = snapshot.FMaxMHz > 0;
 
         if (!string.IsNullOrWhiteSpace(snapshot.CpuName))
             CpuName = snapshot.CpuName;

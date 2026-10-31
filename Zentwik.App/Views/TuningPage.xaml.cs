@@ -1,5 +1,4 @@
 using System;
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -18,10 +17,14 @@ namespace Zentwik.App.Views;
 /// </summary>
 public sealed partial class TuningPage : Page
 {
-    private readonly DispatcherQueueTimer _powerTimer;
-
     private bool _initialized;
+
+    /// <summary>
+    /// 初始化回填是否已结束。本标志只管 View 侧的事：回填期间不接受用户输入，
+    /// 也不显示脏数据保存条。ViewModel 侧另有一份同义的闸门，管的是「允许提交电源策略」。
+    /// </summary>
     private bool _powerReady;
+
     private bool _powerApplying;
     private bool _dirtyAnimating;
     private bool _suppressUiDirty;
@@ -31,14 +34,6 @@ public sealed partial class TuningPage : Page
         ViewModel = viewModel;
         InitializeComponent();
         Loaded += OnLoaded;
-
-        // 拖动滑块时每一帧都会触发 ValueChanged，而写一次电源策略要动多个注册表索引、
-        // 再重新激活一次方案 —— 逐帧提交会让整机在拖动全程持续掉频。
-        // 700ms 静默期 = 用户停手之后才提交一次。
-        _powerTimer = DispatcherQueue.CreateTimer();
-        _powerTimer.Interval = TimeSpan.FromMilliseconds(700);
-        _powerTimer.IsRepeating = false;
-        _powerTimer.Tick += OnPowerTimerTick;
     }
 
     public TuningViewModel ViewModel { get; }
@@ -146,7 +141,7 @@ public sealed partial class TuningPage : Page
     /// TextChanged 既来自用户输入，也来自回填（初始化、方案切换、容器延迟 realize）。
     /// 只有当该 TextBox 持有焦点时才可能是用户在打字 —— 回填永远发生在无焦点状态。
     /// </summary>
-    private static bool IsUserTyping(TextBox box)
+    private static bool IsUserTyping(TextBox? box)
         => box is { FocusState: not Microsoft.UI.Xaml.FocusState.Unfocused };
 
     private void OnCoTextChanged(object sender, TextChangedEventArgs e)
@@ -167,12 +162,6 @@ public sealed partial class TuningPage : Page
             MarkDirty();
     }
 
-    private void OnPowerTimerTick(DispatcherQueueTimer sender, object args)
-    {
-        sender.Stop();
-        _ = ApplyPowerAsync();
-    }
-
     /// <summary>下拉框换项：立即提交，不必等静默期。</summary>
     private void OnPowerSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -183,15 +172,17 @@ public sealed partial class TuningPage : Page
         _ = ApplyPowerAsync();
     }
 
-    /// <summary>拖动滑块：只重置防抖计时器，停手 700ms 后才提交。</summary>
+    /// <summary>
+    /// 拖动滑块：只把「用户改了值」报给 ViewModel，提交时机（停手 700ms）由它内部防抖决定。
+    /// 防抖计时器不在 View 层 —— 计时与提交必须同层，否则两套计时器会互相触发对方的提交路径。
+    /// </summary>
     private void OnParkingValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
         if (!_powerReady || _powerApplying)
             return;
 
         MarkDirty();
-        _powerTimer.Stop();
-        _powerTimer.Start();
+        ViewModel.SchedulePowerApply();
     }
 
     private async Task ApplyPowerAsync()
@@ -201,7 +192,8 @@ public sealed partial class TuningPage : Page
         if (!_powerReady || _powerApplying)
             return;
 
-        _powerTimer.Stop();
+        // 挂起中的防抖提交由 ViewModel 在本次提交开始时作废（代次递增），
+        // View 层不需要也不应该再持有一份计时器。
         _powerApplying = true;
         try
         {

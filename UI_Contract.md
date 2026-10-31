@@ -6,7 +6,8 @@
 > **契约基线**：`v2.0.0-can15`（commit `3f928f7`，分支 `main`）。
 >
 > **契约版本记录**：
-> - **v1.1（2026-11-01，人类批准）**：新增 `IsCoreParkingSupported` / `IsFMaxSupported` 两个能力闸门属性（详见 2.2 / 2.3），**由后端 AI 补全实现**（当前代码尚无这两个属性）。其余属性、命令、集合定义与 v1.0 完全一致，前端已有绑定不受影响。
+> - **v1.2（2026-11-01，人类批准）**：电源策略防抖收敛到 ViewModel —— 滑杆变更停手 700ms 自动执行、下拉立即执行。**`ApplyPowerCommand` 本身不变**（名称 / 来源方法 / 行为 / 绑定方式全部照旧），新增 View 层可调用的非绑定方法 `SchedulePowerApply()`（详见 4.1）。**前端无需改动 XAML**：既有事件处理器名称与签名保持不变。v1.1 立项的 `IsCoreParkingSupported` / `IsFMaxSupported` 两个硬闸门属性**均已实现**。
+> - **v1.1（2026-11-01，人类批准）**：新增 `IsCoreParkingSupported` / `IsFMaxSupported` 两个能力闸门属性（详见 2.2 / 2.3），**由后端 AI 补全实现**（v1.1 当时代码尚无这两个属性，v1.2 起均已实现）。其余属性、命令、集合定义与 v1.0 完全一致，前端已有绑定不受影响。
 > - **v1.0**：基于 `v2.0.0-can15` 真实代码反向生成。
 > **反向生成来源**（已逐行核对，非推测）：
 > - `Zentwik.App/ViewModels/TuningViewModel.cs`
@@ -72,9 +73,10 @@
 | `FMaxHint` | `string` | `"未同步"` | OneWay | 三种态：`"{n} MHz（硬件当前值）"` / `"{n} MHz（回读一致）"` / `"该平台未提供 FMax 读取通道"`。 |
 | `FMaxMinimum` | `int` | `400` | OneWay | 只读常量，步进器 / 校验下限。 |
 | `FMaxMaximum` | `int` | `5400` | OneWay | 只读常量，步进器 / 校验上限。 |
-| `IsFMaxSupported` | `bool` | `false` | OneWay | **v1.1 新增，由后端 AI 补全实现**（当前代码尚无此属性）。FMax 读取通道是否受支持的硬闸门：`true` = 平台提供 FMax 通道。赋值时机：初始 `false`；每次 SMU 快照读取**成功后**按 `snapshot.FMaxMHz > 0` 赋值（与 `FMaxHint` 的判定同源）；读取失败保持上次结果不变。前端 Visibility / IsEnabled 一律绑此属性。 |
+| `IsFMaxSupported` | `bool` | `false` | OneWay | **v1.1 新增，v1.2 起已实现**。FMax 读取通道是否受支持的硬闸门：`true` = 平台提供 FMax 通道。赋值时机：初始 `false`；每次 SMU 快照读取**成功后**按 `snapshot.FMaxMHz > 0` 赋值（与 `FMaxHint` 的判定同源）；读取失败保持上次结果不变。前端 Visibility / IsEnabled 一律绑此属性。 |
 
 > **前端禁止解析 `FMaxHint` 文案判断支持性**（v1.0 时代的脆弱替代方案已废止）：硬闸门统一绑 `IsFMaxSupported`；`FMaxHint` 仅作辅助展示文案。
+> **v1.2 起**：FMax 输入框（TextBox）的 `IsEnabled` 改绑 `IsFMaxSupported`。
 
 ### 2.3 电源策略
 
@@ -89,9 +91,10 @@
 | `ParkingInt` | `int` | `100` | OneWay | 停放百分比整型，步进器语义；与 `ParkingValue` 幂等同步（取整后一致即不回写，防互相触发）。 |
 | `ParkingText` | `string` | `"100"` | TwoWay | 纯 TextBox 入口。容错解析同 `FMaxText`；合法值钳制 `≤ 100` 后写入 `ParkingValue`。 |
 | `ParkingHint` | `string` | `"未读取"` | OneWay | 随数值变化的说明文案；读取失败时为错误文本（如 "当前电源方案不提供核心停放设置。"）。 |
-| `IsCoreParkingSupported` | `bool` | `false` | OneWay | **v1.1 新增，由后端 AI 补全实现**（当前代码尚无此属性）。核心停放是否受支持的硬闸门。赋值时机：初始 `false`；电源策略读取（`RefreshCommand` 链路）成功后按 `ProcessorPowerTuning.TryReadCoreParking` 的 `parkOk` 赋值；`PowerAvailable == false`（升频/停放整体不可用）时**必须**为 `false`；读取失败保持上次结果不变。前端 Visibility / IsEnabled 一律绑此属性。 |
+| `IsCoreParkingSupported` | `bool` | `false` | OneWay | **v1.1 新增，v1.2 起已实现**。核心停放是否受支持的硬闸门。赋值时机：初始 `false`；电源策略读取成功后按 `ProcessorPowerTuning.TryReadCoreParking` 的 `parkOk` 赋值；`PowerAvailable == false`（升频/停放整体不可用）时**必须**为 `false`；读取失败保持上次结果不变。前端 Visibility / IsEnabled 一律绑此属性。 |
 
 > **前端禁止解析 `ParkingHint` 文案判断停放支持性**（v1.0 时代的脆弱替代方案已废止）：硬闸门统一绑 `IsCoreParkingSupported`。
+> **v1.2 起**：核心停放那一行（Slider + TextBox）的 `IsEnabled` 改绑 `IsCoreParkingSupported`；升频模式那一行仍绑 `PowerAvailable`。
 > 真实行为备注（供前端预判）：`IsCoreParkingSupported == true` 时 `ParkingValue` / `ParkingText` 必然已回填有效值；`PowerAvailable == false` 时升频模式与停放**两组**一并禁用，与两个闸门属性同时为 `false` 等价。
 
 ### 2.4 核心网格空态
@@ -112,8 +115,8 @@
 | 模板示例中的属性 | 真实代码 | 结论 |
 | :--- | :--- | :--- |
 | `IsSyncFailed` | ❌ 不存在 | 读取失败用 `SmuAvailable=false` + `StatusLevel=Error/Warning` + `IsStatusVisible` 表达 |
-| `IsCoreParkingSupported` | ✅ v1.1 立为正契属性 | 由后端 AI 补全实现，赋值时机见 2.3；前端禁解析 `ParkingHint` 文案 |
-| `IsFMaxSupported` | ✅ v1.1 立为正契属性 | 由后端 AI 补全实现，赋值时机见 2.2；前端禁解析 `FMaxHint` 文案 |
+| `IsCoreParkingSupported` | ✅ v1.1 立为正契属性，v1.2 起已实现 | 赋值时机见 2.3；前端禁解析 `ParkingHint` 文案 |
+| `IsFMaxSupported` | ✅ v1.1 立为正契属性，v1.2 起已实现 | 赋值时机见 2.2；前端禁解析 `FMaxHint` 文案 |
 | `MaxCores` | ❌ 不存在 | 核心总数 = `Cores.Count`，见第 1 节警告 |
 | `CoreParkingText` | 实为 `ParkingText` / `ParkingInt` / `ParkingValue` 三件套 | 见 2.3 |
 
@@ -157,13 +160,32 @@
 | :--- | :--- | :--- | :--- |
 | `RefreshCommand` | `RefreshAsync()` | CPU 卡片同步图标按钮，`Command=` 直接绑定 | `Task.Run` 读 SMU 全量快照并回填（含拓扑 / FMax / 逐核值）。回填**抑制**脏状态。SMU 不可用时不硬读，直接告警提示条。 |
 | `ApplyCommand` | `ApplyAsync()` | CPU 卡片「应用」按钮，`Command=` 直接绑定 | 全程遮罩：①逐核 CO 越界校验（-50~+50，失败即停并报核号）→ ②读快照（回滚基线）→ ③逐核下发（未改动的核用 `int.MinValue` 哨兵跳过）→ ④回读校验（Core 完成）→ ⑤**任何失败整体回滚到下发前**并静默刷新回填 → ⑥成功后落盘 `tuning.json`、清脏状态。FMax 仅在用户改动过时才写。 |
-| `ApplyPowerCommand` | `ApplyPowerAsync()` | 电源区任意变更后由 View 层调用（下拉立即提交；滑杆停手 700ms 防抖后提交） | `PowerAvailable=false` 时拒绝。顺序硬约束：**先电源计划（整套索引，会覆盖后两者）→ 再升频模式 → 再核心停放**。三项各自独立报告成败，部分失败也如实汇总。完成后回读刷新。 |
+| `ApplyPowerCommand` | `ApplyPowerAsync()` | 下拉换项时由 View 层**立即**调用；滑杆路径由 ViewModel 内部防抖自动执行（见 4.1）。命令本身未变 | `PowerAvailable=false` 时拒绝。顺序硬约束：**先电源计划（整套索引，会覆盖后两者）→ 再升频模式 → 再核心停放**。三项各自独立报告成败，部分失败也如实汇总。完成后回读刷新。 |
 | `LoadCommand` | `Load()` | ⚠️ **当前 XAML 未绑定**（保留入口） | 把 `tuning.json` 已保存设定填进界面草稿，**不写硬件**。无记录时提示。 |
 | `SaveCommand` | `Save()` | 浮动保存条「保存覆盖」按钮（View 层 `Click → Execute(null)`） | **只落盘不下发**。保存的是"期望状态"（逐核 `RoundedValue` + FMax + 出厂基线），供开机静默自启重新应用。无核心列表时拒绝。 |
 | `DiscardDraftCommand` | `DiscardDraft()` | 浮动保存条「放弃」按钮（`Click → Execute(null)`） | 界面回到**当前选中方案**（`ProfileIndex` 对应快照）的 CO / FMax 值，**不碰硬件**；清脏状态。 |
 | `SaveDraftAsCommand` | `SaveDraftAs()` | 浮动保存条「另存为」按钮（`Click → Execute(null)`） | 当前草稿（CO + FMax）存成新方案（名 "自定义方案 HHmmss"）并选中新方案，落盘，清脏状态。 |
 
 > 模板示例名 → 真实名对照：`SyncHardwareCommand`→**`RefreshCommand`**；`ApplySettingsCommand`→**`ApplyCommand`**；`DiscardChangesCommand`→**`DiscardDraftCommand`**；`SaveProfileCommand`→**`SaveCommand`**；`SaveAsProfileCommand`→**`SaveDraftAsCommand`**。
+
+### 4.1 电源策略的提交时机（v1.2 修订）
+
+防抖逻辑已从 View 层收敛到 ViewModel —— 计时与提交必须同层，否则 View 与 ViewModel 各持一套计时器时会互相触发对方的提交路径。分工：
+
+| 触发源 | 提交时机 | 路径 |
+| :--- | :--- | :--- |
+| 电源计划 / 升频模式下拉换项 | **立即** | View 层 `OnPowerSelectionChanged` → `ApplyPowerCommand` |
+| 核心停放滑杆拖动 | 停手 **700ms** 后 | View 层 `OnParkingValueChanged` → `ViewModel.SchedulePowerApply()` → ViewModel 内部防抖 → `ApplyPowerAsync()` |
+
+**`ApplyPowerCommand` 的名称、来源方法、行为、可执行条件全部未变**，仍可被 XAML 直接 `Command=` 绑定。
+
+新增（**非绑定**）View 层可调用成员：
+
+| 成员 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `SchedulePowerApply()` | `void` | 通知 ViewModel「用户改动了停放滑杆」。ViewModel 内部：挂起 700ms 计时、代次作废上一次挂起、到期自动执行 `ApplyPowerAsync()`。初始化回填期间与本机提交期间调用**静默忽略**（不报错、不排队）。**前端不需要在 XAML 里引用它** —— 由 View 层代码调用。 |
+
+> **前端影响：无。** `OnPowerSelectionChanged` / `OnParkingValueChanged` 的名称与签名均未变化，XAML 绑定无需改动。
 
 ---
 
@@ -214,12 +236,20 @@
 
 ## 7. 契约变更登记（新增属性必须走此流程）
 
+**v1.2 变更记录（2026-11-01，人类批准）**：
+
+| 提案项 | 类型 | 用途 | 落地状态 |
+| :--- | :--- | :--- | :--- |
+| `SchedulePowerApply()` | `void`（非绑定方法） | 滑杆停手 700ms 后由 ViewModel 自动提交电源策略 | ✅ **已实现**（防抖由 View 层收敛到 ViewModel；`ApplyPowerCommand` 本身未变，前端 XAML 无需改动） |
+| `IsCoreParkingSupported` | `bool` | 停放不支持时隐藏/禁用该行（硬闸门） | ✅ **已实现**（v1.1 立项，v1.2 落地） |
+| `IsFMaxSupported` | `bool` | FMax 通道不支持时置灰输入（硬闸门） | ✅ **已实现**（v1.1 立项，v1.2 落地） |
+
 **v1.1 变更记录（2026-11-01，人类批准）**：
 
 | 提案属性 | 类型 | 用途 | 落地状态 |
 | :--- | :--- | :--- | :--- |
-| `IsCoreParkingSupported` | `bool` | 停放不支持时隐藏/禁用该行（硬闸门） | ✅ **已并入正文 2.3，由后端 AI 补全实现**（默认 `false`；电源策略读取成功后按 `TryReadCoreParking` 的 `parkOk` 赋值；`PowerAvailable=false` 时必为 `false`） |
-| `IsFMaxSupported` | `bool` | FMax 通道不支持时置灰输入（硬闸门） | ✅ **已并入正文 2.2，由后端 AI 补全实现**（默认 `false`；SMU 快照读取成功后按 `snapshot.FMaxMHz > 0` 赋值） |
+| `IsCoreParkingSupported` | `bool` | 停放不支持时隐藏/禁用该行（硬闸门） | ✅ **已并入正文 2.3 并实现**（v1.2 落地；默认 `false`；电源策略读取成功后按 `TryReadCoreParking` 的 `parkOk` 赋值；`PowerAvailable=false` 时必为 `false`） |
+| `IsFMaxSupported` | `bool` | FMax 通道不支持时置灰输入（硬闸门） | ✅ **已并入正文 2.2 并实现**（v1.2 落地；默认 `false`；SMU 快照读取成功后按 `snapshot.FMaxMHz > 0` 赋值） |
 
 **仍在候选区（未批准，前端不得绑定）**：
 
