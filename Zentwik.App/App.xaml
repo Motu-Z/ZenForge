@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application
+    x:Class="Zentwik.App.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- WinUI 3 不自带控件样式，不合并这一份则所有控件都是裸的默认模板。 -->
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+
+                <!-- 语义色在 S4 后续补齐（深浅两套 ThemeDictionaries）。
+                     现在留位，避免届时改 x:Class 结构。 -->
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

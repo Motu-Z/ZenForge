@@ -80,6 +80,17 @@
     <Resource Remove="build/**" />
     <None Remove="build/**" />
     <EmbeddedResource Remove="build/**" />
+
+    <!-- Zentwik.App 是 WinUI 3 外壳（S4 起）。它既不是这个工程的一部分，
+         也不该被 WPF 的 XAML 编译器读到 —— 少了这几行，主工程会拿 WinUI 的
+         App.xaml / MainWindow.xaml 去走 WPF 的 MarkupCompiler，报出一堆
+         「Microsoft.UI.Xaml.Controls 里不存在 XamlControlsResources」，
+         而错误位置指向的却是 Zentwik.App 的文件，极具误导性。 -->
+    <Compile Remove="Zentwik.App/**" />
+    <Page Remove="Zentwik.App/**" />
+    <Resource Remove="Zentwik.App/**" />
+    <None Remove="Zentwik.App/**" />
+    <EmbeddedResource Remove="Zentwik.App/**" />
   </ItemGroup>
 
   <ItemGroup>

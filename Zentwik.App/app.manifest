@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <assemblyIdentity version="1.0.0.0" name="Zentwik.App"/>
+
+  <!-- requireAdministrator 不是「顺便要个权限」：
+       绑核走 SetProcessDefaultCpuSets，对受保护进程与 SYSTEM 进程必须持完整令牌，
+       asInvoker 下这些调用一律 ERROR_ACCESS_DENIED，表现为「绑核偶发失效」。
+       双击即提权比「启动后 runas 重启自身」少一个竞态，也不会留下非提权的残留进程。
+       silent 自启由计划任务以 HighestAvailable 拉起，不会二次弹 UAC。 -->
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+    <security>
+      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+        <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
+  <!-- 顺序不能动：mt.exe 会把这份清单和 WindowsAppSDK 自带的合并，
+       它按 asm.v1 的 schema 做序列校验，compatibility 必须排在 application 之前。 -->
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-9a5a-48fd50a15a9a}"/>
+    </application>
+  </compatibility>
+
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+    </windowsSettings>
+  </application>
+</assembly>

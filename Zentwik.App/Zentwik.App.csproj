@@ -1,0 +1,86 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    ============================================================
+    Zentwik.App —— WinUI 3 外壳（Windows App SDK 2.6.4）
+    ============================================================
+
+    【四个开关各自解决什么问题】
+
+    WindowsPackageType=None
+      非打包（unpackaged）部署。不打 MSIX 就意味着一件事：exe 双击即跑，
+      不需要先装 msix、不需要开发证书、不需要「应用安装程序」。
+      代价是放弃包标识 —— 于是 AppInstance 单实例、Toast、任务栏跳转列表
+      这类依赖 Package Identity 的能力必须换实现（单实例改用命名单锁）。
+
+    WindowsAppSDKSelfContained=true
+      WinAppSDK 运行时随包发。非打包应用想跑 WinUI 3，要么让用户先装
+      WindowsAppRuntime 安装器（第一次启动失败的经典原因），要么自己带。
+      本产品是「管理员权限 + 直接操作 SMU」的工具，装机环境不可控，
+      少一个前置依赖就少一类售后。
+
+    SelfContained=true
+      .NET 运行时也随包发。用户机器上不需要装 .NET 10 桌面运行时。
+      与上一条叠加后产物约 100MB 级，这是明确的取舍：可预测性优先于体积。
+
+    RuntimeIdentifier=win-x64
+      上面两个 true 都要求 RID 固化。不写 RID 时 dotnet build 会退化成
+      「平台无关」并在还原阶段报 NETSDK1047。
+
+    【为什么这里没有 PublishAot】
+    Core 已经过 Native AOT 验证（探针工程），但 WinUI 3 外壳这一层：
+    XAML 编译产物、CsWinRT 的 COM 封送、WinAppSDK 的原生依赖，三者
+    在 AOT 下的组合缺少官方支持矩阵。S4 的目标是「跑通且可调试」，
+    不是「最小体积」——AOT 留给 S7 单独立项，届时用独立的 publish profile
+    验证，而不是现在把发布链路赌在一个未验证的组合上。
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+
+    <!-- 19041 = Windows 10 2004。目标框架写低版本，Win11 专属特性
+         （Mica）在运行期用 IsSupported() 探测，不靠 TFM 卡人。 -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+
+    <RootNamespace>Zentwik.App</RootNamespace>
+    <AssemblyName>Zentwik.App</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>false</EnableMsixTooling>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <!-- 关掉 XAML 自动生成的 Main：进程入口要能识别 silent 开关并在
+         创建任何 WinUI 类型之前改道，见 Program.cs。 -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+
+    <!-- WinUI 3 外壳不做裁剪：XAML 的 XBF 与 CsWinRT 投影都有运行期按名解析，
+         PublishTrimmed=true 在这里的收益远小于它带来的「某个页面白屏」风险。 -->
+    <PublishTrimmed>false</PublishTrimmed>
+
+    <Version>2.0.0-can2</Version>
+    <FileVersion>2.0.0.0</FileVersion>
+    <AssemblyVersion>2.0.0.0</AssemblyVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.4" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+
+    <!-- Core 只引 DI 的 Abstractions（它不该拥有「随手解析任意服务」的入口），
+         容器实现由宿主负责，所以这里必须显式引完整包。 -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Zentwik.Core\Zentwik.Core.csproj" />
+  </ItemGroup>
+
+</Project>
