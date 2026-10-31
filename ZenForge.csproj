@@ -64,6 +64,23 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- ZenForge.Core 就放在本目录下（ZenForge.Core/），SDK 的默认 glob 会把它
+         一起算进来，导致同一份 .cs 被编译两次（CS0101 重复定义）。
+         这里显式摘掉整个子目录 —— 它有自己的 csproj，由 ProjectReference 引。 -->
+    <Compile Remove="ZenForge.Core/**" />
+    <Page Remove="ZenForge.Core/**" />
+    <Resource Remove="ZenForge.Core/**" />
+    <None Remove="ZenForge.Core/**" />
+    <EmbeddedResource Remove="ZenForge.Core/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 纯业务逻辑（SMU / 电源策略 / 日志 / 进程监听）。
+         红线：该工程不引用任何 WPF 类型，详见 ZenForge.Core.csproj 的注释。 -->
+    <ProjectReference Include="ZenForge.Core/ZenForge.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- 托盘图标要用 System.Windows.Forms.NotifyIcon。
          刻意不开 UseWindowsForms：那个属性会让 SDK 注入 System.Windows.Forms /
          System.Drawing 的全局 using，而本项目到处裸写着 Application、Brush、
@@ -83,13 +100,8 @@
   <!-- ZenStates-Core（Lenovo Legion Toolkit 零改动打包分支，net9.0 资产可被 net10.0 引用）。
        S3 起用于 SMU 读写：Curve Optimizer（SetPsmMarginSingleCore）+ FMax（SetFMax），
        每次写入后立即回读校验。 -->
-  <ItemGroup>
-    <PackageReference Include="LLT.ZenStates-Core" Version="1.92.4" />
-
-    <!-- System.Management：进程绑核监听的 WMI 事件订阅（__InstanceCreationEvent /
-         __InstanceDeletionEvent），替代原先 1 秒一次的全表快照轮询。
-         这是 Windows 桌面程序的标准库组件，不引入额外原生依赖。 -->
-    <PackageReference Include="System.Management" Version="9.0.0" />
-  </ItemGroup>
+  <!-- 包引用已随代码迁到 ZenForge.Core：ZenStates-Core（SMU）与 System.Management（WMI）。
+       PackageReference 对引用方是传递的，App 侧照旧能用 SmuSnapshot 等类型，
+       不需要在这里再写一遍 —— 写两遍只会出现两个版本号，迟早对不上。 -->
 
 </Project>

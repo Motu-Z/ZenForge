@@ -1,0 +1,66 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    ============================================================
+    ZenForge.Core —— 纯业务逻辑，零 WPF 依赖
+    ============================================================
+
+    【这条红线怎么保证】
+    1. 不写 UseWPF / UseWindowsForms。没有这两个属性，SDK 不会引入
+       PresentationFramework / WindowsBase / System.Drawing，代码里只要出现
+       System.Windows.* 就直接编译失败 —— 红线是编译器守的，不是靠自觉。
+    2. TargetFramework 用 net10.0-windows 而不是 net10.0：P/Invoke 与注册表
+       在哪个 TFM 都能跑，但 System.Management（WMI）与 registry API 的可用性
+       标注在 windows TFM 上，换成跨平台 TFM 会引入一堆 CA1416 平台警告。
+       注意：net10.0-windows **不含** WPF，只有 UseWPF=true 才会把 WPF 装进来。
+    3. 想验证这条红线，敲一行就够：
+           dotnet build ZenForge.Core -c Release
+       只要有人往这里塞了一个 System.Windows 类型，这一步会当场红。
+
+    【为什么 DI 容器不在这里（也不在 App 里）】
+    v1.2.0 起 WPF 线进入封版状态，后续迁 WinUI 3。此时引入容器或 EventBus，
+    等于让即将被重写的 UI 层多一层需要拆的抽象 —— 这一轮刻意保持静态类 +
+    显式传参，迁移时逐类搬过去即可。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ZenForge</RootNamespace>
+    <AssemblyName>ZenForge.Core</AssemblyName>
+    <LangVersion>latest</LangVersion>
+
+    <!-- 与主程序共用同一套版本号口径（见 ZenForge.csproj 的注释） -->
+    <Version>1.2.0</Version>
+    <FileVersion>1.2.0.0</FileVersion>
+    <AssemblyVersion>1.2.0.0</AssemblyVersion>
+
+    <SatelliteResourceLanguages>none</SatelliteResourceLanguages>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      让主程序能访问 internal 成员（MaskNamePolicy / MemoryTrimmer 这类）。
+      不给它们加 public：这些是「只给本产品用」的实现细节，一旦公开就成了
+      WinUI 3 迁移时不敢动的对外契约。InternalsVisibleTo 的代价是 Core 知道
+      调用方程序集名，收益是公开面保持最小。
+    -->
+    <InternalsVisibleTo Include="ZenForge" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- SMU 读写（ZenStates-Kraken 的打包分支）：Curve Optimizer + FMax -->
+    <PackageReference Include="LLT.ZenStates-Core" Version="1.92.4" />
+
+    <!-- WMI 进程事件（__InstanceCreationEvent / __InstanceDeletionEvent） -->
+    <PackageReference Include="System.Management" Version="9.0.0" />
+
+    <!-- Microsoft.Win32.SystemEvents：PowerStatusWatcher 的电源模式通知。
+         这个包在 windows 桌面 TFM 下由 WindowsDesktop 框架自带，Core 不引用
+         WindowsDesktop，所以要显式声明。 -->
+    <PackageReference Include="Microsoft.Win32.SystemEvents" Version="9.0.0" />
+  </ItemGroup>
+
+</Project>
