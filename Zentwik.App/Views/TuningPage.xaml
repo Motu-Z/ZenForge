@@ -5,17 +5,28 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:Zentwik.App.ViewModels"
     xmlns:ctl="using:Zentwik.App.Controls"
-    xmlns:anim="using:Microsoft.UI.Xaml.Media.Animation"
     xmlns:local="using:Zentwik.App"
     Background="Transparent">
 
     <!--
     ============================================================================
-    调校页（按参考渲染图 1:1）
+    调校页 —— 按 UI_Contract v1.1 / v1.2 全量 x:Bind 重写
     ============================================================================
-    卡片 8px 圆角 / 20,24 内边距；数值输入全部纯 TextBox（34px、Consolas、居中）；
-    下拉 34px / 圆角 6 / ▼ 小箭头；滑块 2px 轨道 14px 圆点（资源覆盖，见 Tokens）；
-    底部浮动保存条初始收起，草稿变更时从下方 20px 处淡入。
+    数值输入纯 TextBox（契约入口 EditText / FMaxText / ParkingText，34px / Consolas /
+    居中），隐式步进：加减号平时隐藏，悬浮（PointerOver）/ 聚焦（Focused）时淡入。
+
+    【为什么加减号命令走 Tag / Header 穿透】
+    {x:Bind} 不允许出现在 ControlTemplate 内（编译期绑定需要页面级绑定根），
+    而加减号必须活在 TextBox 模板里才能跟随它的 PointerOver / Focused 状态机。
+    所以命令在模板外经 x:Bind 注入 TextBox.Tag（减）/ TextBox.Header（加），
+    模板内 Button 用 {TemplateBinding} 取出。Tag / Header 均为 object 依赖属性，
+    本页不另作他用，无反射、AOT 安全。
+
+    步进命令为契约 v1.2 待后端补全的成员：
+      CoreSlotViewModel.IncrementCommand / DecrementCommand（±1，钳制 -50~+50）；
+      TuningViewModel.IncrementCommand / DecrementCommand（IRelayCommand<string>，
+      参数 "FMax" / "Parking"，内部须调 MarkDirty() 走脏数据链）。
+    ============================================================================
     -->
 
     <Grid>
@@ -25,9 +36,11 @@
                       Padding="{StaticResource AppContentPadding}">
             <StackPanel Spacing="16">
 
-                <TextBlock Text="调校" Style="{StaticResource AppPageTitle}" Margin="0,0,0,8" />
+                <TextBlock x:Uid="Tuning_Title"
+                           Style="{StaticResource AppPageTitle}"
+                           Margin="0,0,0,8" />
 
-                <!-- 提示条：只在出错 / 告警时出现，成功不占首屏 -->
+                <!-- 提示条：只承载 Error / Warning（后端置 IsStatusVisible）；成功不占首屏 -->
                 <InfoBar IsOpen="{x:Bind ViewModel.IsStatusVisible, Mode=TwoWay}"
                          IsClosable="True"
                          Severity="{x:Bind local:UiConverters.ToInfoBarSeverity(ViewModel.StatusLevel), Mode=OneWay}"
@@ -47,13 +60,12 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
 
-                        <!-- 同步：纯图标按钮，36×36 圆角 6，次级底 -->
+                        <!-- 同步：SMU 不可用时后端不硬读、直接告警，按钮保持可点以便恢复后重试 -->
                         <Button Grid.Column="0"
+                                x:Uid="Tuning_Refresh"
                                 Style="{StaticResource AppIconButton}"
                                 Command="{x:Bind ViewModel.RefreshCommand}"
-                                VerticalAlignment="Center"
-                                ToolTipService.ToolTip="同步当前硬件状态（覆盖未保存的修改）"
-                                AutomationProperties.Name="同步">
+                                VerticalAlignment="Center">
                             <FontIcon Glyph="&#xE72C;" FontSize="14" />
                         </Button>
 
@@ -75,7 +87,7 @@
                             <Grid MinWidth="150">
                                 <ctl:AppComboBox ItemsSource="{x:Bind ViewModel.ProfileOptions, Mode=OneWay}"
                                                  SelectedIndex="{x:Bind ViewModel.ProfileIndex, Mode=TwoWay}" />
-                                <!-- 脏数据星号：挂在下拉框右上角，微微溢出边框 -->
+                                <!-- 脏数据星号：契约 2.1 —— IsDraftDirty 唯一用途即此角标 -->
                                 <TextBlock Text="*"
                                            FontSize="18"
                                            FontWeight="Bold"
@@ -84,9 +96,9 @@
                                            VerticalAlignment="Top"
                                            Margin="0,-8,2,0"
                                            IsHitTestVisible="False"
-                                           Visibility="{x:Bind local:UiConverters.ToVisibleWhenTrue(ViewModel.IsDraftDirty), Mode=OneWay}" />
+                                           Visibility="{x:Bind local:UiConverters.ToVisibleWhenTrue(ViewModel.IsDraftDirty)}" />
                             </Grid>
-                            <Button Content="应用"
+                            <Button x:Uid="Tuning_Apply"
                                     Height="34"
                                     Style="{StaticResource AppButtonPrimary}"
                                     Command="{x:Bind ViewModel.ApplyCommand}" />
@@ -97,19 +109,20 @@
                 <!-- ==================== CO 卡片 ==================== -->
                 <Border Style="{StaticResource AppCard}">
                     <StackPanel Spacing="16">
-                        <TextBlock Text="核心电压偏移"
+                        <TextBlock x:Uid="Tuning_CoTitle"
                                    Style="{StaticResource AppCardTitle}" />
 
+                        <!-- 空态：HasCores == false 时网格整块收起 -->
                         <Border Style="{StaticResource AppInnerPanel}"
-                                Visibility="{x:Bind ViewModel.IsCoreGridEmpty, Mode=OneWay}">
-                            <TextBlock Text="SMU 未连通，未取到核心列表"
+                                Visibility="{x:Bind local:UiConverters.ToVisibleWhenTrue(ViewModel.IsCoreGridEmpty)}">
+                            <TextBlock x:Uid="Tuning_CoEmpty"
                                        Style="{StaticResource AppDesc}"
                                        HorizontalAlignment="Center" />
                         </Border>
 
-                        <!-- 8 列等分，间距 8；纯 TextBox，禁用加减号 -->
+                        <!-- 8 列等分流式布局；格数 = Cores.Count，严禁写死 -->
                         <ItemsRepeater ItemsSource="{x:Bind ViewModel.Cores, Mode=OneWay}"
-                                       Visibility="{x:Bind ViewModel.HasCores, Mode=OneWay}">
+                                       Visibility="{x:Bind local:UiConverters.ToVisibleWhenTrue(ViewModel.HasCores)}">
                             <ItemsRepeater.Layout>
                                 <UniformGridLayout Orientation="Horizontal"
                                                    MaximumRowsOrColumns="8"
@@ -124,37 +137,262 @@
                                     <TextBox Style="{StaticResource AppTextBoxMono}"
                                              MaxLength="4"
                                              Text="{x:Bind EditText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                             TextChanged="OnCoTextChanged" />
+                                             TextChanged="OnCoTextChanged"
+                                             Tag="{x:Bind DecrementCommand}"
+                                             Header="{x:Bind IncrementCommand}">
+                                        <TextBox.Template>
+                                            <ControlTemplate TargetType="TextBox">
+                                                <Grid x:Name="RootGrid">
+                                                    <VisualStateManager.VisualStateGroups>
+                                                        <VisualStateGroup x:Name="CommonStates">
+                                                            <VisualState x:Name="Normal" />
+                                                            <VisualState x:Name="PointerOver">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="BorderElement.Background" Value="{ThemeResource TextControlBackgroundPointerOver}" />
+                                                                    <Setter Target="BorderElement.BorderBrush" Value="{ThemeResource TextControlBorderBrushPointerOver}" />
+                                                                    <Setter Target="DecButton.Opacity" Value="1" />
+                                                                    <Setter Target="DecButton.IsHitTestVisible" Value="True" />
+                                                                    <Setter Target="IncButton.Opacity" Value="1" />
+                                                                    <Setter Target="IncButton.IsHitTestVisible" Value="True" />
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                            <VisualState x:Name="Pressed">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="BorderElement.Background" Value="{ThemeResource TextControlBackgroundPointerOver}" />
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                            <VisualState x:Name="Disabled">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="RootGrid.Opacity" Value="0.4" />
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                        </VisualStateGroup>
+                                                        <VisualStateGroup x:Name="FocusStates">
+                                                            <VisualState x:Name="Unfocused" />
+                                                            <VisualState x:Name="Focused">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="BorderElement.BorderBrush" Value="{ThemeResource TextControlBorderBrushFocused}" />
+                                                                    <Setter Target="DecButton.Opacity" Value="1" />
+                                                                    <Setter Target="DecButton.IsHitTestVisible" Value="True" />
+                                                                    <Setter Target="IncButton.Opacity" Value="1" />
+                                                                    <Setter Target="IncButton.IsHitTestVisible" Value="True" />
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                            <VisualState x:Name="PointerFocused">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="BorderElement.BorderBrush" Value="{ThemeResource TextControlBorderBrushFocused}" />
+                                                                    <Setter Target="DecButton.Opacity" Value="1" />
+                                                                    <Setter Target="DecButton.IsHitTestVisible" Value="True" />
+                                                                    <Setter Target="IncButton.Opacity" Value="1" />
+                                                                    <Setter Target="IncButton.IsHitTestVisible" Value="True" />
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                        </VisualStateGroup>
+                                                    </VisualStateManager.VisualStateGroups>
+
+                                                    <Border x:Name="BorderElement"
+                                                            Background="{TemplateBinding Background}"
+                                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                                            CornerRadius="{TemplateBinding CornerRadius}" />
+
+                                                    <!-- ContentElement 是 TextBox code-behind 的必要命名部件 -->
+                                                    <ScrollViewer x:Name="ContentElement"
+                                                                  Padding="{TemplateBinding Padding}"
+                                                                  VerticalAlignment="Center"
+                                                                  IsTabStop="False"
+                                                                  HorizontalScrollMode="Disabled"
+                                                                  HorizontalScrollBarVisibility="Hidden"
+                                                                  VerticalScrollMode="Disabled"
+                                                                  VerticalScrollBarVisibility="Hidden"
+                                                                  ZoomMode="Disabled"
+                                                                  AutomationProperties.AccessibilityView="Raw" />
+
+                                                    <TextBlock x:Name="PlaceholderTextContentPresenter"
+                                                               Text="{TemplateBinding PlaceholderText}"
+                                                               Foreground="{ThemeResource TextControlPlaceholderForeground}"
+                                                               IsHitTestVisible="False"
+                                                               Visibility="Collapsed" />
+
+                                                    <!-- 命令经 Tag / Header 穿透（见页头注释）；IsTabStop=False
+                                                         保证点按不抢 TextBox 焦点 -->
+                                                    <Button x:Name="DecButton"
+                                                            Style="{StaticResource AppStepperButton}"
+                                                            Width="18" Height="30"
+                                                            Margin="2,0,0,0"
+                                                            HorizontalAlignment="Left"
+                                                            VerticalAlignment="Center"
+                                                            Background="{ThemeResource TextControlBackground}"
+                                                            FontSize="13"
+                                                            Content="&#x2013;"
+                                                            IsTabStop="False"
+                                                            Opacity="0"
+                                                            IsHitTestVisible="False"
+                                                            Command="{TemplateBinding Tag}" />
+                                                    <Button x:Name="IncButton"
+                                                            Style="{StaticResource AppStepperButton}"
+                                                            Width="18" Height="30"
+                                                            Margin="0,0,2,0"
+                                                            HorizontalAlignment="Right"
+                                                            VerticalAlignment="Center"
+                                                            Background="{ThemeResource TextControlBackground}"
+                                                            FontSize="13"
+                                                            Content="+"
+                                                            IsTabStop="False"
+                                                            Opacity="0"
+                                                            IsHitTestVisible="False"
+                                                            Command="{TemplateBinding Header}" />
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </TextBox.Template>
+                                    </TextBox>
                                 </DataTemplate>
                             </ItemsRepeater.ItemTemplate>
                         </ItemsRepeater>
                     </StackPanel>
                 </Border>
 
-                <!-- ==================== FMax 卡片 ==================== -->
+                <!-- ==================== FMax 卡片 ====================
+                     契约 v1.2：IsEnabled 硬闸门绑 IsFMaxSupported -->
                 <Border Style="{StaticResource AppCard}">
                     <Grid ColumnSpacing="16">
-                        <TextBlock Text="最高加速频率"
+                        <TextBlock x:Uid="Tuning_FMaxTitle"
                                    Style="{StaticResource AppCardTitle}"
                                    VerticalAlignment="Center" />
-                        <StackPanel Orientation="Horizontal"
-                                    Spacing="10"
-                                    HorizontalAlignment="Right"
-                                    VerticalAlignment="Center">
-                            <TextBox Style="{StaticResource AppTextBoxMono}"
-                                     Width="80"
-                                     MaxLength="4"
-                                     Text="{x:Bind ViewModel.FMaxText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     TextChanged="OnFMaxTextChanged" />
-                            <TextBlock Text="MHz" Style="{StaticResource AppDesc}" VerticalAlignment="Center" />
-                        </StackPanel>
+                        <!-- IsEnabled 只能设在 Control 上：ContentControl 仅作闸门容器 -->
+                        <ContentControl Grid.Column="1"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Center"
+                                        IsTabStop="False"
+                                        IsEnabled="{x:Bind ViewModel.IsFMaxSupported, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                <TextBox Style="{StaticResource AppTextBoxMono}"
+                                         Width="80"
+                                         MaxLength="4"
+                                         Text="{x:Bind ViewModel.FMaxText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         TextChanged="OnFMaxTextChanged"
+                                         Tag="{x:Bind ViewModel.DecrementCommand}"
+                                         Header="{x:Bind ViewModel.IncrementCommand}">
+                                    <TextBox.Template>
+                                        <ControlTemplate TargetType="TextBox">
+                                            <Grid x:Name="RootGrid">
+                                                <VisualStateManager.VisualStateGroups>
+                                                    <VisualStateGroup x:Name="CommonStates">
+                                                        <VisualState x:Name="Normal" />
+                                                        <VisualState x:Name="PointerOver">
+                                                            <VisualState.Setters>
+                                                                <Setter Target="BorderElement.Background" Value="{ThemeResource TextControlBackgroundPointerOver}" />
+                                                                <Setter Target="BorderElement.BorderBrush" Value="{ThemeResource TextControlBorderBrushPointerOver}" />
+                                                                <Setter Target="DecButton.Opacity" Value="1" />
+                                                                <Setter Target="DecButton.IsHitTestVisible" Value="True" />
+                                                                <Setter Target="IncButton.Opacity" Value="1" />
+                                                                <Setter Target="IncButton.IsHitTestVisible" Value="True" />
+                                                            </VisualState.Setters>
+                                                        </VisualState>
+                                                        <VisualState x:Name="Pressed">
+                                                            <VisualState.Setters>
+                                                                <Setter Target="BorderElement.Background" Value="{ThemeResource TextControlBackgroundPointerOver}" />
+                                                            </VisualState.Setters>
+                                                        </VisualState>
+                                                        <VisualState x:Name="Disabled">
+                                                            <VisualState.Setters>
+                                                                <Setter Target="RootGrid.Opacity" Value="0.4" />
+                                                            </VisualState.Setters>
+                                                        </VisualState>
+                                                    </VisualStateGroup>
+                                                    <VisualStateGroup x:Name="FocusStates">
+                                                        <VisualState x:Name="Unfocused" />
+                                                        <VisualState x:Name="Focused">
+                                                            <VisualState.Setters>
+                                                                <Setter Target="BorderElement.BorderBrush" Value="{ThemeResource TextControlBorderBrushFocused}" />
+                                                                <Setter Target="DecButton.Opacity" Value="1" />
+                                                                <Setter Target="DecButton.IsHitTestVisible" Value="True" />
+                                                                <Setter Target="IncButton.Opacity" Value="1" />
+                                                                <Setter Target="IncButton.IsHitTestVisible" Value="True" />
+                                                            </VisualState.Setters>
+                                                        </VisualState>
+                                                        <VisualState x:Name="PointerFocused">
+                                                            <VisualState.Setters>
+                                                                <Setter Target="BorderElement.BorderBrush" Value="{ThemeResource TextControlBorderBrushFocused}" />
+                                                                <Setter Target="DecButton.Opacity" Value="1" />
+                                                                <Setter Target="DecButton.IsHitTestVisible" Value="True" />
+                                                                <Setter Target="IncButton.Opacity" Value="1" />
+                                                                <Setter Target="IncButton.IsHitTestVisible" Value="True" />
+                                                            </VisualState.Setters>
+                                                        </VisualState>
+                                                    </VisualStateGroup>
+                                                </VisualStateManager.VisualStateGroups>
+
+                                                <Border x:Name="BorderElement"
+                                                        Background="{TemplateBinding Background}"
+                                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                                        CornerRadius="{TemplateBinding CornerRadius}" />
+
+                                                <ScrollViewer x:Name="ContentElement"
+                                                              Padding="{TemplateBinding Padding}"
+                                                              VerticalAlignment="Center"
+                                                              IsTabStop="False"
+                                                              HorizontalScrollMode="Disabled"
+                                                              HorizontalScrollBarVisibility="Hidden"
+                                                              VerticalScrollMode="Disabled"
+                                                              VerticalScrollBarVisibility="Hidden"
+                                                              ZoomMode="Disabled"
+                                                              AutomationProperties.AccessibilityView="Raw" />
+
+                                                <TextBlock x:Name="PlaceholderTextContentPresenter"
+                                                           Text="{TemplateBinding PlaceholderText}"
+                                                           Foreground="{ThemeResource TextControlPlaceholderForeground}"
+                                                           IsHitTestVisible="False"
+                                                           Visibility="Collapsed" />
+
+                                                <!-- 页面级步进命令（契约 v1.2 待后端补全）：
+                                                     参数 "FMax" 区分入口，±步进钳制 400~5400，
+                                                     内部须调 MarkDirty() 走脏数据链 -->
+                                                <Button x:Name="DecButton"
+                                                        Style="{StaticResource AppStepperButton}"
+                                                        Width="18" Height="30"
+                                                        Margin="2,0,0,0"
+                                                        HorizontalAlignment="Left"
+                                                        VerticalAlignment="Center"
+                                                        Background="{ThemeResource TextControlBackground}"
+                                                        FontSize="13"
+                                                        Content="&#x2013;"
+                                                        IsTabStop="False"
+                                                        Opacity="0"
+                                                        IsHitTestVisible="False"
+                                                        Command="{TemplateBinding Tag}"
+                                                        CommandParameter="FMax" />
+                                                <Button x:Name="IncButton"
+                                                        Style="{StaticResource AppStepperButton}"
+                                                        Width="18" Height="30"
+                                                        Margin="0,0,2,0"
+                                                        HorizontalAlignment="Right"
+                                                        VerticalAlignment="Center"
+                                                        Background="{ThemeResource TextControlBackground}"
+                                                        FontSize="13"
+                                                        Content="+"
+                                                        IsTabStop="False"
+                                                        Opacity="0"
+                                                        IsHitTestVisible="False"
+                                                        Command="{TemplateBinding Header}"
+                                                        CommandParameter="FMax" />
+                                            </Grid>
+                                        </ControlTemplate>
+                                    </TextBox.Template>
+                                </TextBox>
+                                <TextBlock x:Uid="Tuning_MhzUnit"
+                                           Style="{StaticResource AppDesc}"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                        </ContentControl>
                     </Grid>
                 </Border>
 
                 <!-- ==================== 电源策略卡片 ==================== -->
                 <Border Style="{StaticResource AppCard}">
                     <StackPanel Spacing="16">
-                        <TextBlock Text="电源策略控制" Style="{StaticResource AppCardTitle}" />
+                        <TextBlock x:Uid="Tuning_PowerTitle" Style="{StaticResource AppCardTitle}" />
 
                         <Grid ColumnSpacing="16" RowSpacing="18">
                             <Grid.ColumnDefinitions>
@@ -168,7 +406,8 @@
                             </Grid.RowDefinitions>
 
                             <TextBlock Grid.Row="0" Grid.Column="0"
-                                       Text="电源计划" Style="{StaticResource AppLabel}" />
+                                       x:Uid="Tuning_PlanLabel"
+                                       Style="{StaticResource AppLabel}" />
                             <ctl:AppComboBox Grid.Row="0" Grid.Column="1"
                                              MinWidth="140"
                                              HorizontalAlignment="Right"
@@ -177,7 +416,8 @@
                                              SelectionChanged="OnPowerSelectionChanged" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0"
-                                       Text="升频模式" Style="{StaticResource AppLabel}" />
+                                       x:Uid="Tuning_BoostLabel"
+                                       Style="{StaticResource AppLabel}" />
                             <ctl:AppComboBox Grid.Row="1" Grid.Column="1"
                                              MinWidth="140"
                                              HorizontalAlignment="Right"
@@ -187,27 +427,142 @@
                                              SelectionChanged="OnPowerSelectionChanged" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0"
-                                       Text="核心停放" Style="{StaticResource AppLabel}" />
-                            <StackPanel Grid.Row="2" Grid.Column="1"
-                                        Orientation="Horizontal"
-                                        Spacing="12"
-                                        HorizontalAlignment="Right"
-                                        VerticalAlignment="Center">
-                                <Slider Width="140"
-                                        Minimum="0"
-                                        Maximum="100"
-                                        StepFrequency="5"
-                                        Value="{x:Bind ViewModel.ParkingValue, Mode=TwoWay}"
-                                        IsEnabled="{x:Bind ViewModel.PowerAvailable, Mode=OneWay}"
-                                        ValueChanged="OnParkingValueChanged"
-                                        VerticalAlignment="Center" />
-                                <TextBox Style="{StaticResource AppTextBoxMono}"
-                                         Width="64"
-                                         MaxLength="3"
-                                         Text="{x:Bind ViewModel.ParkingText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                         TextChanged="OnParkingTextChanged" />
-                                <TextBlock Text="%" Style="{StaticResource AppDesc}" VerticalAlignment="Center" />
-                            </StackPanel>
+                                       x:Uid="Tuning_ParkingLabel"
+                                       Style="{StaticResource AppLabel}" />
+                            <!-- 契约 v1.2：核心停放整组 IsEnabled 硬闸门绑 IsCoreParkingSupported
+                                 （PowerAvailable=false 时后端保证该闸门同为 false）。
+                                 IsEnabled 只能设在 Control 上：ContentControl 仅作闸门容器 -->
+                            <ContentControl Grid.Row="2" Grid.Column="1"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center"
+                                            IsTabStop="False"
+                                            IsEnabled="{x:Bind ViewModel.IsCoreParkingSupported, Mode=OneWay}">
+                                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                    <Slider Width="140"
+                                            Minimum="0"
+                                            Maximum="100"
+                                            StepFrequency="5"
+                                            Value="{x:Bind ViewModel.ParkingValue, Mode=TwoWay}"
+                                            ValueChanged="OnParkingValueChanged"
+                                            VerticalAlignment="Center" />
+                                    <TextBox Style="{StaticResource AppTextBoxMono}"
+                                             Width="64"
+                                             MaxLength="3"
+                                             Text="{x:Bind ViewModel.ParkingText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             TextChanged="OnParkingTextChanged"
+                                             Tag="{x:Bind ViewModel.DecrementCommand}"
+                                             Header="{x:Bind ViewModel.IncrementCommand}">
+                                        <TextBox.Template>
+                                            <ControlTemplate TargetType="TextBox">
+                                                <Grid x:Name="RootGrid">
+                                                    <VisualStateManager.VisualStateGroups>
+                                                        <VisualStateGroup x:Name="CommonStates">
+                                                            <VisualState x:Name="Normal" />
+                                                            <VisualState x:Name="PointerOver">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="BorderElement.Background" Value="{ThemeResource TextControlBackgroundPointerOver}" />
+                                                                    <Setter Target="BorderElement.BorderBrush" Value="{ThemeResource TextControlBorderBrushPointerOver}" />
+                                                                    <Setter Target="DecButton.Opacity" Value="1" />
+                                                                    <Setter Target="DecButton.IsHitTestVisible" Value="True" />
+                                                                    <Setter Target="IncButton.Opacity" Value="1" />
+                                                                    <Setter Target="IncButton.IsHitTestVisible" Value="True" />
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                            <VisualState x:Name="Pressed">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="BorderElement.Background" Value="{ThemeResource TextControlBackgroundPointerOver}" />
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                            <VisualState x:Name="Disabled">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="RootGrid.Opacity" Value="0.4" />
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                        </VisualStateGroup>
+                                                        <VisualStateGroup x:Name="FocusStates">
+                                                            <VisualState x:Name="Unfocused" />
+                                                            <VisualState x:Name="Focused">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="BorderElement.BorderBrush" Value="{ThemeResource TextControlBorderBrushFocused}" />
+                                                                    <Setter Target="DecButton.Opacity" Value="1" />
+                                                                    <Setter Target="DecButton.IsHitTestVisible" Value="True" />
+                                                                    <Setter Target="IncButton.Opacity" Value="1" />
+                                                                    <Setter Target="IncButton.IsHitTestVisible" Value="True" />
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                            <VisualState x:Name="PointerFocused">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="BorderElement.BorderBrush" Value="{ThemeResource TextControlBorderBrushFocused}" />
+                                                                    <Setter Target="DecButton.Opacity" Value="1" />
+                                                                    <Setter Target="DecButton.IsHitTestVisible" Value="True" />
+                                                                    <Setter Target="IncButton.Opacity" Value="1" />
+                                                                    <Setter Target="IncButton.IsHitTestVisible" Value="True" />
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                        </VisualStateGroup>
+                                                    </VisualStateManager.VisualStateGroups>
+
+                                                    <Border x:Name="BorderElement"
+                                                            Background="{TemplateBinding Background}"
+                                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                                            CornerRadius="{TemplateBinding CornerRadius}" />
+
+                                                    <ScrollViewer x:Name="ContentElement"
+                                                                  Padding="{TemplateBinding Padding}"
+                                                                  VerticalAlignment="Center"
+                                                                  IsTabStop="False"
+                                                                  HorizontalScrollMode="Disabled"
+                                                                  HorizontalScrollBarVisibility="Hidden"
+                                                                  VerticalScrollMode="Disabled"
+                                                                  VerticalScrollBarVisibility="Hidden"
+                                                                  ZoomMode="Disabled"
+                                                                  AutomationProperties.AccessibilityView="Raw" />
+
+                                                    <TextBlock x:Name="PlaceholderTextContentPresenter"
+                                                               Text="{TemplateBinding PlaceholderText}"
+                                                               Foreground="{ThemeResource TextControlPlaceholderForeground}"
+                                                               IsHitTestVisible="False"
+                                                               Visibility="Collapsed" />
+
+                                                    <!-- 参数 "Parking"，步进 5、钳制 0~100 -->
+                                                    <Button x:Name="DecButton"
+                                                            Style="{StaticResource AppStepperButton}"
+                                                            Width="18" Height="30"
+                                                            Margin="2,0,0,0"
+                                                            HorizontalAlignment="Left"
+                                                            VerticalAlignment="Center"
+                                                            Background="{ThemeResource TextControlBackground}"
+                                                            FontSize="13"
+                                                            Content="&#x2013;"
+                                                            IsTabStop="False"
+                                                            Opacity="0"
+                                                            IsHitTestVisible="False"
+                                                            Command="{TemplateBinding Tag}"
+                                                            CommandParameter="Parking" />
+                                                    <Button x:Name="IncButton"
+                                                            Style="{StaticResource AppStepperButton}"
+                                                            Width="18" Height="30"
+                                                            Margin="0,0,2,0"
+                                                            HorizontalAlignment="Right"
+                                                            VerticalAlignment="Center"
+                                                            Background="{ThemeResource TextControlBackground}"
+                                                            FontSize="13"
+                                                            Content="+"
+                                                            IsTabStop="False"
+                                                            Opacity="0"
+                                                            IsHitTestVisible="False"
+                                                            Command="{TemplateBinding Header}"
+                                                            CommandParameter="Parking" />
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </TextBox.Template>
+                                    </TextBox>
+                                    <TextBlock x:Uid="Tuning_PercentUnit"
+                                               Style="{StaticResource AppDesc}"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
+                            </ContentControl>
                         </Grid>
                     </StackPanel>
                 </Border>
@@ -216,7 +571,7 @@
         </ScrollViewer>
 
         <!-- ==================== 脏数据浮动保存条 ====================
-             初始收起；草稿变更时从下方 20px 淡入（ShowDirtyBar）。 -->
+             初始收起；显隐由 View 层 ShowDirtyBar / HideDirtyBar 驱动（x:Name 被 code-behind 引用）。 -->
         <Border x:Name="DirtyBar"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Bottom"
@@ -231,27 +586,27 @@
                 <CompositeTransform x:Name="DirtyBarTransform" TranslateY="20" />
             </Border.RenderTransform>
             <StackPanel Orientation="Horizontal" Spacing="10">
-                <TextBlock Text="参数已修改"
+                <TextBlock x:Uid="Tuning_DirtyText"
                            FontSize="13"
                            Foreground="{ThemeResource AppTextPrimaryBrush}"
                            VerticalAlignment="Center"
                            Margin="0,0,4,0" />
-                <Button Content="放弃"
+                <Button x:Uid="Tuning_Discard"
                         Style="{StaticResource AppButton}"
                         Click="OnDiscardClick" />
-                <Button Content="保存覆盖"
+                <Button x:Uid="Tuning_SaveOverwrite"
                         Style="{StaticResource AppButtonPrimary}"
                         Click="OnSaveClick" />
-                <Button Content="另存为"
+                <Button x:Uid="Tuning_SaveAs"
                         Style="{StaticResource AppButton}"
                         Click="OnSaveAsClick" />
             </StackPanel>
         </Border>
 
         <!-- ==================== 写入期遮罩 ====================
-             覆盖整页并吃掉指针事件：SMU 写入期间任何输入都会被下一次写入带上。 -->
+             吞指针事件：SMU 写入期间任何输入都会被下一次写入带上 -->
         <Grid Background="{ThemeResource AppScrimBrush}"
-              Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay}">
+              Visibility="{x:Bind local:UiConverters.ToVisibleWhenTrue(ViewModel.IsBusy)}">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
                 <ProgressRing IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}"
                               Width="32" Height="32"
@@ -260,7 +615,7 @@
                            FontSize="14" FontWeight="Medium"
                            Foreground="{ThemeResource AppTextPrimaryBrush}"
                            HorizontalAlignment="Center" />
-                <TextBlock Text="若失败将自动回滚至原状态"
+                <TextBlock x:Uid="Tuning_RollbackHint"
                            Style="{StaticResource AppDesc}"
                            HorizontalAlignment="Center" />
             </StackPanel>
