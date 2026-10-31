@@ -353,39 +353,118 @@ public sealed partial class TuningViewModel : ObservableObject
 
     private bool CanRun() => !IsBusy;
 
-    /// <summary>刷新：从 SMU 重读全部状态并回填界面（含已下发值与拓扑）。</summary>
+    /// <summary>
+    /// 刷新：把整页读回「硬件 / 系统的当前状态」。
+    ///
+    /// 【为什么 SMU 与电源策略一次刷完】
+    /// 用户点这个按钮的语义是「让我看看这台机器现在真实的硬件状态到底是什么」。
+    /// 只刷一半（核心刷了、电源策略还是旧的）比不刷更糟：界面一半真一半假，
+    /// 用户无从判断哪一半可信。电源策略走 Windows 电源接口，不依赖 SMU 驱动，
+    /// 所以 SMU 不可用时它照样要读。
+    ///
+    /// 【草稿处置】
+    /// 读到的真值直接覆盖界面草稿（逐核 CO、FMax、停放滑杆）—— 这是「同步」的应有之义：
+    /// 草稿是还没下发的提案，不是已保存的数据，覆盖它不构成数据丢失。
+    /// 读取失败的子系统不动草稿：读不到就保留用户填的值，那才是诚实的做法。
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanRun))]
     private async Task RefreshAsync()
     {
-        if (_coreCount == 0 && !_smu.IsAvailable)
-        {
-            // 驱动没就绪时不要一味读：ReadSnapshot 内部有 2 秒冷却，连点会白等。
-            SetStatus(UiSeverity.Warning, "SMU 不可用",
-                _smu.LastError ?? "PawnIO 驱动未加载或权限不足，请以管理员身份运行并确认驱动已安装。");
+        // 同步是重入不安全的：两次读取交错会互相覆盖回填结果。
+        // 命令的 CanExecute 已经挡了按钮点击，这条是给程序化调用兜底。
+        if (IsBusy)
             return;
-        }
 
-        SetBusy(true, "正在读取 SMU 状态…");
+        bool hadDraft = IsDraftDirty;
+
+        // 本次同步作废挂起中的防抖提交：同步之后界面显示的是真值，
+        // 让上一次滑杆提交继续跑等于把旧提案又写回硬件。
+        _powerApplyGeneration++;
+
+        SetBusy(true, "正在读取硬件状态…");
         try
         {
-            SmuSnapshot snapshot = await Task.Run(() => _smu.ReadSnapshot());
-            ApplySnapshot(snapshot);
+            (bool smuOk, string smuError) = await RefreshSmuAsync();
+            (bool powerOk, string powerError) = await RefreshPowerAsync();
 
-            SetStatus(snapshot.Success ? UiSeverity.Success : UiSeverity.Warning,
-                snapshot.Success ? "已同步" : "同步不完整",
-                snapshot.Success
-                    ? $"已读取 {snapshot.CoreMargins.Length} 核 CO 与 FMax {snapshot.FMaxMHz} MHz。"
-                    : (snapshot.Error ?? "SMU 探测失败。"));
-        }
-        catch (Exception ex)
-        {
-            _log.Error($"调校页刷新失败：{ex.Message}");
-            SetStatus(UiSeverity.Error, "刷新失败", ex.Message);
+            // 两个子系统都读到了真值，界面才真的等于硬件 —— 这时才清脏。
+            // 任一失败，那一半的草稿还留在界面上，脏标记必须留着。
+            if (smuOk && powerOk)
+                IsDraftDirty = false;
+
+            SetRefreshStatus(smuOk, smuError, powerOk, powerError, hadDraft);
         }
         finally
         {
             SetBusy(false);
         }
+    }
+
+    /// <summary>读 SMU 快照并回填。驱动没就绪时直接失败返回，不硬读（ReadSnapshot 内部有 2 秒冷却）。</summary>
+    private async Task<(bool Ok, string Error)> RefreshSmuAsync()
+    {
+        if (_coreCount == 0 && !_smu.IsAvailable)
+        {
+            return (false, _smu.LastError
+                ?? "PawnIO 驱动未加载或权限不足，请以管理员身份运行并确认驱动已安装。");
+        }
+
+        try
+        {
+            SmuSnapshot snapshot = await Task.Run(() => _smu.ReadSnapshot());
+            ApplySnapshot(snapshot);
+
+            return snapshot.Success
+                ? (true, string.Empty)
+                : (false, snapshot.Error ?? "SMU 探测失败。");
+        }
+        catch (Exception ex)
+        {
+            _log.Error($"调校页刷新失败：{ex.Message}");
+            return (false, ex.Message);
+        }
+    }
+
+    /// <summary>读电源策略并回填。电源接口与 SMU 无关：SMU 挂了它照样读得到。</summary>
+    private async Task<(bool Ok, string Error)> RefreshPowerAsync()
+    {
+        try
+        {
+            return await ReadPowerAsync();
+        }
+        catch (Exception ex)
+        {
+            _log.Error($"电源策略读取失败：{ex.Message}");
+            return (false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 汇总刷新结果。两个子系统各说各的成败 —— 合成一个「成功 / 失败」会把
+    /// 「一半真一半假」藏起来，那正是同步按钮最不该有的结果。
+    /// </summary>
+    private void SetRefreshStatus(bool smuOk, string smuError, bool powerOk, string powerError, bool hadDraft)
+    {
+        if (smuOk && powerOk)
+        {
+            SetStatus(UiSeverity.Success, "已同步",
+                hadDraft
+                    ? "已读取硬件与电源策略，未保存的修改已被当前值覆盖。"
+                    : "已读取硬件与电源策略。");
+            return;
+        }
+
+        if (!smuOk && !powerOk)
+        {
+            SetStatus(UiSeverity.Error, "同步失败",
+                $"硬件状态读取失败：{smuError} 电源策略读取失败：{powerError}");
+            return;
+        }
+
+        SetStatus(UiSeverity.Warning, "同步不完整",
+            smuOk
+                ? $"硬件状态已同步。电源策略读取失败：{powerError}"
+                : $"电源策略已同步。硬件状态读取失败：{smuError}");
     }
 
     /// <summary>加载：把 tuning.json 里的已保存设定填进界面（不写硬件）。</summary>
@@ -716,7 +795,8 @@ public sealed partial class TuningViewModel : ObservableObject
     public void SchedulePowerApply()
     {
         // 回填期间与本机提交期间都不接受自动提交：前者不是用户操作，后者会自激。
-        if (!_powerReady || _powerApplying)
+        // IsBusy 覆盖同步 / 应用过程中的回填 —— 那时的值变化是读回来的，不是用户填的。
+        if (!_powerReady || _powerApplying || IsBusy)
             return;
 
         // 代次递增：先前挂起的提交立即作废，只有最后一次（用户停手）能真正执行。
@@ -747,8 +827,8 @@ public sealed partial class TuningViewModel : ObservableObject
         try
         {
             ReloadProfiles();
+            // 刷新本身就是「硬件 + 电源策略」全量读回，初始化与用户手动点刷新走同一条路径。
             await RefreshAsync();
-            await ReadPowerAsync();
         }
         catch (Exception ex)
         {
@@ -837,7 +917,12 @@ public sealed partial class TuningViewModel : ObservableObject
         }
     }
 
-    private async Task ReadPowerAsync()
+    /// <summary>
+    /// 读电源策略（计划 / 升频模式 / 核心停放）并回填。
+    /// 返回值：Ok = 至少读到了一项（与 <see cref="PowerAvailable"/> 同义），
+    /// Error = 全部读不到时的原因。
+    /// </summary>
+    private async Task<(bool Ok, string Error)> ReadPowerAsync()
     {
         (bool planOk, PowerPlanProfile? plan, string planError) = await Task.Run(() =>
         {
@@ -864,7 +949,7 @@ public sealed partial class TuningViewModel : ObservableObject
             IsCoreParkingSupported = false;
             BoostHint = boostError;
             ParkingHint = parkError;
-            return;
+            return (false, parkError);
         }
 
         PowerAvailable = true;
@@ -897,6 +982,8 @@ public sealed partial class TuningViewModel : ObservableObject
         {
             ParkingHint = parkError;
         }
+
+        return (true, string.Empty);
     }
 
     private void ApplySnapshot(SmuSnapshot snapshot)

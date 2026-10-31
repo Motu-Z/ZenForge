@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -34,12 +35,17 @@ public sealed partial class TuningPage : Page
         ViewModel = viewModel;
         InitializeComponent();
         Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
     }
 
     public TuningViewModel ViewModel { get; }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // 后端清脏（应用 / 保存 / 放弃 / 同步）时保存条必须跟着收：
+        // 方案名旁边的 * 角标消失了、底部保存条还杵在屏幕上，两处状态自相矛盾。
+        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+
         // 只初始化一次：切页回来不该重新读一遍 SMU（每次读都会打断刚下发的值）。
         if (_initialized)
             return;
@@ -62,6 +68,19 @@ public sealed partial class TuningPage : Page
     }
 
     // ==================== 用户改动检测 ====================
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        // 页面实例被缓存复用，重新 Loaded 时会再订阅；离开页面必须解绑，
+        // 否则 ViewModel（单例）会一直持有这一页。
+        ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(TuningViewModel.IsDraftDirty) && !ViewModel.IsDraftDirty)
+            HideDirtyBar();
+    }
 
     /// <summary>任何用户输入路径（TextBox / 下拉 / 滑块）最终都汇到这里。</summary>
     private void MarkDirty()
