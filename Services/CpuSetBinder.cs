@@ -13,6 +13,14 @@ namespace ZenForge.Services
         /// <summary>失败原因（Success=true 时为 null）。</summary>
         public string? Error { get; init; }
 
+        /// <summary>
+        /// 失败对应的 Win32 错误码（0 = 不是 API 层失败，例如掩码为 0、拓扑读不到）。
+        ///
+        /// 单独留一个字段而不是让调用方去解析 Error 字符串：日志节流要按
+        /// 「进程名 + 错误码」分桶，从中文文案里正则抠数字是典型的自找麻烦。
+        /// </summary>
+        public int ErrorCode { get; init; }
+
         /// <summary>实际绑定的 CPU Set 个数。</summary>
         public int AppliedCount { get; init; }
 
@@ -215,11 +223,12 @@ namespace ZenForge.Services
 
         // ---------------- 对外接口 ----------------
 
-        private static CpuSetBindResult Fail(string error, int ccdIndex) => new()
+        private static CpuSetBindResult Fail(string error, int ccdIndex, int errorCode = 0) => new()
         {
             Success = false,
             CcdIndex = ccdIndex,
-            Error = error
+            Error = error,
+            ErrorCode = errorCode
         };
 
         /// <summary>本机可用逻辑核数对应的掩码范围，超出的位一律忽略。</summary>
@@ -297,21 +306,20 @@ namespace ZenForge.Services
         /// </summary>
         private static CpuSetBindResult ApplyCpuSets(int processId, uint[] ids, int ccdIndex)
         {
-            // 优先用 SET_LIMITED_INFORMATION（Win10 1709+ 官方要求），
-            // 老系统不认这个位时回退到 SET_INFORMATION。
-            IntPtr handle = OpenProcess(
-                PROCESS_SET_LIMITED_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+            // 【最小必要权限】SetProcessDefaultCpuSets 只要求 PROCESS_SET_LIMITED_INFORMATION
+            // （Win10 1709+ 的「有限」写权限），这里就只要这一位。
+            // 以前顺手带上的 PROCESS_QUERY_LIMITED_INFORMATION 用不上 —— 申请的权限越多，
+            // 越容易在受保护进程上被直接拒绝，而拒绝的原因看起来和权限不足一模一样。
+            IntPtr handle = OpenProcess(PROCESS_SET_LIMITED_INFORMATION, false, processId);
 
+            // 1709 之前的内核没有 SET_LIMITED 这个位，回退到老的 SET_INFORMATION。
             if (handle == IntPtr.Zero)
-            {
-                handle = OpenProcess(
-                    PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
-            }
+                handle = OpenProcess(PROCESS_SET_INFORMATION, false, processId);
 
             if (handle == IntPtr.Zero)
             {
                 int err = Marshal.GetLastWin32Error();
-                return Fail($"OpenProcess 失败（错误 {err}，通常是权限不足或进程已退出）", ccdIndex);
+                return Fail($"OpenProcess 失败（错误 {err}，通常是权限不足或进程已退出）", ccdIndex, err);
             }
 
             try
@@ -319,7 +327,7 @@ namespace ZenForge.Services
                 if (!SetProcessDefaultCpuSets(handle, ids, (uint)ids.Length))
                 {
                     int err = Marshal.GetLastWin32Error();
-                    return Fail($"SetProcessDefaultCpuSets 失败（错误 {err}）", ccdIndex);
+                    return Fail($"SetProcessDefaultCpuSets 失败（错误 {err}）", ccdIndex, err);
                 }
 
                 return Ok(ids, ccdIndex);
@@ -349,14 +357,11 @@ namespace ZenForge.Services
         {
             error = null;
 
-            IntPtr handle = OpenProcess(
-                PROCESS_SET_LIMITED_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+            // 与 ApplyCpuSets 同一口径：只要写权限这一位。
+            IntPtr handle = OpenProcess(PROCESS_SET_LIMITED_INFORMATION, false, processId);
 
             if (handle == IntPtr.Zero)
-            {
-                handle = OpenProcess(
-                    PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
-            }
+                handle = OpenProcess(PROCESS_SET_INFORMATION, false, processId);
 
             if (handle == IntPtr.Zero)
             {

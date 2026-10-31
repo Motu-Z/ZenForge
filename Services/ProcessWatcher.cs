@@ -578,14 +578,23 @@ namespace ZenForge.Services
                     break;
             }
 
+            // 节流键：进程名 + 错误码。同一类失败（例如受保护进程的错误 5）
+            // 60 秒内只留一条，后面的计数，下次放行时补报「另有 N 条」。
+            // PID 不进键 —— 每次启动都是新 PID，带上就等于没节流。
+            string throttleKey = $"bind|{name}|{result.ErrorCode}";
+
             if (result.Success)
             {
+                // 成功过就说明这个进程现在可达，把窗口清掉：
+                // 之后若再失败应当立刻看到，而不是等 60 秒过期。
+                LogThrottle.Reset(throttleKey);
                 LogService.Info(
                     $"已绑定 {name}（PID {pid}）→ {label}，{result.AppliedCount} 个 CPU Set");
             }
-            else
+            else if (LogThrottle.TryAcquire(throttleKey, out int suppressed))
             {
-                LogService.Warn($"绑定失败 {name}（PID {pid}）→ {label}：{result.Error}");
+                LogService.Warn(
+                    $"绑定失败 {name}（PID {pid}）→ {label}：{result.Error}{LogThrottle.SuppressedSuffix(suppressed)}");
             }
 
             // 优先级跟着规则一起下发。
@@ -598,7 +607,7 @@ namespace ZenForge.Services
             // 放在绑核之后而不是之前：绑核失败时进程已经"没被管住"了，
             // 再改优先级等于在未知状态下继续动手；先确认绑上了再说。
             if (result.Success && !string.IsNullOrEmpty(rule.Priority))
-                ApplyPriority(pid, rule.Priority);
+                ApplyPriority(pid, name, rule.Priority);
         }
 
         /// <summary>
@@ -608,7 +617,7 @@ namespace ZenForge.Services
         /// 访问权与错误处理，否则会出现「页面里改不了、后台能改」这种自相矛盾的行为。
         /// 这里只做日志，不弹 Toast —— 监听器是后台路径，开机时一次要处理几十个进程。
         /// </summary>
-        private static void ApplyPriority(int pid, string label)
+        private static void ApplyPriority(int pid, string name, string label)
         {
             PriorityApplyResult result = ProcessPriority.Apply(pid, label);
 
@@ -626,7 +635,13 @@ namespace ZenForge.Services
                 return;
             }
 
-            LogService.Warn($"设置优先级失败 PID {pid} → {label}：{result.Error}");
+            string throttleKey = $"priority|{name}|{result.ErrorCode}";
+
+            if (LogThrottle.TryAcquire(throttleKey, out int suppressed))
+            {
+                LogService.Warn(
+                    $"设置优先级失败 {name}（PID {pid}）→ {label}：{result.Error}{LogThrottle.SuppressedSuffix(suppressed)}");
+            }
         }
 
         /// <summary>
