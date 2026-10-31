@@ -100,6 +100,32 @@ namespace ZenForge.Services
                 Timers.Remove(timer);
         }
 
+        /// <summary>
+        /// 收掉全部受管定时器。窗口销毁时调用。
+        ///
+        /// 页面在 OnDeactivated 里会 Dispose 自己的定时器，这条只是兜底：
+        /// 漏掉一个就意味着静态表里留着一个 DispatcherTimer + 一个指向页面的
+        /// 回调委托，窗口关了页面也回收不了。窗口都要销毁了，全部收掉最干净；
+        /// 下次新建窗口时页面会重新 Create。
+        /// </summary>
+        public static void ClearAll()
+        {
+            ManagedTimer[] snapshot;
+            lock (Gate)
+            {
+                snapshot = Timers.ToArray();
+                Timers.Clear();
+            }
+
+            foreach (ManagedTimer timer in snapshot)
+            {
+                try { timer.Dispose(); }
+                catch { /* 单个失败不影响其余 */ }
+            }
+
+            _activePage = null;
+        }
+
         /// <summary>把所有定时器按当前条件同步一次（调试与自检用）。</summary>
         public static void SyncAll()
         {

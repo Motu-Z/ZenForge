@@ -31,6 +31,15 @@ namespace ZenForge.Services
         /// <summary>当前 Toast 宿主。由 MainWindow 里的 ToastHost 在 Loaded 时注入。</summary>
         internal static ToastHost? Host { get; set; }
 
+        /// <summary>
+        /// 断开宿主引用。主窗口销毁时调用。
+        ///
+        /// 这不是「优雅」问题，而是**泄漏**问题：Host 是静态字段，而 ToastHost
+        /// 在主窗口的可视树里，视觉父级链一路指回 Window。静态引用不清掉，
+        /// 刚销毁的窗口和它那几十 MB 的可视树会被一个静态字段钉在内存里。
+        /// </summary>
+        public static void Detach() => Host = null;
+
         public static void Success(string message) => Show(message, ToastKind.Success);
 
         public static void Info(string message) => Show(message, ToastKind.Info);

@@ -128,8 +128,10 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
+                                <!-- v1.2.0：点 × 一律销毁界面，这个开关只剩「最小化」这一条路径。
+                                     名字跟着改，否则用户会以为关了它就能让界面常驻。 -->
                                 <TextBlock Grid.Column="0"
-                                           Text="后台轻量模式"
+                                           Text="最小化后释放界面"
                                            Style="{StaticResource CardRowLabelStyle}"
                                            Foreground="{DynamicResource Text.Secondary}"
                                            VerticalAlignment="Center"/>

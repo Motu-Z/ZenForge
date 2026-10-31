@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Threading.Tasks;
 using System.Windows.Threading;
 using ZenForge.Helpers;
 using ZenForge.Services;
@@ -168,11 +169,20 @@ namespace ZenForge
         }
 
         /// <summary>
-        /// 关窗口的去向，只认两项设置，层级写死（③ 是总闸，④ 只决定减不减负）：
+        /// 关窗口的去向，只认一项设置（v1.2.0 起）：
         ///
-        ///   ③「开启后台服务」关 → 进程彻底退出（监听停、托盘收、单实例锁释放）。
-        ///   ③ 开 + ④「仅留服务进程」关 → 只 Hide，界面完整保留，内存一分不省。
-        ///   ③ 开 + ④ 开 → 先 Hide，倒计时 3 秒后销毁界面，进程只剩后台服务。
+        ///   「开启后台服务」关 → 进程彻底退出（监听停、托盘收、单实例锁释放）。
+        ///   「开启后台服务」开 → **立刻销毁窗口**（可视树、页面、绑定全部回收），
+        ///                        进程只剩后台服务，托盘图标仍在。
+        ///
+        /// 【为什么删掉了「只 Hide」这条路】
+        /// 那是 v1.0.x 的「秒开」优化：点 × 只隐藏，下次打开瞬间可见。
+        /// 代价是一整棵 WPF 可视树常驻 —— 实测 74MB，而早期版本只有 3~8MB。
+        /// 用户的判断是对的：为了省几百毫秒，让一个后台绑核工具常驻几十 MB 内存，
+        /// 这笔账不划算。现在点 × 就是真的拆，下次双击全新实例化。
+        ///
+        /// 「后台轻量模式」这个开关因此退化成**只作用于最小化**（见
+        /// <see cref="OnWindowStateChangedForLightMode"/>）：关闭窗口已经不需要它了。
         ///
         /// 写在 OnClosing 里而不是按钮里，是为了一并接住 Alt+F4、系统菜单关闭、
         /// 任务栏右键关闭等所有入口，行为一致。
@@ -187,9 +197,7 @@ namespace ZenForge
                 return;
             }
 
-            UiSettings s = UiSettingsStore.Settings;
-
-            if (!s.BackendService)
+            if (!UiSettingsStore.Settings.BackendService)
             {
                 StopLightCountdown();
 
@@ -201,16 +209,11 @@ namespace ZenForge
                 return;
             }
 
+            // 先取消这一次，再在消息循环里走销毁流程。
+            // 直接在 Closing 里 Close 会让 WPF 在同一个 Closing 派发中重入。
             e.Cancel = true;
-            Hide();
-
-            if (!s.LightMode)
-            {
-                LogService.Info("窗口已隐藏，进程继续在后台运行（仅留服务进程未开启，界面完整保留）");
-                return;
-            }
-
-            StartLightCountdown(s.LightModeDelaySeconds);
+            LogService.Info("已关闭窗口：销毁界面，仅保留后台服务（下次打开为全新实例）");
+            Dispatcher.BeginInvoke(new Action(CloseAndDestroy));
         }
 
         /// <summary>为 true 时 OnClosing 直接放行。仅供 <see cref="CloseAndDestroy"/> 使用。</summary>
@@ -318,6 +321,17 @@ namespace ZenForge
                 // 少了这一步，页面实例会被路由字典一直持有，
                 // 「仅留服务进程」省下的那部分内存一分都回收不了。
                 _router.Clear();
+
+                // 兜底：页面理论上都在 OnDeactivated 里 Dispose 了自己的定时器，
+                // 但「理论上」在内存问题上不值钱。窗口都要没了，全部收掉。
+                PageTimerManager.ClearAll();
+
+                // Toast 宿主是静态引用，而它在主窗口的可视树里 ——
+                // 不清这一条，静态 -> ToastHost -> 视觉父级 -> 整个窗口，
+                // 一路强引用把刚销毁的窗口又拽回来。Unloaded 大部分时候会触发，
+                // 但窗口 Close 的路径上不保证，所以显式断一次。
+                ToastService.Detach();
+
                 ThemeService.StopSystemMonitor();
             }
             catch (Exception ex)
@@ -339,13 +353,34 @@ namespace ZenForge
                 return;
             }
 
+            // Application.MainWindow 是**强引用**，Close() 不会替你清。
+            // 不清的话窗口对象连同整棵可视树一直挂到下一次 SetMainWindow，
+            // 期间 GC 一次都收不掉 —— 这正是「窗口销毁了内存没降」的第二个来源
+            // （第一个是 ToastService.Host）。
+            try
+            {
+                Application? app = Application.Current;
+                if (app != null && ReferenceEquals(app.MainWindow, this))
+                    app.MainWindow = null!;
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"清空 Application.MainWindow 失败：{ex.Message}");
+            }
+
             // Close() 只是把销毁排进消息队列，可视树 / HwndSource / 绑定要到本轮之后才真拆完。
             // 等到 ApplicationIdle 再回收，否则收的全是还活着的对象，等于白做。
             // 用局部 dispatcher，别在 lambda 里捕获 this —— 那会把窗口拖到这一轮之后才可回收。
             Dispatcher dispatcher = Dispatcher;
             dispatcher.BeginInvoke(
-                new Action(() => MemoryTrimmer.TrimInBackground("仅驻留服务")),
+                new Action(() => MemoryTrimmer.TrimInBackground("窗口销毁")),
                 DispatcherPriority.ApplicationIdle);
+
+            // 再补一次延迟回收：Close 之后仍会有 WMI 回调、终结器、日志落盘线程
+            // 在这几百毫秒里分配对象，第一次 Trim 收到的是「还在动」的堆。
+            // 3 秒后这次是真正的静息值，任务管理器里看的就是它。
+            Task.Delay(TimeSpan.FromSeconds(3))
+                .ContinueWith(_ => MemoryTrimmer.TrimInBackground("窗口销毁·静息"), TaskScheduler.Default);
         }
 
         // ==================== 导航 ====================

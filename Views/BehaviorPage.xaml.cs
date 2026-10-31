@@ -249,7 +249,7 @@ namespace ZenForge.Views
             }
         }
 
-        /// <summary>仅留服务进程：只决定「关掉前台之后要不要销毁界面」，不决定后台存不存在。</summary>
+        /// <summary>最小化后释放界面：只作用于最小化。点 × 已经一律销毁界面，不看这个开关。</summary>
         private void LightModeToggle_Click(object sender, RoutedEventArgs e)
         {
             if (_suppress)
@@ -260,8 +260,8 @@ namespace ZenForge.Views
             UiSettingsStore.Save();
 
             LogService.Info(enabled
-                ? $"后台轻量模式：已开启（关闭前台 {UiSettingsStore.Settings.LightModeDelaySeconds} 秒后销毁界面）"
-                : "后台轻量模式：已关闭（关闭前台后仅隐藏窗口，界面完整保留）");
+                ? $"最小化后释放界面：已开启（最小化 {UiSettingsStore.Settings.LightModeDelaySeconds} 秒后销毁界面）"
+                : "最小化后释放界面：已关闭（最小化只挂起刷新，界面保留）");
         }
 
         /// <summary>
