@@ -42,23 +42,17 @@
     <SuppressTrimAnalysisWarnings>false</SuppressTrimAnalysisWarnings>
 
     <!--
-      这两条告警来自 ZenStates-Core 内部的反射，不是本工程也不是 Zentwik.Core 的代码：
+      这里**故意**没有任何 NoWarn。
 
-        IL2026  BaseDramTimings.Item.set -> Utils.ConvertValue(object, Type)
-                按运行期 Type 反射查找 op_Implicit / op_Explicit
-        IL2075  BaseDramTimings.GetPropertyInfo(string) -> Type.GetProperty(string)
-                对本类型按名反射取属性
+      上一版曾压掉 IL2026 / IL2075，来源是 ZenStates-Core 内部
+      BaseDramTimings 的按 Type 反射与 Type.GetProperty 取值。那条抑制
+      从一开始就是掩耳盗铃：它让探针「绿」，但拦不住运行期
+      MissingMetadataException。
 
-      两者反射的目标都落在 ZenStates-Core 自身，而该程序集已被
-      TrimmerRootAssembly 整份保留 —— 分析器看不到这一点，但它给出的
-      「成员可能被裁掉」的结论在整份保留的前提下不成立。
-
-      抑制只写在这个探针工程里，主工程与 Core 都不带 NoWarn：
-      Core 开了 IsAotCompatible，第一方代码的反射写法在 dotnet build 阶段
-      就会以 IL2026 / IL3050 报出来，不会被这里掩盖。
-      上游换成 AOT 友好的重编 DLL 后，这两行应当删除并重新复核。
+      ZenStates-Core 1.93.1-AOT 已把反射逻辑全部删除，改用显式类型映射。
+      抑制也随之删除 —— 探针必须对任何 trim/AOT 告警保持零容忍，
+      否则这条门禁就退化成装饰。
     -->
-    <NoWarn>$(NoWarn);IL2026;IL2075</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

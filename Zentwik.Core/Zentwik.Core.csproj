@@ -86,9 +86,9 @@
       一个我们验证过的具体二进制上，不能让还原时被浮动的包版本带走。
 
       【HintPath 的由来】
-      解压包里有三份资产：net20 / netstandard2.1 / net8.0-windows。
-      这里取 net8.0-windows —— 它是唯一一份带 Windows 专属 API
-      （注册表、ServiceController、Security.AccessControl）的构建，
+      解压包里有两份资产：netstandard2.1 / net8.0-windows（1.93.1-AOT 起
+      已按约定移除 net20）。这里取 net8.0-windows —— 它是唯一一份带 Windows
+      专属 API（注册表、ServiceController、Security.AccessControl）的构建，
       netstandard2.1 那份会在运行时抛 PlatformNotSupported。
       本工程是 net10.0-windows，向下兼容 net8.0 资产。
 
@@ -113,14 +113,13 @@
       防止裁剪器把 SMU 通信库整体去掉。
 
       【为什么这一条不能省】
-      ZenStates-Core 没有源码、没有裁剪标注，编译器无法从调用点推断
+      ZenStates-Core 是裸 DLL 引用，没有裁剪标注，编译器无法从调用点推断
       它的内部结构是否被用到。一旦 SDK 判定某个类型「未被引用」，
       裁剪后运行时就只能在 new Cpu() 处拿到 TypeLoadException，
       而发布过程本身不会报任何错 —— 这是最难排查的一类故障。
 
       【它做不到什么】
-      这一条只保证程序集不被整份裁掉，管不了程序集内部的动态代码生成。
-      库里如果真的用了反射或 IL Emit，AOT 编译后照样会在运行时失败。
+      这一条只保证程序集不被整份裁掉，管不了程序集内部的动态行为。
       真正的验证只有一条：AOT 产物里跑通一次 SendMessageTest。
     -->
     <TrimmerRootAssembly Include="ZenStates-Core" />
@@ -166,10 +165,30 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- WMI 进程事件（__InstanceCreationEvent / __InstanceDeletionEvent）。
-         ZenStates-Core 1.93.1 自身也引用 System.Management（4.0.0.0 引用、
-         9.0.0 程序集可向上兼容），所以这个包不能删。 -->
+    <!-- WMI：只剩 ProcessWatcher 自己的进程快照与事件订阅在用。
+         ZenStates-Core 1.93.1-AOT 起已剥离 System.Management，
+         这条引用不再为它存在。 -->
     <PackageReference Include="System.Management" Version="9.0.0" />
+
+    <!--
+      WmiLight：ZenStates-Core 1.93.1-AOT 的新依赖。
+
+      【为什么必须显式引】
+      ZenStates-Core.dll 是裸 DLL 引用，没有 nuspec，它的依赖链不会传递过来。
+      运行到 SMU 初始化时，WmiLight.dll 找不到就是一条裸 FileNotFoundException，
+      而且只会在真正调 SMU 的机器上才炸 —— 开发机跑探针根本触发不到。
+
+      【为什么连原生库一起要】
+      7.3.0 起 WmiLight 把自己拆成托管壳 + WmiLight.Native.dll（按 RID 分发），
+      包内 runtimes/win-*/native 下各一份。PackageReference 会按 RuntimeIdentifier
+      自动铺到输出根目录，不要手写 None 拷贝，否则会和 SDK 的 RID 资产解析打架。
+
+      【版本对齐】
+      程序集引用是 WmiLight, Version=7.3.0.0，包版本必须是 7.3.0。
+      低一个次版本在绑定检查上不会立刻报错（.NET Core 会向上兼容），
+      但 7.2 的托管壳配 7.3 的原生库是错配，只会在调用期崩。
+    -->
+    <PackageReference Include="WmiLight" Version="7.3.0" />
 
     <!-- Microsoft.Win32.SystemEvents：PowerStatusWatcher 的电源模式通知。
          这个包在 windows 桌面 TFM 下由 WindowsDesktop 框架自带，Core 不引用
