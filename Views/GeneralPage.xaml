@@ -200,7 +200,7 @@
                                Foreground="{DynamicResource Text.Primary}"/>
 
                     <TextBlock HorizontalAlignment="Center" Margin="0,8,0,0">
-                        <Hyperlink NavigateUri="https://github.com/Motu-Z/Zenwik"
+                        <Hyperlink NavigateUri="https://github.com/Motu-Z/Zentwik"
                                    RequestNavigate="GitHubLink_RequestNavigate"
                                    Foreground="{DynamicResource AccentBrush}"
                                    FocusVisualStyle="{x:Null}">
