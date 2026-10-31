@@ -225,6 +225,9 @@ namespace ZenForge
         /// <summary>为 true 时 OnClosing 直接放行。仅供 <see cref="CloseAndDestroy"/> 使用。</summary>
         private bool AllowRealClose { get; set; }
 
+        /// <summary>销毁是否已经开始（连点 × 时挡住第二次）。</summary>
+        private bool _destroying;
+
         // ==================== 轻量模式倒计时 ====================
 
         /// <summary>
@@ -315,6 +318,14 @@ namespace ZenForge
         /// </summary>
         public void CloseAndDestroy()
         {
+            // 幂等闸门。连点 × 会排两次销毁：第二次进来时窗口已经 Closed，
+            // 再 Hide() 会抛「窗口已关闭」，然后被 catch 记一条 Warn ——
+            // 用户什么都没做错，日志里却多一条吓人的警告。
+            if (_destroying)
+                return;
+
+            _destroying = true;
+
             StopLightCountdown();
 
             // 先把引用摘掉：ShowOrCreateMainWindow 靠它判断「要不要新建」，
@@ -387,8 +398,16 @@ namespace ZenForge
             // 再补一次延迟回收：Close 之后仍会有 WMI 回调、终结器、日志落盘线程
             // 在这几百毫秒里分配对象，第一次 Trim 收到的是「还在动」的堆。
             // 3 秒后这次是真正的静息值，任务管理器里看的就是它。
+            // 3 秒内用户可能又把界面叫回来了，那就别再搅一次工作集：
+            // 回收本身不危险（缺页会再换进来），但没理由在别人正用的时候抖一下。
             Task.Delay(TimeSpan.FromSeconds(3))
-                .ContinueWith(_ => MemoryTrimmer.TrimInBackground("窗口销毁·静息"), TaskScheduler.Default);
+                .ContinueWith(
+                    _ =>
+                    {
+                        if (App.CurrentMainWindow == null)
+                            MemoryTrimmer.TrimInBackground("窗口销毁·静息");
+                    },
+                    TaskScheduler.Default);
         }
 
         // ==================== 导航 ====================
