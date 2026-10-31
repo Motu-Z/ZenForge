@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using Zenwik.Helpers;
+using Zentwik.Helpers;
 
-namespace Zenwik.Services
+namespace Zentwik.Services
 {
     /// <summary>静默模式执行结果（用于日志与退出码判断）。</summary>
     public sealed class SilentRunResult
@@ -28,7 +28,7 @@ namespace Zenwik.Services
     /// 静默应用配置（-silent 模式）。
     ///
     /// 触发场景：计划任务在用户登录 15 秒后以最高权限启动
-    ///   Zenwik.exe -silent
+    ///   Zentwik.exe -silent
     ///
     /// 执行顺序：
     ///   1. 读取 tuning.json（TuningStore）

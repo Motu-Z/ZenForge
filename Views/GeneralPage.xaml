@@ -1,4 +1,4 @@
-<UserControl x:Class="Zenwik.Views.GeneralPage"
+<UserControl x:Class="Zentwik.Views.GeneralPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       Focusable="False"
@@ -193,7 +193,7 @@
                  读起来是「一页说明」而不是「一张待填的表单」。 -->
             <Border Style="{StaticResource CardBorderStyle}" Padding="32,24">
                 <StackPanel HorizontalAlignment="Center">
-                    <TextBlock Text="Zenwik"
+                    <TextBlock Text="Zentwik"
                                FontSize="16"
                                FontWeight="SemiBold"
                                HorizontalAlignment="Center"

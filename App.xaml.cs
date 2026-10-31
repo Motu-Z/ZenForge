@@ -9,11 +9,11 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Threading;
-using Zenwik.Helpers;
-using Zenwik.Services;
-using Zenwik.Views;
+using Zentwik.Helpers;
+using Zentwik.Services;
+using Zentwik.Views;
 
-namespace Zenwik
+namespace Zentwik
 {
     /// <summary>
     /// 应用入口：单实例仲裁、提权、启动路径编排、全局异常兜底。
@@ -175,7 +175,7 @@ namespace Zenwik
 
                 TrayIconService.ShowOrCreateMainWindow();
 
-                LogService.Info("升级完成 · Zenwik 界面已从后台宿主加载（未重新抢锁、未重复写 SMU）");
+                LogService.Info("升级完成 · Zentwik 界面已从后台宿主加载（未重新抢锁、未重复写 SMU）");
                 return;
             }
 
@@ -214,8 +214,8 @@ namespace Zenwik
             if (SingleInstance.TrySignalExisting(signalMain: !silent))
             {
                 LogService.Info(silent
-                    ? "已有 Zenwik 实例在运行，静默实例退出（不打扰已有实例）"
-                    : "已有 Zenwik 实例在运行，本实例已请求其唤出主窗口并退出");
+                    ? "已有 Zentwik 实例在运行，静默实例退出（不打扰已有实例）"
+                    : "已有 Zentwik 实例在运行，本实例已请求其唤出主窗口并退出");
 
                 // 同样不能赋 StartupUri = null。OnExplicitShutdown + 立即 Shutdown
                 // 足以保证这一轮什么窗口都不建，不需要去清那个不可为 null 的属性。
@@ -236,12 +236,12 @@ namespace Zenwik
             // 提前把监听和托盘拆了就是自己把自己弄瘫。真要退出时 Exit 会照常触发。
             SessionEnding += (_, _) => LogService.Info("系统正在注销 / 关机");
 
-            LogService.Info($"Zenwik 启动 · 详细日志：{(LogService.Verbose ? "已开启" : "关闭")}"
+            LogService.Info($"Zentwik 启动 · 详细日志：{(LogService.Verbose ? "已开启" : "关闭")}"
                 + $" · 版本 {VersionText}");
 
             // ==================== .NET 10 桌面运行时检测 ====================
             // 本程序为「框架依赖」发布，不自带 .NET 运行时。
-            // 用户直接双击 Zenwik.exe 运行时，apphost 会先拦截低版本运行时；
+            // 用户直接双击 Zentwik.exe 运行时，apphost 会先拦截低版本运行时；
             // 此处再兜底：万一在低版本运行时上跑起来，给出友好提示后退出。
             if (!EnsureDotNetRuntime())
             {
@@ -253,7 +253,7 @@ namespace Zenwik
             // 这里只是把采样循环立起来，不等于立刻开始采集：循环会挂在唤醒信号上
             // 等待，直到「调度」页真的被用户看到（页面 Loaded + 窗口可见 + 未最小化）
             // 才开始按 IntervalSeconds 采样。没人看就完全不跑，省掉全部开销。
-            Zenwik.Core.Services.ProcessRefresher.Start();
+            Zentwik.Core.Services.ProcessRefresher.Start();
 
             // ==================== 静默模式（-silent）拦截 ====================
             // 注意：-silent 已经在 Program.Main 里被拦截，走 HeadlessHost（不加载 WPF），
@@ -271,7 +271,7 @@ namespace Zenwik
 
                 // 方案 A 下清单为 asInvoker，静默启动不再由清单强制提权。
                 // 计划任务以 HighestAvailable 拉起时进程已是管理员，SMU 可直接使用；
-                // 若是用户手动 Zenwik.exe -silent 且未提权，则只记日志、**绝不弹 UAC**
+                // 若是用户手动 Zentwik.exe -silent 且未提权，则只记日志、**绝不弹 UAC**
                 // ——静默场景不允许打断用户，也不允许留下等待中的对话框。
                 if (IsElevated())
                 {
@@ -289,7 +289,7 @@ namespace Zenwik
                 // 全局互斥体，监听静默失效 —— 这正是「开了开关却没在绑核」的来源。
                 if (!SingleInstance.TryAcquire())
                 {
-                    LogService.Info("静默模式：已有 Zenwik 实例在运行，本实例退出");
+                    LogService.Info("静默模式：已有 Zentwik 实例在运行，本实例退出");
                     Shutdown();
                     return;
                 }
@@ -347,7 +347,7 @@ namespace Zenwik
             // 当成第二实例、唤醒父进程后退出，而父进程随后也 Shutdown —— 一个窗口都不剩。
             if (!SingleInstance.TryAcquire())
             {
-                LogService.Info("已有 Zenwik 实例在运行，本实例退出（已请求其唤出主窗口）");
+                LogService.Info("已有 Zentwik 实例在运行，本实例退出（已请求其唤出主窗口）");
                 Shutdown();
                 return;
             }
@@ -418,7 +418,7 @@ namespace Zenwik
             // 放在后台线程：SMU 写入最坏要等 PawnIO 就绪 60 秒，不能拖住窗口出现。
             _ = System.Threading.Tasks.Task.Run(() => ApplySavedTuningOnStartup());
 
-            LogService.Info("Zenwik 启动 · SMU 探测 + 后台调度");
+            LogService.Info("Zentwik 启动 · SMU 探测 + 后台调度");
         }
 
         /// <summary>
@@ -1062,7 +1062,7 @@ namespace Zenwik
                 if (Environment.Version.Major < 10)
                 {
                     const string msg =
-                        "缺少 .NET 10 桌面运行时，无法启动 Zenwik。\n\n" +
+                        "缺少 .NET 10 桌面运行时，无法启动 Zentwik。\n\n" +
                         "请前往官网下载并安装 .NET 10 桌面运行时：\n" +
                         "https://dotnet.microsoft.com/download/dotnet/10.0";
                     DarkDialog.ShowError(msg, "缺少运行时");

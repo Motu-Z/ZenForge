@@ -5,7 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 
-namespace Zenwik.Controls
+namespace Zentwik.Controls
 {
     /// <summary>
     /// 重排时带位移过渡的虚拟化纵向面板。

@@ -1,8 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
-using Zenwik.Services;
+using Zentwik.Services;
 
-namespace Zenwik.Views
+namespace Zentwik.Views
 {
     /// <summary>
     /// 配置页：多套「调校 + 调度」方案的保存与切换，以及场景自动切换的总闸。
@@ -111,7 +111,7 @@ namespace Zenwik.Views
             string name = ProfileService.FindById(id)?.Name ?? id;
 
             // 删除没有回收站，必须问一句
-            if (!DarkDialog.Confirm($"删除方案「{name}」？", "Zenwik"))
+            if (!DarkDialog.Confirm($"删除方案「{name}」？", "Zentwik"))
                 return;
 
             ProfileService.Delete(id);

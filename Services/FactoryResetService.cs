@@ -6,9 +6,9 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Zenwik.Helpers;
+using Zentwik.Helpers;
 
-namespace Zenwik.Services
+namespace Zentwik.Services
 {
     /// <summary>
     /// 一次恢复出厂的结果。逐项列出每个步骤做了什么、哪一步失败，

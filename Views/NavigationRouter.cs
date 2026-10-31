@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
-using Zenwik.Services;
+using Zentwik.Services;
 
-namespace Zenwik.Views
+namespace Zentwik.Views
 {
     /// <summary>
     /// 页面在「切入 / 切出」时需要做的事。

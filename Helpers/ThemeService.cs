@@ -3,9 +3,9 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Media;
 using Microsoft.Win32;
-using Zenwik.Services;
+using Zentwik.Services;
 
-namespace Zenwik.Helpers
+namespace Zentwik.Helpers
 {
     /// <summary>
     /// 主题服务：深/浅色整册切换 + 强调色动态改写 + 跟随系统（2 秒轮询注册表，零外部依赖）。

@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace Zenwik.Services
+namespace Zentwik.Services
 {
     /// <summary>
     /// 唤醒宿主窗口：整个程序唯一的跨进程寻址点。
@@ -24,13 +24,13 @@ namespace Zenwik.Services
     internal static class WakeWindow
     {
         /// <summary>窗口类名。FindWindow 靠它定位，改了这个字符串等于改了对外契约。</summary>
-        private const string ClassName = "Zenwik.WakeHost";
+        private const string ClassName = "Zentwik.WakeHost";
 
         /// <summary>窗口标题。仅用于调试观察（Spy++ 里能认出来），FindWindow 传 null 不限。</summary>
-        private const string WindowTitle = "Zenwik";
+        private const string WindowTitle = "Zentwik";
 
         /// <summary>注册消息用的名字。系统级唯一，跨进程、跨会话都一致。</summary>
-        private const string MessageName = "Zenwik.Activate";
+        private const string MessageName = "Zentwik.Activate";
 
 
         private const uint WS_POPUP = 0x80000000;

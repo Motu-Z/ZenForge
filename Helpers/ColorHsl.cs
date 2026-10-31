@@ -2,7 +2,7 @@ using System;
 using System.Globalization;
 using System.Windows.Media;
 
-namespace Zenwik.Helpers
+namespace Zentwik.Helpers
 {
     /// <summary>
     /// HSL / RGB 互转。

@@ -5,10 +5,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using Zenwik.Helpers;
-using Zenwik.Services;
+using Zentwik.Helpers;
+using Zentwik.Services;
 
-namespace Zenwik.Views
+namespace Zentwik.Views
 {
     /// <summary>
     /// 自定义掩码管理窗口：左侧列表 + 右侧核心勾选。

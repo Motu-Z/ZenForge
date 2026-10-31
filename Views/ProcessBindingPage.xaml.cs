@@ -10,11 +10,11 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using Zenwik.Controls;
-using Zenwik.Helpers;
-using Zenwik.Services;
+using Zentwik.Controls;
+using Zentwik.Helpers;
+using Zentwik.Services;
 
-namespace Zenwik.Views
+namespace Zentwik.Views
 {
     /// <summary>单个成员进程（用于实际下发绑核）。</summary>
     public sealed class ProcessMember

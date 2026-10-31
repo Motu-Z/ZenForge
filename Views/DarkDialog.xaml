@@ -1,7 +1,7 @@
-﻿<Window x:Class="Zenwik.Views.DarkDialog"
+﻿<Window x:Class="Zentwik.Views.DarkDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Zenwik"
+        Title="Zentwik"
         Width="420"
         SizeToContent="Height"
         MinHeight="180"
@@ -64,7 +64,7 @@
                                        VerticalAlignment="Center"/>
                         </Border>
                         <TextBlock x:Name="TitleTextBlock"
-                                   Text="Zenwik"
+                                   Text="Zentwik"
                                    FontSize="15"
                                    FontWeight="SemiBold"
                                    Foreground="{DynamicResource Text.Primary}"

@@ -2,10 +2,10 @@ using System;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using Zenwik.Helpers;
-using Zenwik.Services;
+using Zentwik.Helpers;
+using Zentwik.Services;
 
-namespace Zenwik.Views
+namespace Zentwik.Views
 {
     /// <summary>
     /// 高级页：安全（不可关的两道闸）+ 重置（两个危险操作）。

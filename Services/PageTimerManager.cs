@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Windows.Threading;
 
-namespace Zenwik.Services
+namespace Zentwik.Services
 {
     /// <summary>
     /// 页面级定时器的统一开关。

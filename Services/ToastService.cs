@@ -1,7 +1,7 @@
 using System;
-using Zenwik.Controls;
+using Zentwik.Controls;
 
-namespace Zenwik.Services
+namespace Zentwik.Services
 {
     /// <summary>
     /// 轻量提示服务的静态门面。

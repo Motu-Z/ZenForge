@@ -1,7 +1,7 @@
 using System;
-using Zenwik.Services;
+using Zentwik.Services;
 
-namespace Zenwik
+namespace Zentwik
 {
     /// <summary>
     /// 进程入口，取代 App.xaml 自动生成的 Main。

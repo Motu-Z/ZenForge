@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace Zenwik.Services
+namespace Zentwik.Services
 {
     /// <summary>
     /// 纯 Win32 托盘图标 —— 不依赖 System.Windows.Forms，也不依赖 WPF。
@@ -24,7 +24,7 @@ namespace Zenwik.Services
     {
         // ==================== 常量 ====================
 
-        private const string WindowClassName = "Zenwik.HeadlessTray";
+        private const string WindowClassName = "Zentwik.HeadlessTray";
 
         private const uint WM_APP = 0x8000;
         private const uint WM_APP_WAKE = WM_APP + 1;
@@ -128,7 +128,7 @@ namespace Zenwik.Services
             _hwnd = NativeMethods.CreateWindowEx(
                 WS_EX_TOOLWINDOW,
                 WindowClassName,
-                "Zenwik",
+                "Zentwik",
                 WS_POPUP,
                 0, 0, 0, 0,
                 IntPtr.Zero, IntPtr.Zero, _hInstance, IntPtr.Zero);
@@ -301,7 +301,7 @@ namespace Zenwik.Services
             data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
             data.uCallbackMessage = WM_TRAYICON;
             data.hIcon = _icon;
-            data.szTip = "Zenwik — 后台绑核运行中";
+            data.szTip = "Zentwik — 后台绑核运行中";
 
             _added = ShellNotifyIcon(NIM_ADD, data);
 

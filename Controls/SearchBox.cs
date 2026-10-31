@@ -4,7 +4,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 
-namespace Zenwik.Controls
+namespace Zentwik.Controls
 {
     /// <summary>
     /// 页面级搜索框：放大镜图标 + 输入框 + 占位文字，三者由 Grid 列定位。

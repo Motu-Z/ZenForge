@@ -8,10 +8,10 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Navigation;
 using Microsoft.Win32;
-using Zenwik.Helpers;
-using Zenwik.Services;
+using Zentwik.Helpers;
+using Zentwik.Services;
 
-namespace Zenwik.Views
+namespace Zentwik.Views
 {
     /// <summary>
     /// 通用页：样式（主题 + 强调色）/ 诊断（导出日志 + SMU 自检）/ 关于。
@@ -405,7 +405,7 @@ namespace Zenwik.Views
             LogEntry[] snapshot = LogService.Snapshot();
 
             StringBuilder sb = new();
-            sb.AppendLine($"Zenwik 日志导出 · {DateTime.Now:yyyy-MM-dd HH:mm:ss} · 共 {snapshot.Length} 条");
+            sb.AppendLine($"Zentwik 日志导出 · {DateTime.Now:yyyy-MM-dd HH:mm:ss} · 共 {snapshot.Length} 条");
             sb.AppendLine();
 
             foreach (LogEntry entry in snapshot)

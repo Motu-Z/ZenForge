@@ -4,10 +4,10 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using Zenwik.Helpers;
-using Zenwik.Services;
+using Zentwik.Helpers;
+using Zentwik.Services;
 
-namespace Zenwik.Views
+namespace Zentwik.Views
 {
     /// <summary>
     /// 调校页。

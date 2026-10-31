@@ -1,4 +1,4 @@
-name: Build and Release Zenwik
+name: Build and Release Zentwik
 
 on:
   push:
@@ -32,17 +32,17 @@ jobs:
 
     - name: Publish WPF Application
       run: |
-        dotnet publish Zenwik.csproj -c Release -r win-x64 --self-contained false -p:PublishReadyToRun=true -p:PublishSingleFile=true -o ./publish
+        dotnet publish Zentwik.csproj -c Release -r win-x64 --self-contained false -p:PublishReadyToRun=true -p:PublishSingleFile=true -o ./publish
 
     - name: Create Zip Archive
       run: |
-        Compress-Archive -Path ./publish/* -DestinationPath ./Zenwik-win-x64.zip
+        Compress-Archive -Path ./publish/* -DestinationPath ./Zentwik-win-x64.zip
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ github.event.inputs.tag_name || github.ref_name }} # 手动触发用 input，推送触发用 ref_name
-        files: ./Zenwik-win-x64.zip
+        files: ./Zentwik-win-x64.zip
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

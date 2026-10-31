@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Zentwik.Core/Zentwik.Core.csproj" />
+  <Project Path="Zentwik.csproj" />
+</Solution>

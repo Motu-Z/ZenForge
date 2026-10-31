@@ -1,7 +1,7 @@
 ﻿using System;
-using Zenwik.Helpers;
+using Zentwik.Helpers;
 
-namespace Zenwik.Services
+namespace Zentwik.Services
 {
     /// <summary>
     /// 「出错时通知我」的执行点。

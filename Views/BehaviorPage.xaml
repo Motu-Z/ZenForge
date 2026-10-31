@@ -1,4 +1,4 @@
-<UserControl x:Class="Zenwik.Views.BehaviorPage"
+<UserControl x:Class="Zentwik.Views.BehaviorPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       Focusable="False"

@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 
-namespace Zenwik.Services
+namespace Zentwik.Services
 {
     /// <summary>
     /// 单实例 + 唤醒已有实例。
@@ -17,8 +17,8 @@ namespace Zenwik.Services
     /// </summary>
     public static class SingleInstance
     {
-        private const string MutexName = @"Local\Zenwik.SingleInstance";
-        private const string WakeName = @"Local\Zenwik.SingleInstance.Wake";
+        private const string MutexName = @"Local\Zentwik.SingleInstance";
+        private const string WakeName = @"Local\Zentwik.SingleInstance.Wake";
 
         private static Mutex? _mutex;
         private static EventWaitHandle? _wake;
@@ -109,7 +109,7 @@ namespace Zenwik.Services
                 Thread listener = new(ListenForWake)
                 {
                     IsBackground = true,
-                    Name = "Zenwik.Wake"
+                    Name = "Zentwik.Wake"
                 };
                 listener.Start();
 
