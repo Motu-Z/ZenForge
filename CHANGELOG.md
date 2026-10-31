@@ -1,6 +1,53 @@
 # 更新日志 (CHANGELOG)
 
-本文件记录 Zenwik（原 ZenForge） 的重要更改。版本号遵循 **主版本号.次版本号.修订号**。测试版与预览版记录已合并至正式版，部分早期详细记录因归档问题未保留。
+本文件记录 Zentwik（曾用名 Zenwik、ZenForge）的重要更改。版本号遵循 **主版本号.次版本号.修订号** 格式。测试版和预览版更新日志已合并至正式版，部分早期版本的详细记录因归档问题未能保留，以下为可追溯的核心变更记录。
+
+---
+
+## [2.0.0-can3] — 启动崩溃修复
+
+### Fixed (修复)
+
+- **启动秒崩（异常代码 0xe0434352）**：依赖注入仅注册了接口（`ILogService` / `IAppPaths`），未注册具体类型（`LogService` / `AppPaths`），WPF 过渡桥与 `HeadlessHost` 按具体类型解析时抛 `InvalidOperationException`，导致双击 `Zentwik.exe` 无窗口直接退出；`--silent` 开机自启路径同样 100% 崩溃（静默失效，无窗口可观察）。现已改为「先注册具体类型、再把接口映射到同一实例」。
+- **WinUI 3 标题栏属性顺序崩溃（0xc000027b）**：`AppWindow.TitleBar.PreferredHeightOption` 必须在 `ExtendsContentIntoTitleBar = true` 且 `SetTitleBar(...)` 之后设置，否则在窗口构造期抛 `COMException`，被 WinUI 转为 stowed exception，进程崩在 `Microsoft.UI.Xaml.dll`，表面看不出根因。
+
+### Added (新增)
+
+- **启动崩溃取证（StartupCrashReporter）**：在 WPF / WinUI 的 `Main` 最外层与 WinUI `Application.UnhandledException` 接入；崩溃时向 `%AppData%\Zentwik\startup_crash.log` 追加写入完整堆栈、命令行、运行时、基目录与单文件解包目录。刻意不依赖 `ILogService` / `IAppPaths`（崩溃点常就在它们内部），弹框走 `LibraryImport` 的 `MessageBoxW`（AOT 安全），`--silent` 模式不弹框。
+
+---
+
+## [2.0.0-can2] — WinUI 3 外壳骨架
+
+### Added (新增)
+
+- **WinUI 3 外壳（Zentwik.App）**：新增独立工程，采用非打包（Unpackaged）+ 自包含部署（.NET 运行时与 Windows App SDK 随包分发，用户机无需单独安装）；Mica 背景（不支持时降级为 Acrylic）+ 48px 原生自绘标题栏（Snap Layouts / 双击最大化等系统行为完整保留）；自定义 `Main` 支持 `--silent` 在加载 UI 前改道；DI 组合根（AppHost）+ `DelegatingUiDispatcher`（界面就绪前日志就地写入）。
+
+### Changed (修改)
+
+- **ZenStates-Core 升级为 AOT 友好版**：内部 `System.Management` 替换为 `WmiLight` 并移除导致 ILC 报错的反射，`IL2026` / `IL2075` 来源消失；主工程显式新增 `WmiLight 7.3.0` 包引用（裸 DLL 引用不传递依赖链，不补会在用户机首次调 SMU 时崩）。
+- **Native AOT 验证通过（CI）**：AOT 探针在 `-warnaserror` 下 **0 警告**，产出 5.78 MB 原生二进制，26 项检查全绿（含 AOT 产物内 `new Cpu(...)` 构造成功、JSON 往返、进程名 / 路径封送）。
+- **发布流水线**：canary 构建（标签含 `can`）自动标记为 prerelease，不再被当成正式版发布。
+
+### Removed (移除)
+
+- 删除 AOT 探针工程里针对 `IL2026` / `IL2075` 的 `NoWarn` 抑制，ILC / 裁剪分析告警恢复零容忍。
+
+---
+
+## [2.0.0-can1] — P/Invoke 迁移与 AOT 跑通
+
+### Changed (修改)
+
+- **产品更名 `Zenwik` → `Zentwik`**：GitHub 仓库、全部命名空间、程序集标识、窗口标题与托盘提示等显示文案全量更新。
+- **配置目录三级迁移**：`%AppData%\ZenForge` 与 `%AppData%\Zenwik` 统一收敛到 `%AppData%\Zentwik`；迁移幂等，并持命名互斥体防止开机自启与手动双击并发导致配置分裂。
+- **Core 的 P/Invoke 全部迁移为源生成 `[LibraryImport]`**：`DllImport` 数量 31 → 0，开启 `AllowUnsafeBlocks`（三处需改写结构：`PROCESSENTRY32.szExeFile` 定长字符缓冲区、`QueryFullProcessImageNameW` 的 `char*` + `stackalloc`、封送特性命名空间）。WPF 遗留层 35 处 `DllImport` 保持不变（随 WPF 外壳下线一并移除）。
+- **依赖注入改造**：19 个有状态服务由静态类改为构造函数注入（新增 7 个接口）；JSON 改用源生成器（反射彻底消失，键名保持 PascalCase 以避免老配置静默丢失）；`SmuReader` 单例收归容器管理。
+
+### Fixed (修复)
+
+- **`LogService.Flush()` 虚假语义**：写盘线程抢先取走队列时 `Flush` 误判已刷完；新增写盘闸门，`Flush` 刷完队列后再抢锁等待当前批次落盘。
+- **`LogOptions.Directory` 不可配置**：原为 `init`，宿主回调无法设置日志目录；改为 `set`，并删除「逐字段抄对象」的绕路代码。
 
 ---
 
